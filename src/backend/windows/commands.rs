@@ -1,11 +1,9 @@
 mod command;
 mod command_code;
 mod header;
-mod response_code;
 
-pub(crate) use command::Command;
-pub(crate) use command_code::*;
-pub(crate) use header::CommandHeader;
-pub(crate) use response_code::*;
+pub(super) use command::Command;
+pub(super) use command_code::*;
+pub(super) use header::CommandHeader;
 
-use crate::commands;
+use super::types::{TpmCc, TpmRc, TpmSt, TpmiStCommandTag, Uint32, TPM_RC_SUCCESS};
