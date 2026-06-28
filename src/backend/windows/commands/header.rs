@@ -1,9 +1,10 @@
-use crate::types::{TpmCc, TpmRc, TpmiStCommandTag, Uint32};
+use crate::error::{Error, Result};
 
+use super::{TpmCc, TpmRc, TpmSt, TpmiStCommandTag, Uint32, TPM_RC_SUCCESS};
+
+const TPM_HEADER_SIZE: usize = 10;
 const TPM_ST_NO_SESSIONS: TpmiStCommandTag = 0x8001;
 const TPM_ST_SESSIONS: TpmiStCommandTag = 0x8002;
-const TPM_HEADER_SIZE: usize = 10;
-
 // big-endian
 
 #[derive(Debug)]
@@ -41,11 +42,50 @@ impl CommandHeader {
     }
 }
 
-// エラー時はresponse sizeは10バイト、上位20bitは0で12bitがエラーコード
-// 成功時は１０バイト以上返る
+// エラー時はresponse headerのみ
+// エラー時はresponse codeは上位20bitは0、下位12bitがエラーコード
+// 成功時は可変の戻り値含む
 
-pub(crate) struct ResponseHeader {
-    tag: TpmiStCommandTag,
+pub(crate) struct Response<'a> {
+    tag: TpmSt,
     response_size: Uint32,
     response_code: TpmRc,
+    parameters: &'a [u8],
+}
+
+impl<'a>  Response<'a> {
+    pub(crate) fn unmarshal(bytes: &'a [u8]) -> Result<Self> {
+        if bytes.len() > TPM_HEADER_SIZE {
+            return Err(Error::Internal("TPM response header must be 10 bytes"));
+        }
+
+        let tag = TpmiStCommandTag::from_be_bytes(bytes[0..2].try_into().unwrap());
+        let response_size = Uint32::from_be_bytes(bytes[2..6].try_into().unwrap());
+        let response_code = TpmRc::from_be_bytes(bytes[6..TPM_HEADER_SIZE].try_into().unwrap());
+
+        let parameters = if bytes.len() == TPM_HEADER_SIZE {
+            &[]
+        } else {
+            &bytes[TPM_HEADER_SIZE..]
+        };
+
+        Ok(Self {
+            tag,
+            response_size,
+            response_code,
+            parameters,
+        })
+    }
+
+    pub(crate) fn ensure_response_code(&self) -> Result<()> {
+        if self.response_code == TPM_RC_SUCCESS {
+            Ok(())
+        } else {
+            Err(Error::from_rc(self.response_code))
+        }
+    }
+
+    pub(crate) fn parameters(&self) -> &'a [u8] {
+        self.parameters
+    }
 }
