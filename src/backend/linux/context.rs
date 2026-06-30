@@ -3,7 +3,7 @@ mod tcti;
 
 use tss_esapi::Context as EsapiContext;
 
-use crate::{data::MetadataStore, types::AuthorizationCache};
+use crate::{db::MetadataStore, types::AuthorizationCache};
 
 pub struct Context {
     ctx: EsapiContext,
