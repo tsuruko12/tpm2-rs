@@ -1,15 +1,14 @@
 use tss_esapi::{WrapperErrorKind, constants::Tss2ResponseCodeKind};
 
-use crate::error::{BoxError, Error};
+use crate::error::Error;
 
 impl Error {
     pub(crate) fn from_tss_err(err: tss_esapi::Error) -> Self {
         match err {
             tss_esapi::Error::Tss2Error(code) => match code.kind() {
                 Some(kind) if is_internal_err(kind) => Error::Internal(internal_err_context(kind)),
-                Some(kind) if is_authorization_err(kind) => Error::AuthorizationFailed {
-                    context: authorization_err_context(kind),
-                    source: err.into(),
+                Some(kind) if is_authorization_err(kind) => {
+                    Error::AuthorizationFailed(err.into())
                 },
                 Some(kind) if is_resource_exhausted(kind) => Error::ResourceExhausted {
                     context: resource_exhausted_context(kind),
@@ -20,7 +19,7 @@ impl Error {
                 ),
                 Some(Tss2ResponseCodeKind::Signature) => Error::InvalidSignature(err.into()),
                 Some(Tss2ResponseCodeKind::Key) => {
-                    Error::InvalidKey("the selected key cannot be used for this operation")
+                    Error::invalid_key("the selected key cannot be used for this operation")
                 }
                 Some(kind) if is_key_data_integrity_error(kind) => {
                     Error::Internal(key_data_integrity_error_context(kind))
@@ -35,32 +34,6 @@ impl Error {
             tss_esapi::Error::WrapperError(kind) => Error::Internal(wrapper_err_context(kind)),
         }
     }
-
-    pub fn detail_message(&self) -> Option<&str> {
-        match self {
-            Error::AuthorizationFailed { context, .. }
-            | Error::ResourceExhausted { context, .. } => Some(context),
-            Error::Unsupported { context, .. } => Some(context.as_str()),
-            Error::Internal(context) => Some(context),
-            Error::Failure(source)
-            | Error::Connect(source)
-            | Error::Busy(source)
-            | Error::InvalidSignature(source) => tss_err_detail_from_source(source),
-            Error::CorruptedStore(source) => tss_err_detail_from_box(source),
-            _ => None,
-        }
-    }
-}
-
-fn tss_err_detail_from_source(source: &BoxError) -> Option<&'static str> {
-    source
-        .as_ref()
-        .downcast_ref::<tss_esapi::Error>()
-        .and_then(tss_err_detail)
-}
-
-fn tss_err_detail_from_box(source: &Option<BoxError>) -> Option<&'static str> {
-    source.as_ref().and_then(tss_err_detail_from_source)
 }
 
 fn is_internal_err(kind: Tss2ResponseCodeKind) -> bool {
@@ -161,33 +134,6 @@ fn is_authorization_err(kind: Tss2ResponseCodeKind) -> bool {
             | Tss2ResponseCodeKind::Expired
             | Tss2ResponseCodeKind::PolicyCc
     )
-}
-
-fn authorization_err_context(kind: Tss2ResponseCodeKind) -> &'static str {
-    match kind {
-        Tss2ResponseCodeKind::Policy => {
-            "TPM policy authorization failed or the key policy digest is invalid"
-        }
-        Tss2ResponseCodeKind::Pcr => "PCR policy check failed for the current device state",
-        Tss2ResponseCodeKind::PcrChanged => {
-            "PCR values changed after the policy session was checked"
-        }
-        Tss2ResponseCodeKind::AuthUnavailable => {
-            "authorization value or policy is unavailable for this TPM object or hierarchy"
-        }
-        Tss2ResponseCodeKind::NvAuthorization => "NV index authorization failed",
-        Tss2ResponseCodeKind::Lockout => {
-            "TPM is in dictionary-attack lockout mode and authorization is blocked"
-        }
-        Tss2ResponseCodeKind::AuthFail | Tss2ResponseCodeKind::BadAuth => {
-            "the provided authorization value is incorrect"
-        }
-        Tss2ResponseCodeKind::PolicyFail => "TPM policy requirements were not satisfied",
-        Tss2ResponseCodeKind::Ticket => "TPM authorization ticket is invalid",
-        Tss2ResponseCodeKind::Expired => "TPM policy session has expired",
-        Tss2ResponseCodeKind::PolicyCc => "TPM policy does not allow this command code",
-        _ => "authorization failed",
-    }
 }
 
 fn is_resource_exhausted(kind: Tss2ResponseCodeKind) -> bool {
@@ -311,33 +257,6 @@ fn wrapper_err_context(kind: WrapperErrorKind) -> &'static str {
             "TPM wrapper found a handle in the wrong state for this operation"
         }
         WrapperErrorKind::InternalError => "TPM wrapper reported an internal error",
-    }
-}
-
-fn tss_err_detail(err: &tss_esapi::Error) -> Option<&'static str> {
-    match err {
-        tss_esapi::Error::Tss2Error(code) => match code.kind() {
-            Some(Tss2ResponseCodeKind::Success) => None,
-            Some(kind) if is_internal_err(kind) => Some(internal_err_context(kind)),
-            Some(kind) if is_authorization_err(kind) => Some(authorization_err_context(kind)),
-            Some(kind) if is_resource_exhausted(kind) => Some(resource_exhausted_context(kind)),
-            Some(Tss2ResponseCodeKind::Unbalanced) => {
-                Some("TPM protection algorithms are not balanced for this key template")
-            }
-            Some(Tss2ResponseCodeKind::Signature) => {
-                Some("signature is invalid for the digest, key, or signing scheme")
-            }
-            Some(Tss2ResponseCodeKind::Key) => Some("TPM key is not valid for this operation"),
-            Some(kind) if is_key_data_integrity_error(kind) => {
-                Some(key_data_integrity_error_context(kind))
-            }
-            Some(kind) if is_unsupported_err(kind) => Some(unsupported_err_context(kind)),
-            Some(kind) if is_tpm_busy_err(kind) => Some("TPM is temporarily busy"),
-            _ => Some("the TPM could not complete the operation"),
-        },
-        tss_esapi::Error::WrapperError(_) => {
-            Some("the TPM command could not be prepared correctly")
-        }
     }
 }
 
