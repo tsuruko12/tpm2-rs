@@ -3,6 +3,13 @@ mod log;
 use log::init_tracing;
 use tpm_tool::Context;
 
+#[cfg(target_os = "linux")]
+fn connect() -> Context {
+    init_tracing();
+    Context::connect_from_env().expect("failed to connect to swtpm")
+}
+
+#[cfg(target_os = "windows")]
 fn connect() -> Context {
     init_tracing();
     Context::connect().expect("failed to connect to the TPM")
