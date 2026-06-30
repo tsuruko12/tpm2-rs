@@ -3,7 +3,7 @@ use std::collections::{HashMap, hash_map::Entry};
 use zeroize::Zeroizing;
 
 use crate::{
-    data::generate_id,
+    db::generate_id,
     error::Result,
     types::{Hierarchy, policy::Policy},
 };
