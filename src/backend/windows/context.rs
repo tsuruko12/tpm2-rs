@@ -7,12 +7,9 @@ use super::{
     commands::{Command, CommandHeader, TPM_CC_GET_RANDOM, TPM_HEADER_SIZE},
     types::{Digest, TpmRc, TpmSt, Uint32, TPM_RC_SUCCESS},
 };
-use crate::{db::MetadataStore, types::AuthorizationCache};
 
 type ContextHandle = *mut c_void;
 
 pub struct Context {
     handle: ContextHandle,
-    store: MetadataStore,
-    authorization_cache: AuthorizationCache,
 }
