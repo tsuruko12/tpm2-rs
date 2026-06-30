@@ -7,10 +7,10 @@ compile_error!("one symmetric crypto backend must be enabled: `openssl` or `rust
 pub mod error;
 mod backend;
 mod context;
-mod data;
+mod db;
 mod types;
 
-use crate::{
+pub use crate::{
     context::Context,
     error::{Error, Result},
     types::SymmetricKeyBits,
