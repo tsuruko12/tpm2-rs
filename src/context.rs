@@ -1,32 +1,41 @@
 use crate::{backend::BackendContext, error::{Error, Result}};
 
 pub struct Context {
-    inner: BackendContext,
+    backend: BackendContext,
 }
 
 impl Context {
     pub fn connect() -> Result<Self> {
         Ok(Self { 
-            inner: BackendContext::create_context()? 
+            backend: BackendContext::create_context()? 
         })
     }
 
     #[cfg(target_os = "linux")]
     pub fn connect_from_env() -> Result<Self> {
         Ok(Self {
-            inner: BackendContext::create_context_from_tcti_env()?,
+            backend: BackendContext::create_context_from_tcti_env()?,
         })
     }
 
-    fn get_random(&mut self, num_bytes: usize) -> Result<Vec<u8>> {
-        let mut buf = Vec::with_capacity(num_bytes);
+    pub fn get_random(&mut self, num_bytes: usize) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
+
+        buf.try_reserve_exact(num_bytes)
+            .map_err(|_| Error::resource_exhausted("failed to allocate random output buffer"))?;
         
         while buf.len() < num_bytes {
             let remaining = num_bytes - buf.len();
-            let chunk = self.get_random_once(remaining)?;
+            let chunk_size = remaining.min(u16::MAX as usize) as u16;
+
+            let chunk = self.backend.get_random_once(chunk_size)?;
 
             if chunk.is_empty() {
-                return Err(Error::failure("TPM returned no random bytes"));
+                return Err(Error::Internal("TPM returned no random bytes"));
+            }
+
+            if chunk.len() > chunk_size as usize {
+                return Err(Error::Internal("TPM returned more random bytes than requested"));
             }
 
             buf.extend_from_slice(&chunk);
@@ -36,13 +45,4 @@ impl Context {
 
         Ok(buf)
     }
-}
-
-pub(crate) fn init_tracing() {
-    use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
 }
