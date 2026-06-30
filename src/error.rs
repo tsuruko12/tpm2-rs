@@ -10,22 +10,20 @@ pub enum Error {
     Connect(#[source] BoxError),
     #[error("TPM is temporarily busy")]
     Busy(#[source] BoxError),
-    #[error("missing auth value")]
-    MissingAuthValue,
-    #[error("{context}")]
-    AuthorizationFailed {
-        context: &'static str,
-        #[source]
-        source: BoxError,
-    },
+    #[error("TPM authorization failed")]
+    AuthorizationFailed(#[source] BoxError),
     #[error("{0}")]
     InvalidPolicy(&'static str),
     #[error("{name} exceeds the maximum size of {max} bytes")]
     TooLong { name: &'static str, max: usize },
     #[error("signature verification failed")]
     InvalidSignature(#[source] BoxError),
-    #[error("{0}")]
-    InvalidKey(&'static str),
+    #[error("{context}")]
+    InvalidKey {
+        context: &'static str,
+        #[source]
+        source: Option<BoxError>,
+    },
     #[error("{0}")]
     InvalidParameter(String),
     #[error("key store data is corrupted")]
@@ -37,9 +35,9 @@ pub enum Error {
     #[error("storage path is unavailable")]
     StorePathUnavailable,
     #[error("{context}")]
-    ResourceExhausted {
+    ResourceExhausted{
         context: &'static str,
-        #[source]
+        #[source] 
         source: Option<BoxError>,
     },
     #[error("store operation failed")]
@@ -63,6 +61,28 @@ impl Error {
         Self::Failure(err.into())
     }
 
+    pub(crate) fn authorization_failed(err: impl Into<BoxError>) -> Self {
+        Self::AuthorizationFailed(err.into())
+    }
+
+    pub(crate) fn invalid_key_with_source(context: &'static str, err: impl Into<BoxError>) -> Self {
+        Self::InvalidKey {
+            context,
+            source: Some(err.into()),
+        }
+    }
+
+    pub(crate) fn invalid_key(context: &'static str) -> Self {
+        Self::InvalidKey {
+            context,
+            source: None,
+        }
+    }
+
+    pub(crate) fn invalid_signature(err: impl Into<BoxError>) -> Self {
+        Self::InvalidSignature(err.into())
+    }
+
     pub(crate) fn invalid_param(context: impl Into<String>) -> Self {
         Self::InvalidParameter(context.into())
     }
@@ -78,6 +98,16 @@ impl Error {
         }
     }
 
+    pub(crate) fn unsupported_with_source(
+        context: impl Into<String>, 
+        source: impl Into<BoxError>,
+    ) -> Self {
+        Self::Unsupported {
+            context: context.into(),
+            source: Some(source.into()),
+        }
+    }
+
     pub(crate) fn resource_exhausted(context: &'static str) -> Self {
         Self::ResourceExhausted {
             context,
@@ -86,12 +116,16 @@ impl Error {
     }
 
     pub(crate) fn resource_exhausted_with_source(
-        context: &'static str,
-        source: impl Into<BoxError>,
+        context: &'static str, 
+        err: impl Into<BoxError>,
     ) -> Self {
         Self::ResourceExhausted {
             context,
-            source: Some(source.into()),
+            source: Some(err.into()),
         }
+    }
+
+    pub(crate) fn busy(err: impl Into<BoxError>) -> Self {
+        Self::Busy(err.into())
     }
 }
