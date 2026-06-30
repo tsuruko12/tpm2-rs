@@ -1,3 +1,5 @@
+use std::{error::Error as StdError, fmt};
+
 use windows_sys::Win32::Foundation::{
     TBS_E_BAD_PARAMETER, TBS_E_INTERNAL_ERROR, TBS_E_IOERROR, TBS_E_SERVICE_DISABLED,
     TBS_E_SERVICE_NOT_RUNNING, TBS_E_SERVICE_START_PENDING, TBS_E_TPM_NOT_FOUND,
@@ -5,6 +7,8 @@ use windows_sys::Win32::Foundation::{
 
 use super::types::*;
 use crate::error::Error;
+
+const TPM_RC_FMT1_E_MASK: TpmRc = 0x3F;
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum TbsError {
@@ -59,110 +63,79 @@ impl Error {
     }
 }
 
-#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TpmError {
-    #[error("TPM returned Format Zero response code {0:#05X}")]
-    FormatZero(TpmRc),
-    #[error("TPM returned Format One response code {0:#05X}")]
-    FormatOne(TpmRc),
+    ResponseCode(TpmRc),
 }
 
-impl TpmError {
-    pub(crate) fn from_rc(rc: TpmRc) -> Self {
-        debug_assert_ne!(rc, 0);
-
-        if (rc & TPM_RC_FMT1) != 0 {
-            Self::FormatOne(rc)
-        } else {
-            Self::FormatZero(rc)
+impl fmt::Display for TpmError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ResponseCode(rc) => {
+                write!(f, "TPM returned response code {rc:#05X}")
+            }
         }
     }
 }
+
+impl StdError for TpmError {}
 
 impl Error {
     pub(crate) fn from_rc(rc: TpmRc) -> Self {
-        match TpmError::from_rc(rc) {
-            TpmError::FormatZero(rc) => Self::format_zero(rc),
-            TpmError::FormatOne(rc) => Self::format_one(rc),
-        }
-    }
+        debug_assert_ne!(rc, 0);
 
-    fn format_zero(rc: TpmRc) -> Self {
-        let source = TpmError::FormatZero(rc);
+        let source = TpmError::ResponseCode(rc);
+        let base = base_rc(rc);
 
-        match rc {
-            TPM_RC_AUTH_TYPE
-            | TPM_RC_AUTH_MISSING
-            | TPM_RC_AUTH_UNAVAILABLE
-            | TPM_RC_NV_AUTHORIZATION
-            | TPM_RC_LOCKOUT => Self::AuthorizationFailed {
-                context: "TPM authorization failed",
-                source: Box::new(source),
+        match base {
+            TPM_RC_BINDING 
+            | TPM_RC_KEY 
+            | TPM_RC_SIGN_CONTEXT_KEY => {
+                Self::invalid_key_with_source(
+                    "selected key is not valid for the operation",
+                    source,
+                )
             },
-            TPM_RC_POLICY | TPM_RC_PCR | TPM_RC_PCR_CHANGED => {
-                Self::InvalidPolicy("TPM policy check failed")
-            }
-            TPM_RC_TOO_MANY_CONTEXTS
-            | TPM_RC_NV_SPACE
+            TPM_RC_AUTH_MISSING
+            | TPM_RC_AUTH_UNAVAILABLE
+            | TPM_RC_AUTH_FAIL 
+            | TPM_RC_BAD_AUTH
+            | TPM_RC_NV_AUTHORIZATION
+            | TPM_RC_LOCKOUT
+            | TPM_RC_PP 
+            | TPM_RC_CHANNEL
+            | TPM_RC_CHANNEL_KEY
+            | TPM_RC_POLICY 
+            | TPM_RC_PCR
+            | TPM_RC_PCR_CHANGED
+            | TPM_RC_POLICY_FAIL 
+            | TPM_RC_POLICY_CC 
+            | TPM_RC_EXPIRED => Self::authorization_failed(source),
+            TPM_RC_SIGNATURE => Self::invalid_signature(source),
+            TPM_RC_NV_SPACE
             | TPM_RC_OBJECT_MEMORY
             | TPM_RC_SESSION_MEMORY
             | TPM_RC_MEMORY
             | TPM_RC_SESSION_HANDLES
-            | TPM_RC_OBJECT_HANDLES => Self::resource_exhausted_with_source(
-                "TPM has no available context or memory",
-                source,
-            ),
+            | TPM_RC_OBJECT_HANDLES
+            | TPM_RC_TOO_MANY_CONTEXTS => {
+                Self::resource_exhausted_with_source(
+                    "TPM resource exhaused",
+                    source,
+                )
+            },
             TPM_RC_YIELDED
             | TPM_RC_TESTING
             | TPM_RC_NEEDS_TEST
             | TPM_RC_NV_RATE
             | TPM_RC_RETRY
-            | TPM_RC_NV_UNAVAILABLE => Self::Busy(Box::new(source)),
+            | TPM_RC_NV_UNAVAILABLE => Self::busy(source),
             TPM_RC_DISABLED | TPM_RC_COMMAND_CODE | TPM_RC_UPGRADE | TPM_RC_READ_ONLY => {
-                Self::Unsupported {
-                    context: format!("TPM does not support the requested operation ({rc:#05X})"),
-                    source: Some(Box::new(source)),
-                }
-            }
-            TPM_RC_BAD_TAG
-            | TPM_RC_SEQUENCE
-            | TPM_RC_UNBALANCED
-            | TPM_RC_COMMAND_SIZE
-            | TPM_RC_AUTHSIZE
-            | TPM_RC_AUTH_CONTEXT
-            | TPM_RC_NV_RANGE
-            | TPM_RC_NV_SIZE
-            | TPM_RC_BAD_CONTEXT
-            | TPM_RC_CPHASH
-            | TPM_RC_PARENT
-            | TPM_RC_CONTEXT_GAP
-            | TPM_RC_LOCALITY
-            | TPM_RC_REFERENCE_H0..=TPM_RC_REFERENCE_H6
-            | TPM_RC_REFERENCE_S0..=TPM_RC_REFERENCE_S6 => Self::invalid_param(format!(
-                "TPM rejected command data (response code {rc:#05X})"
-            )),
-            _ => Self::failure(source),
-        }
-    }
-
-    fn format_one(rc: TpmRc) -> Self {
-        let source = TpmError::FormatOne(rc);
-        let base = rc & !(TPM_RC_P | TPM_RC_N_MASK);
-
-        match base {
-            TPM_RC_AUTH_FAIL | TPM_RC_BAD_AUTH | TPM_RC_PP | TPM_RC_CHANNEL_KEY => {
-                Self::AuthorizationFailed {
-                    context: "TPM authorization failed",
-                    source: Box::new(source),
-                }
-            }
-            TPM_RC_POLICY_FAIL | TPM_RC_POLICY_CC | TPM_RC_EXPIRED => {
-                Self::InvalidPolicy("TPM policy check failed")
-            }
-            TPM_RC_SIGNATURE => Self::InvalidSignature(Box::new(source)),
-            TPM_RC_KEY | TPM_RC_BINDING | TPM_RC_SIGN_CONTEXT_KEY => {
-                Self::InvalidKey("TPM rejected the key")
-            }
+                Self::unsupported_with_source(
+                    "TPM does not support the requested operation",
+                    source,
+                )
+            },
             TPM_RC_ASYMMETRIC
             | TPM_RC_HASH
             | TPM_RC_KEY_SIZE
@@ -176,14 +149,40 @@ impl Error {
             | TPM_RC_SVN_LIMITED
             | TPM_RC_PARMS
             | TPM_RC_EXT_MU
-            | TPM_RC_ONE_SHOT_SIGNATURE
-            | TPM_RC_CHANNEL => Self::Unsupported {
-                context: format!("TPM does not support the requested value ({rc:#05X})"),
-                source: Some(Box::new(source)),
+            | TPM_RC_ONE_SHOT_SIGNATURE => {
+                Self::unsupported_with_source(
+                "TPM does not support the requested value",
+                source,
+                )
             },
-            _ => Self::invalid_param(format!(
-                "TPM rejected a command parameter, handle, or session (response code {rc:#05X})"
-            )),
+            TPM_RC_AUTH_TYPE
+            | TPM_RC_BAD_TAG
+            | TPM_RC_SEQUENCE
+            | TPM_RC_UNBALANCED
+            | TPM_RC_COMMAND_SIZE
+            | TPM_RC_AUTHSIZE
+            | TPM_RC_AUTH_CONTEXT
+            | TPM_RC_NV_RANGE
+            | TPM_RC_NV_SIZE
+            | TPM_RC_BAD_CONTEXT
+            | TPM_RC_CPHASH
+            | TPM_RC_PARENT
+            | TPM_RC_CONTEXT_GAP
+            | TPM_RC_LOCALITY
+            | TPM_RC_REFERENCE_H0..=TPM_RC_REFERENCE_H6
+            | TPM_RC_REFERENCE_S0..=TPM_RC_REFERENCE_S6 => {
+                tracing::error!(rc = format_args!("{:#05X}", rc), "unexpected TPM response code");
+                Self::Internal("unexpected error occured")
+            },
+            _ => Self::failure(source),
         }
+    }
+}
+
+fn base_rc(rc: TpmRc) -> TpmRc {
+    if rc & TPM_RC_FMT1 != 0 {
+        TPM_RC_FMT1 | (rc & TPM_RC_FMT1_E_MASK)
+    } else {
+        rc
     }
 }
