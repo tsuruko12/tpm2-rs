@@ -1,13 +1,22 @@
-use crate::{backend::BackendContext, error::{Error, Result}};
+use crate::{
+    backend::BackendContext, 
+    db::MetadataStore, 
+    error::{Error, Result}, 
+    types::AuthorizationCache
+};
 
 pub struct Context {
     backend: BackendContext,
+    store: MetadataStore,
+    authorization_cache: AuthorizationCache,
 }
 
 impl Context {
     pub fn connect() -> Result<Self> {
-        Ok(Self { 
-            backend: BackendContext::create_context()? 
+        Ok(Self {
+            backend: BackendContext::create_context()?,
+            store: MetadataStore::new()?,
+            authorization_cache: AuthorizationCache::default(),
         })
     }
 
@@ -15,6 +24,8 @@ impl Context {
     pub fn connect_from_env() -> Result<Self> {
         Ok(Self {
             backend: BackendContext::create_context_from_tcti_env()?,
+            store: MetadataStore::new()?,
+            authorization_cache: AuthorizationCache::default(),
         })
     }
 
