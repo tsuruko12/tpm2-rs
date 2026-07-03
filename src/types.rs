@@ -19,7 +19,7 @@ pub use policy::{PcrSlot, PolicyCommand};
 pub use rsa::{RsaKeyBits, RsaScheme};
 pub use symmetric::{BlockCipher, SymmetricAlgorithm, SymmetricKeyBits};
 
-pub(crate) use algorithm::{TpmAlgId, TpmiAlgHash};
+pub(crate) use algorithm::{TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmsAlgProperty};
 pub(crate) use attribute::TpmaCc;
 pub(crate) use authorization::{Authorization, AuthorizationCache};
 pub(crate) use capability::{CapabilityData, TpmCap};

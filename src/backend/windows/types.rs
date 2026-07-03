@@ -4,8 +4,8 @@ mod sized;
 mod tpm;
 
 pub(super) use crate::types::{
-    CapabilityData, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaCc, TpmsPcrSelection,
-    TpmsTaggedPcrSelect, TpmsTaggedProperty,
+    CapabilityData, TpmAlgId, TpmaAlgorithm, TpmaCc, TpmCc, TpmEccCurve, TpmHandle,
+    TpmsAlgProperty, TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty,
 };
 pub(super) use response_code::*;
 pub(super) use tpm::*;

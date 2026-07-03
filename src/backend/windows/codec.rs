@@ -9,6 +9,6 @@ pub(super) use wire::{
 };
 
 use super::types::{
-    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaCc, TpmsPcrSelection, TpmsTaggedPcrSelect,
-    TpmsTaggedProperty,
+    TpmAlgId, TpmaAlgorithm, TpmaCc, TpmCc, TpmEccCurve, TpmHandle, TpmsAlgProperty,
+    TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty,
 };

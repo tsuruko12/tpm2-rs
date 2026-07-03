@@ -1,12 +1,14 @@
 use super::{
-    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaCc, TpmsPcrSelection, TpmsTaggedPcrSelect,
-    TpmsTaggedProperty,
+    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaAlgorithm, TpmaCc, TpmsAlgProperty,
+    TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty,
 };
 use crate::error::{Error, Result};
 
 pub(crate) fn require_len(bytes: &[u8], required: usize) -> Result<()> {
     if bytes.len() < required {
-        return Err(Error::Internal("invalid TPM response: parameters are truncated"));
+        return Err(Error::Internal(
+            "invalid TPM response: parameters are truncated",
+        ));
     }
 
     Ok(())
@@ -15,22 +17,22 @@ pub(crate) fn require_len(bytes: &[u8], required: usize) -> Result<()> {
 pub(crate) fn unmarshal_tpm2b(mut bytes: &[u8]) -> Result<Vec<u8>> {
     let size = read_u16(&mut bytes)? as usize;
     let value = read_vec(&mut bytes, size)?;
-    
+
     ensure_consumed(bytes)?;
 
     Ok(value)
 }
 
-pub(crate) fn unmarshal_algs(mut bytes: &[u8], count: usize) -> Result<Vec<TpmAlgId>> {
+pub(crate) fn unmarshal_algs(mut bytes: &[u8], count: usize) -> Result<Vec<TpmsAlgProperty>> {
     validate_count(bytes.len(), count, 6)?;
 
     let mut items = Vec::with_capacity(count);
 
     for _ in 0..count {
         let alg_id = TpmAlgId::try_from(read_u16(&mut bytes)?)?;
-        let _alg_property = read_u32(&mut bytes)?;
+        let alg_properties = TpmaAlgorithm::new(read_u32(&mut bytes)?);
 
-        items.push(alg_id);
+        items.push(TpmsAlgProperty::new(alg_id, alg_properties));
     }
 
     ensure_consumed(bytes)?;
@@ -210,9 +212,9 @@ fn read_u32(input: &mut &[u8]) -> Result<u32> {
 }
 
 fn read_vec(input: &mut &[u8], len: usize) -> Result<Vec<u8>> {
-    let value = input
-        .get(..len)
-        .ok_or(Error::Internal("invalid TPM response: BYTE array is truncated"))?;
+    let value = input.get(..len).ok_or(Error::Internal(
+        "invalid TPM response: BYTE array is truncated",
+    ))?;
     let value = value.to_vec();
 
     *input = &input[len..];
