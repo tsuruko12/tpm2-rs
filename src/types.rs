@@ -1,12 +1,16 @@
 mod algorithm;
+mod attribute;
 mod authorization;
 mod capability;
 mod ecc;
+mod handle;
 mod hierarchy;
 mod key;
 mod policy;
 mod rsa;
 mod symmetric;
+mod tag;
+mod tpm;
 
 pub use algorithm::HashAlgorithm;
 pub use ecc::{EccCurve, EccScheme};
@@ -15,7 +19,13 @@ pub use policy::{PcrSlot, PolicyCommand};
 pub use rsa::{RsaKeyBits, RsaScheme};
 pub use symmetric::{BlockCipher, SymmetricAlgorithm, SymmetricKeyBits};
 
+pub(crate) use algorithm::{TpmAlgId, TpmiAlgHash};
+pub(crate) use attribute::TpmaCc;
 pub(crate) use authorization::{Authorization, AuthorizationCache};
-pub(crate) use capability::TpmCap;
-pub(crate) use policy::PcrSelection;
+pub(crate) use capability::{CapabilityData, TpmCap};
+pub(crate) use ecc::TpmEccCurve;
+pub(crate) use handle::*;
+pub(crate) use policy::{PcrSelection, TpmsPcrSelection};
 pub(crate) use symmetric::{CipherMode, SymmetricKeySpec};
+pub(crate) use tag::{TpmPt, TpmPtPcr, TpmsTaggedPcrSelect, TpmsTaggedProperty};
+pub(crate) use tpm::TpmCc;

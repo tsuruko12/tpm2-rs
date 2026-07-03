@@ -1,7 +1,6 @@
 use super::response_code::TPM_RC_FMT1;
 
 pub(crate) type TpmSt = u16;
-pub(crate) type TpmCc = u32;
 
 const TPM_RC_FMT1_E_MASK: u32 = 0x3F;
 

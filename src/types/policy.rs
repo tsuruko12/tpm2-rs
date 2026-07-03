@@ -1,4 +1,4 @@
-use crate::types::HashAlgorithm;
+use crate::types::{HashAlgorithm, TpmiAlgHash};
 
 const MAX_POLICY_OR_BRANCHES: usize = 8;
 
@@ -101,5 +101,25 @@ impl PcrSelection {
 
     pub(crate) fn slots(&self) -> &[PcrSlot] {
         &self.slots
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmsPcrSelection {
+    hash: TpmiAlgHash,
+    pcr_select: Vec<u8>,
+}
+
+impl TpmsPcrSelection {
+    pub(crate) fn new(hash: TpmiAlgHash, pcr_select: Vec<u8>) -> Self {
+        Self { hash, pcr_select }
+    }
+
+    pub(crate) fn hash(&self) -> TpmiAlgHash {
+        self.hash
+    }
+
+    pub(crate) fn pcr_select(&self) -> &[u8] {
+        &self.pcr_select
     }
 }

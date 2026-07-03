@@ -120,4 +120,3 @@ impl Authorization {
         self.auth = Some(auth.into());
     }
 }
-

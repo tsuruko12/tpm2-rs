@@ -1,3 +1,7 @@
+use super::{
+    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaCc, TpmsPcrSelection, TpmsTaggedPcrSelect,
+    TpmsTaggedProperty,
+};
 use crate::{Error, Result};
 
 #[repr(u32)]
@@ -37,4 +41,17 @@ impl TryFrom<u32> for TpmCap {
             _ => Err(Error::Internal("unsupported TPM capability type")),
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum CapabilityData {
+    Algs(Vec<TpmAlgId>),
+    Handles(Vec<TpmHandle>),
+    Commands(Vec<TpmaCc>),
+    PpCommands(Vec<TpmCc>),
+    AuditCommands(Vec<TpmCc>),
+    Pcrs(Vec<TpmsPcrSelection>),
+    TpmProperties(Vec<TpmsTaggedProperty>),
+    PcrProperties(Vec<TpmsTaggedPcrSelect>),
+    EccCurves(Vec<TpmEccCurve>),
 }

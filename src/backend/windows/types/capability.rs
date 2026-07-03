@@ -1,28 +1,11 @@
 use super::{
-    algorithm::TpmAlgId,
-    attribute::TpmaCc,
-    ecc::TpmEccCurve,
-    handle::TpmHandle,
-    policy::TpmsPcrSelection,
-    tag::{TpmsTaggedPcrSelect, TpmsTaggedProperty},
-    tpm::TpmCc,
-    unmarshal_algs, unmarshal_cc, unmarshal_cca, unmarshal_ecc_curves,
-    unmarshal_handles, unmarshal_pcr_properties, unmarshal_pcrs, unmarshal_tpm_properties,
+    unmarshal_algs, unmarshal_cc, unmarshal_cca, unmarshal_ecc_curves, unmarshal_handles,
+    unmarshal_pcr_properties, unmarshal_pcrs, unmarshal_tpm_properties,
 };
-use crate::{Error, Result, types::TpmCap};
-
-#[derive(Debug)]
-pub(crate) enum CapabilityData {
-    Algs(Vec<TpmAlgId>),
-    Handles(Vec<TpmHandle>),
-    Commands(Vec<TpmaCc>),
-    PpCommands(Vec<TpmCc>),
-    AuditCommands(Vec<TpmCc>),
-    Pcrs(Vec<TpmsPcrSelection>),
-    TpmProperties(Vec<TpmsTaggedProperty>),
-    PcrProperties(Vec<TpmsTaggedPcrSelect>),
-    EccCurves(Vec<TpmEccCurve>),
-}
+use crate::{
+    Error, Result,
+    types::{CapabilityData, TpmCap},
+};
 
 impl CapabilityData {
     pub(crate) fn unmarshal(bytes: &[u8], capability: TpmCap) -> Result<Self> {
