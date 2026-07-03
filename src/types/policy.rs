@@ -1,3 +1,5 @@
+use crate::types::HashAlgorithm;
+
 const MAX_POLICY_OR_BRANCHES: usize = 8;
 
 #[non_exhaustive]
@@ -76,5 +78,28 @@ impl From<PcrSlot> for u32 {
             PcrSlot::Slot22 => 22,
             PcrSlot::Slot23 => 23,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PcrSelection {
+    hash: HashAlgorithm,
+    slots: Vec<PcrSlot>,
+}
+
+impl PcrSelection {
+    pub(crate) fn new(hash: HashAlgorithm, slots: &[PcrSlot]) -> Self {
+        Self {
+            hash,
+            slots: slots.to_vec(),
+        }
+    }
+
+    pub(crate) fn hash(&self) -> HashAlgorithm {
+        self.hash
+    }
+
+    pub(crate) fn slots(&self) -> &[PcrSlot] {
+        &self.slots
     }
 }
