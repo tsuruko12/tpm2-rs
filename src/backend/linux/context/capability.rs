@@ -1,4 +1,4 @@
-use crate::{Result, types::TpmCap};
+use crate::{Result, types::{CapabilityData, TpmCap}};
 
 use super::Context;
 
@@ -8,7 +8,7 @@ impl Context {
         capability: TpmCap, 
         property: u32,
         property_count: u32,
-    ) -> Result<(bool, Capabili)> {
+    ) -> Result<(bool, CapabilityData)> {
 
 
         Ok(())
