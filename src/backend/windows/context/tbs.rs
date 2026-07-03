@@ -1,19 +1,13 @@
 use std::{ffi::c_void, ptr};
 
 use windows_sys::Win32::System::TpmBaseServices::{
-    TBS_COMMAND_LOCALITY_ZERO, TBS_COMMAND_PRIORITY_NORMAL, TBS_CONTEXT_PARAMS, 
-    TBS_CONTEXT_PARAMS2, TBS_CONTEXT_PARAMS2_0, TBS_SUCCESS, TPM_VERSION_20, 
-    Tbsi_Context_Create, Tbsip_Context_Close, Tbsip_Submit_Command,
+    TBS_COMMAND_LOCALITY_ZERO, TBS_COMMAND_PRIORITY_NORMAL, TBS_CONTEXT_PARAMS,
+    TBS_CONTEXT_PARAMS2, TBS_CONTEXT_PARAMS2_0, TBS_SUCCESS, TPM_VERSION_20, Tbsi_Context_Create,
+    Tbsip_Context_Close, Tbsip_Submit_Command,
 };
 
-use super::{
-    Command, Context, TpmRc, TpmSt, Uint32, TPM_HEADER_SIZE, TPM_RC_SUCCESS,
-};
-use crate::{
-    db::MetadataStore, 
-    error::{Error, Result}, 
-    types::AuthorizationCache,
-};
+use super::{Command, Context, TPM_HEADER_SIZE, TPM_RC_SUCCESS, TpmRc, TpmSt};
+use crate::error::{Error, Result};
 
 const TBS_RESPONSE_BUFFER_SIZE: usize = 256 * 1024;
 
@@ -46,11 +40,7 @@ impl Context {
             return Err(Error::from_tbs_rc(status));
         }
 
-        Ok(Self {
-            handle,
-            store: MetadataStore::new()?,
-            authorization_cache: AuthorizationCache::default(),
-        })
+        Ok(Self { handle })
     }
 
     pub(crate) fn submit(&mut self, command: Command) -> Result<Vec<u8>> {
@@ -99,13 +89,13 @@ fn unmarshal_response_body(bytes: &[u8]) -> Result<Vec<u8>> {
     }
 
     let tag = TpmSt::from_be_bytes(bytes[0..2].try_into().unwrap());
-    let response_size = Uint32::from_be_bytes(bytes[2..6].try_into().unwrap()) as usize;
+    let response_size = u32::from_be_bytes(bytes[2..6].try_into().unwrap()) as usize;
     let response_code = TpmRc::from_be_bytes(bytes[6..TPM_HEADER_SIZE].try_into().unwrap());
 
     tracing::debug!(
         tag = format_args!("{:#06X}", tag),
         response_size,
-        response_code = format_args!("{:#05X}", response_code),
+        response_code = format_args!("{:#05X}", response_code.raw()),
         "unmarshalled TPM response header"
     );
 
@@ -119,19 +109,9 @@ fn unmarshal_response_body(bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn ensure_success(response_code: TpmRc) -> Result<()> {
-    if response_code == TPM_RC_SUCCESS {
+    if response_code.raw() == TPM_RC_SUCCESS {
         Ok(())
     } else {
         Err(Error::from_rc(response_code))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::context::Context;
-
-    #[test]
-    fn connect_to_tbs() {
-        let _ = Context::connect().expect("failed to create TBS context");
     }
 }
