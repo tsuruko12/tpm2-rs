@@ -1,10 +1,29 @@
-pub(crate) type TpmiStCommandTag = u16;
-pub(crate) type Uint16 = u16;
-pub(crate) type Uint32 = u32;
+use super::response_code::TPM_RC_FMT1;
+
 pub(crate) type TpmSt = u16;
 pub(crate) type TpmCc = u32;
-pub(crate) type TpmRc = u32;
 
-pub(crate) const TPM_ST_RSP_COMMAND: TpmSt = 0x00C4;
-pub(crate) const TPM_ST_NO_SESSIONS: TpmiStCommandTag = 0x8001;
-pub(crate) const TPM_ST_SESSIONS: TpmiStCommandTag = 0x8002;
+const TPM_RC_FMT1_E_MASK: u32 = 0x3F;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TpmRc(u32);
+
+impl TpmRc {
+    pub(crate) fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(u32::from_be_bytes(bytes))
+    }
+
+    pub(crate) fn raw(&self) -> u32 {
+        self.0
+    }
+
+    pub(crate) fn base(&self) -> u32 {
+        let raw = self.raw();
+
+        if raw & TPM_RC_FMT1 != 0 {
+            TPM_RC_FMT1 | (raw & TPM_RC_FMT1_E_MASK)
+        } else {
+            raw
+        }
+    }
+}
