@@ -3,7 +3,6 @@ mod attribute;
 mod capability;
 mod ecc;
 mod handle;
-mod list;
 mod policy;
 mod response_code;
 mod sized;
