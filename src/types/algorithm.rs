@@ -8,6 +8,29 @@ pub enum HashAlgorithm {
     Sha512,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TpmsAlgProperty {
+    alg: TpmAlgId,
+    alg_properties: TpmaAlgorithm,
+}
+
+impl TpmsAlgProperty {
+    pub(crate) const fn new(alg: TpmAlgId, alg_properties: TpmaAlgorithm) -> Self {
+        Self {
+            alg,
+            alg_properties,
+        }
+    }
+
+    pub(crate) const fn alg(self) -> TpmAlgId {
+        self.alg
+    }
+
+    pub(crate) const fn alg_properties(self) -> TpmaAlgorithm {
+        self.alg_properties
+    }
+}
+
 pub(crate) type TpmiAlgHash = TpmAlgId;
 
 #[repr(u16)]
@@ -112,5 +135,62 @@ impl TryFrom<u16> for TpmAlgId {
             0x00A2 => Ok(Self::HashMlDsa),
             _ => Err(Error::Internal("unsupported TPM algorithm identifier")),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TpmaAlgorithm(u32);
+
+impl TpmaAlgorithm {
+    const ASYMMETRIC: u32 = 1 << 0;
+    const SYMMETRIC: u32 = 1 << 1;
+    const HASH: u32 = 1 << 2;
+    const OBJECT: u32 = 1 << 3;
+    const SIGNING: u32 = 1 << 8;
+    const ENCRYPTING: u32 = 1 << 9;
+    const METHOD: u32 = 1 << 10;
+
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) const fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(u32::from_be_bytes(bytes))
+    }
+
+    pub(crate) const fn raw(self) -> u32 {
+        self.0
+    }
+
+    pub(crate) const fn is_asymmetric(self) -> bool {
+        self.contains(Self::ASYMMETRIC)
+    }
+
+    pub(crate) const fn is_symmetric(self) -> bool {
+        self.contains(Self::SYMMETRIC)
+    }
+
+    pub(crate) const fn is_hash(self) -> bool {
+        self.contains(Self::HASH)
+    }
+
+    pub(crate) const fn is_object(self) -> bool {
+        self.contains(Self::OBJECT)
+    }
+
+    pub(crate) const fn is_signing(self) -> bool {
+        self.contains(Self::SIGNING)
+    }
+
+    pub(crate) const fn is_encrypting(self) -> bool {
+        self.contains(Self::ENCRYPTING)
+    }
+
+    pub(crate) const fn is_method(self) -> bool {
+        self.contains(Self::METHOD)
+    }
+
+    const fn contains(self, flag: u32) -> bool {
+        self.0 & flag != 0
     }
 }
