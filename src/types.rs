@@ -1,5 +1,6 @@
 mod algorithm;
 mod authorization;
+mod capability;
 mod ecc;
 mod hierarchy;
 mod key;
@@ -15,4 +16,6 @@ pub use rsa::{RsaKeyBits, RsaScheme};
 pub use symmetric::{BlockCipher, SymmetricAlgorithm, SymmetricKeyBits};
 
 pub(crate) use authorization::{Authorization, AuthorizationCache};
+pub(crate) use capability::TpmCap;
+pub(crate) use policy::PcrSelection;
 pub(crate) use symmetric::{CipherMode, SymmetricKeySpec};
