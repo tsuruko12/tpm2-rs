@@ -1,23 +1,31 @@
-use super::{
-    TpmCc, TpmiStCommandTag, Uint32, TPM_ST_NO_SESSIONS,
-    TPM_ST_SESSIONS,
-};
+use super::TpmCc;
 
 pub(crate) const TPM_HEADER_SIZE: usize = 10;
 
-// big-endian
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TpmiStCommandTag {
+    NoSessions = 0x8001,
+    Sessions = 0x8002,
+}
 
-#[derive(Debug)]
+impl TpmiStCommandTag {
+    pub(crate) fn to_be_bytes(self) -> [u8; 2] {
+        (self as u16).to_be_bytes()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CommandHeader {
     tag: TpmiStCommandTag,
-    command_size: Uint32,
+    command_size: u32,
     command_code: TpmCc,
 }
 
 impl CommandHeader {
     pub(crate) fn no_sessions(body_len: usize, command_code: TpmCc) -> Self {
         Self {
-            tag: TPM_ST_NO_SESSIONS,
+            tag: TpmiStCommandTag::NoSessions,
             command_size: (TPM_HEADER_SIZE + body_len) as u32,
             command_code,
         }
@@ -25,7 +33,7 @@ impl CommandHeader {
 
     pub(crate) fn with_sessions(body_len: usize, command_code: TpmCc) -> Self {
         Self {
-            tag: TPM_ST_SESSIONS,
+            tag: TpmiStCommandTag::Sessions,
             command_size: (TPM_HEADER_SIZE + body_len) as u32,
             command_code,
         }
@@ -41,7 +49,7 @@ impl CommandHeader {
         encoded
     }
 
-    pub(super) fn command_size(&self) -> Uint32 {
+    pub(super) fn command_size(&self) -> u32 {
         self.command_size
     }
 }
