@@ -62,7 +62,7 @@ mod tests {
         let mut bytes = vec![more_data];
         bytes.extend_from_slice(&capability.to_be_bytes());
         bytes.extend_from_slice(&count.to_be_bytes());
-        
+
         bytes
     }
 
