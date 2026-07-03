@@ -7,8 +7,14 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) fn new(header: CommandHeader, params: impl Into<Vec<u8>>) -> Self {
-        Self { header, params: params.into() }
+    pub(crate) fn new(
+        header: CommandHeader,
+        params: impl Into<Vec<u8>>,
+    ) -> Self {
+        Self {
+            header,
+            params: params.into(),
+        }
     }
 
     pub(crate) fn marshal(&self) -> Vec<u8> {
