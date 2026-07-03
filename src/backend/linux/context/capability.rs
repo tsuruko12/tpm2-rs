@@ -1,9 +1,16 @@
-use crate::Result;
+use crate::{Result, types::TpmCap};
 
 use super::Context;
 
 impl Context {
-    pub(crate) fn read_capability(&mut self, capability: u32) -> Result<()> {
+    pub(crate) fn read_capability_once(
+        &mut self, 
+        capability: TpmCap, 
+        property: u32,
+        property_count: u32,
+    ) -> Result<(bool, Capabili)> {
+
+
         Ok(())
     }
 }
