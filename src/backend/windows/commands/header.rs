@@ -37,7 +37,7 @@ impl CommandHeader {
             command_size: (TPM_HEADER_SIZE + body_len) as u32,
             command_code,
         }
-    } 
+    }
 
     pub(crate) fn marshal(&self) -> Vec<u8> {
         let mut encoded = Vec::new();
