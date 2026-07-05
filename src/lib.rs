@@ -4,10 +4,10 @@ compile_error!("only one symmetric crypto backend can be enabled: `openssl` or `
 #[cfg(not(any(feature = "openssl", feature = "rustcrypto")))]
 compile_error!("one symmetric crypto backend must be enabled: `openssl` or `rustcrypto`");
 
-pub mod error;
 mod backend;
 mod context;
 mod db;
+pub mod error;
 mod types;
 
 pub use crate::{

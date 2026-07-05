@@ -1,8 +1,8 @@
 use crate::{
-    backend::BackendContext, 
-    db::MetadataStore, 
-    error::{Error, Result}, 
-    types::AuthorizationCache
+    backend::BackendContext,
+    db::MetadataStore,
+    error::{Error, Result},
+    types::AuthorizationCache,
 };
 
 pub struct Context {
@@ -34,7 +34,7 @@ impl Context {
 
         buf.try_reserve_exact(num_bytes)
             .map_err(|_| Error::resource_exhausted("failed to allocate random output buffer"))?;
-        
+
         while buf.len() < num_bytes {
             let remaining = num_bytes - buf.len();
             let chunk_size = remaining.min(u16::MAX as usize) as u16;
@@ -46,7 +46,9 @@ impl Context {
             }
 
             if chunk.len() > chunk_size as usize {
-                return Err(Error::Internal("TPM returned more random bytes than requested"));
+                return Err(Error::Internal(
+                    "TPM returned more random bytes than requested",
+                ));
             }
 
             buf.extend_from_slice(&chunk);

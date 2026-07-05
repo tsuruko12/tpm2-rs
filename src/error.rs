@@ -35,9 +35,9 @@ pub enum Error {
     #[error("storage path is unavailable")]
     StorePathUnavailable,
     #[error("{context}")]
-    ResourceExhausted{
+    ResourceExhausted {
         context: &'static str,
-        #[source] 
+        #[source]
         source: Option<BoxError>,
     },
     #[error("store operation failed")]
@@ -99,7 +99,7 @@ impl Error {
     }
 
     pub(crate) fn unsupported_with_source(
-        context: impl Into<String>, 
+        context: impl Into<String>,
         source: impl Into<BoxError>,
     ) -> Self {
         Self::Unsupported {
@@ -116,7 +116,7 @@ impl Error {
     }
 
     pub(crate) fn resource_exhausted_with_source(
-        context: &'static str, 
+        context: &'static str,
         err: impl Into<BoxError>,
     ) -> Self {
         Self::ResourceExhausted {

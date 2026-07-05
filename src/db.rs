@@ -195,9 +195,7 @@ impl MetadataStore {
     }
 
     pub(super) fn store_dir_path(&self) -> Result<&Path> {
-        self.db_path
-            .parent()
-            .ok_or(Error::StorePathUnavailable)
+        self.db_path.parent().ok_or(Error::StorePathUnavailable)
     }
 }
 
@@ -223,4 +221,3 @@ fn default_dir_path() -> Result<PathBuf> {
 pub(super) fn corrupted_store(source: impl Into<BoxError>) -> Error {
     Error::CorruptedStore(Some(source.into()))
 }
-

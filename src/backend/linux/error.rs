@@ -7,9 +7,7 @@ impl Error {
         match err {
             tss_esapi::Error::Tss2Error(code) => match code.kind() {
                 Some(kind) if is_internal_err(kind) => Error::Internal(internal_err_context(kind)),
-                Some(kind) if is_authorization_err(kind) => {
-                    Error::AuthorizationFailed(err.into())
-                },
+                Some(kind) if is_authorization_err(kind) => Error::AuthorizationFailed(err.into()),
                 Some(kind) if is_resource_exhausted(kind) => Error::ResourceExhausted {
                     context: resource_exhausted_context(kind),
                     source: Some(err.into()),

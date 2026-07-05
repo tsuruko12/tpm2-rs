@@ -19,13 +19,18 @@ pub use policy::{PcrSlot, PolicyCommand};
 pub use rsa::{RsaKeyBits, RsaScheme};
 pub use symmetric::{BlockCipher, SymmetricAlgorithm, SymmetricKeyBits};
 
-pub(crate) use algorithm::{TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmsAlgProperty};
-pub(crate) use attribute::TpmaCc;
+pub(crate) use algorithm::{
+    TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmsAlgProperty,
+};
+pub(crate) use attribute::{TpmaCc, TpmlCca};
 pub(crate) use authorization::{Authorization, AuthorizationCache};
 pub(crate) use capability::{CapabilityData, TpmCap};
-pub(crate) use ecc::TpmEccCurve;
-pub(crate) use handle::*;
-pub(crate) use policy::{PcrSelection, TpmsPcrSelection};
+pub(crate) use ecc::{TpmEccCurve, TpmlEccCurve};
+pub(crate) use handle::{TpmHandle, TpmlHandle};
+pub(crate) use policy::{PcrSelection, TpmlPcrSelection, TpmsPcrSelection};
 pub(crate) use symmetric::{CipherMode, SymmetricKeySpec};
-pub(crate) use tag::{TpmPt, TpmPtPcr, TpmsTaggedPcrSelect, TpmsTaggedProperty};
-pub(crate) use tpm::TpmCc;
+pub(crate) use tag::{
+    TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,
+    TpmsTaggedProperty,
+};
+pub(crate) use tpm::{TpmCc, TpmlCc};
