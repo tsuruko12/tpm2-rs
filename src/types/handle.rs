@@ -1,4 +1,34 @@
-pub(crate) type TpmHandle = u32;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmlHandle {
+    items: Vec<TpmHandle>,
+}
+
+impl TpmlHandle {
+    pub(crate) fn new(items: Vec<TpmHandle>) -> Self {
+        Self { items }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct TpmHandle(u32);
+
+impl TpmHandle {
+    pub(crate) fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn value(self) -> u32 {
+        self.0
+    }
+}
 
 pub(crate) type TpmHt = u8;
 
