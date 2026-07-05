@@ -1,6 +1,6 @@
 use super::{
-    TpmCc, TpmEccCurve, TpmHandle, TpmaCc, TpmsAlgProperty, TpmsPcrSelection, TpmsTaggedPcrSelect,
-    TpmsTaggedProperty,
+    TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
+    TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
 };
 use crate::{Error, Result};
 
@@ -45,13 +45,13 @@ impl TryFrom<u32> for TpmCap {
 
 #[derive(Debug)]
 pub(crate) enum CapabilityData {
-    Algs(Vec<TpmsAlgProperty>),
-    Handles(Vec<TpmHandle>),
-    Commands(Vec<TpmaCc>),
-    PpCommands(Vec<TpmCc>),
-    AuditCommands(Vec<TpmCc>),
-    Pcrs(Vec<TpmsPcrSelection>),
-    TpmProperties(Vec<TpmsTaggedProperty>),
-    PcrProperties(Vec<TpmsTaggedPcrSelect>),
-    EccCurves(Vec<TpmEccCurve>),
+    Algs(TpmlAlgProperty),
+    Handles(TpmlHandle),
+    Commands(TpmlCca),
+    PpCommands(TpmlCc),
+    AuditCommands(TpmlCc),
+    Pcrs(TpmlPcrSelection),
+    TpmProperties(TpmlTaggedTpmProperty),
+    PcrProperties(TpmlTaggedPcrProperty),
+    EccCurves(TpmlEccCurve),
 }
