@@ -8,6 +8,25 @@ pub enum HashAlgorithm {
     Sha512,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmlAlgProperty {
+    items: Vec<TpmsAlgProperty>,
+}
+
+impl TpmlAlgProperty {
+    pub(crate) fn new(items: Vec<TpmsAlgProperty>) -> Self {
+        Self { items }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmsAlgProperty {
     alg: TpmAlgId,
