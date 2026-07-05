@@ -1,6 +1,8 @@
 use super::{
-    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaAlgorithm, TpmaCc, TpmsAlgProperty,
-    TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty,
+    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaAlgorithm, TpmaCc, TpmlAlgProperty, TpmlCc,
+    TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty,
+    TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsPcrSelection, TpmsTaggedPcrSelect,
+    TpmsTaggedProperty,
 };
 use crate::error::{Error, Result};
 
@@ -23,7 +25,7 @@ pub(crate) fn unmarshal_tpm2b(mut bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(value)
 }
 
-pub(crate) fn unmarshal_algs(mut bytes: &[u8], count: usize) -> Result<Vec<TpmsAlgProperty>> {
+pub(crate) fn unmarshal_algs(mut bytes: &[u8], count: usize) -> Result<TpmlAlgProperty> {
     validate_count(bytes.len(), count, 6)?;
 
     let mut items = Vec::with_capacity(count);
@@ -37,10 +39,10 @@ pub(crate) fn unmarshal_algs(mut bytes: &[u8], count: usize) -> Result<Vec<TpmsA
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlAlgProperty::new(items))
 }
 
-pub(crate) fn unmarshal_handles(mut bytes: &[u8], count: usize) -> Result<Vec<TpmHandle>> {
+pub(crate) fn unmarshal_handles(mut bytes: &[u8], count: usize) -> Result<TpmlHandle> {
     validate_count(bytes.len(), count, 4)?;
 
     let mut items = Vec::with_capacity(count);
@@ -52,10 +54,10 @@ pub(crate) fn unmarshal_handles(mut bytes: &[u8], count: usize) -> Result<Vec<Tp
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlHandle::new(items))
 }
 
-pub(crate) fn unmarshal_cca(mut bytes: &[u8], count: usize) -> Result<Vec<TpmaCc>> {
+pub(crate) fn unmarshal_cca(mut bytes: &[u8], count: usize) -> Result<TpmlCca> {
     validate_count(bytes.len(), count, 4)?;
 
     let mut items = Vec::with_capacity(count);
@@ -67,10 +69,10 @@ pub(crate) fn unmarshal_cca(mut bytes: &[u8], count: usize) -> Result<Vec<TpmaCc
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlCca::new(items))
 }
 
-pub(crate) fn unmarshal_cc(mut bytes: &[u8], count: usize) -> Result<Vec<TpmCc>> {
+pub(crate) fn unmarshal_cc(mut bytes: &[u8], count: usize) -> Result<TpmlCc> {
     validate_count(bytes.len(), count, 4)?;
 
     let mut items = Vec::with_capacity(count);
@@ -82,10 +84,10 @@ pub(crate) fn unmarshal_cc(mut bytes: &[u8], count: usize) -> Result<Vec<TpmCc>>
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlCc::new(items))
 }
 
-pub(crate) fn unmarshal_pcrs(mut bytes: &[u8], count: usize) -> Result<Vec<TpmsPcrSelection>> {
+pub(crate) fn unmarshal_pcrs(mut bytes: &[u8], count: usize) -> Result<TpmlPcrSelection> {
     validate_count(bytes.len(), count, 3)?;
 
     let mut items = Vec::with_capacity(count);
@@ -100,13 +102,13 @@ pub(crate) fn unmarshal_pcrs(mut bytes: &[u8], count: usize) -> Result<Vec<TpmsP
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlPcrSelection::new(items))
 }
 
 pub(crate) fn unmarshal_tpm_properties(
     mut bytes: &[u8],
     count: usize,
-) -> Result<Vec<TpmsTaggedProperty>> {
+) -> Result<TpmlTaggedTpmProperty> {
     validate_count(bytes.len(), count, 8)?;
 
     let mut items = Vec::with_capacity(count);
@@ -120,13 +122,13 @@ pub(crate) fn unmarshal_tpm_properties(
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlTaggedTpmProperty::new(items))
 }
 
 pub(crate) fn unmarshal_pcr_properties(
     mut bytes: &[u8],
     count: usize,
-) -> Result<Vec<TpmsTaggedPcrSelect>> {
+) -> Result<TpmlTaggedPcrProperty> {
     validate_count(bytes.len(), count, 5)?;
 
     let mut items = Vec::with_capacity(count);
@@ -141,10 +143,10 @@ pub(crate) fn unmarshal_pcr_properties(
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlTaggedPcrProperty::new(items))
 }
 
-pub(crate) fn unmarshal_ecc_curves(mut bytes: &[u8], count: usize) -> Result<Vec<TpmEccCurve>> {
+pub(crate) fn unmarshal_ecc_curves(mut bytes: &[u8], count: usize) -> Result<TpmlEccCurve> {
     validate_count(bytes.len(), count, 2)?;
 
     let mut items = Vec::with_capacity(count);
@@ -156,7 +158,7 @@ pub(crate) fn unmarshal_ecc_curves(mut bytes: &[u8], count: usize) -> Result<Vec
 
     ensure_consumed(bytes)?;
 
-    Ok(items)
+    Ok(TpmlEccCurve::new(items))
 }
 
 fn validate_count(bytes_len: usize, count: usize, item_size: usize) -> Result<()> {
