@@ -1,5 +1,24 @@
 use crate::{Error, Result};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmlTaggedTpmProperty {
+    items: Vec<TpmsTaggedProperty>,
+}
+
+impl TpmlTaggedTpmProperty {
+    pub(crate) fn new(items: Vec<TpmsTaggedProperty>) -> Self {
+        Self { items }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmsTaggedProperty {
     property: TpmPt,
@@ -17,6 +36,25 @@ impl TpmsTaggedProperty {
 
     pub(crate) fn value(self) -> u32 {
         self.value
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmlTaggedPcrProperty {
+    items: Vec<TpmsTaggedPcrSelect>,
+}
+
+impl TpmlTaggedPcrProperty {
+    pub(crate) fn new(items: Vec<TpmsTaggedPcrSelect>) -> Self {
+        Self { items }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 }
 
