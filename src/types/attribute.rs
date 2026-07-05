@@ -1,3 +1,22 @@
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmlCca {
+    items: Vec<TpmaCc>,
+}
+
+impl TpmlCca {
+    pub(crate) fn new(items: Vec<TpmaCc>) -> Self {
+        Self { items }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmaCc(u32);
 
