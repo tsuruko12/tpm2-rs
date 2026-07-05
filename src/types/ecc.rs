@@ -1,6 +1,25 @@
 use super::HashAlgorithm;
 use crate::{Error, Result};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TpmlEccCurve {
+    items: Vec<TpmEccCurve>,
+}
+
+impl TpmlEccCurve {
+    pub(crate) fn new(items: Vec<TpmEccCurve>) -> Self {
+        Self { items }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EccCurve {
     NistP256,
