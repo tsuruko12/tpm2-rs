@@ -1,23 +1,6 @@
-use crate::{Error, Result};
+use crate::{Error, Result, macros::tpm_list_type};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TpmlTaggedTpmProperty {
-    items: Vec<TpmsTaggedProperty>,
-}
-
-impl TpmlTaggedTpmProperty {
-    pub(crate) fn new(items: Vec<TpmsTaggedProperty>) -> Self {
-        Self { items }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-}
+tpm_list_type!(TpmlTaggedTpmProperty(TpmsTaggedProperty););
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmsTaggedProperty {
@@ -39,24 +22,7 @@ impl TpmsTaggedProperty {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TpmlTaggedPcrProperty {
-    items: Vec<TpmsTaggedPcrSelect>,
-}
-
-impl TpmlTaggedPcrProperty {
-    pub(crate) fn new(items: Vec<TpmsTaggedPcrSelect>) -> Self {
-        Self { items }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-}
+tpm_list_type!(TpmlTaggedPcrProperty(TpmsTaggedPcrSelect););
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TpmsTaggedPcrSelect {
@@ -234,7 +200,7 @@ impl TryFrom<u32> for TpmPt {
             0x0000_0212 => Ok(Self::NvWriteRecovery),
             0x0000_0213 => Ok(Self::AuditCounter0),
             0x0000_0214 => Ok(Self::AuditCounter1),
-            _ => Err(Error::Internal("unsupported TPM property")),
+            _ => Err(Error::conversion::<u32, TpmPt>()),
         }
     }
 }
@@ -279,7 +245,7 @@ impl TryFrom<u32> for TpmPtPcr {
             0x0000_0012 => Ok(Self::PcrDrtmReset),
             0x0000_0013 => Ok(Self::PcrPolicy),
             0x0000_0014 => Ok(Self::PcrAuth),
-            _ => Err(Error::Internal("unsupported TPM PCR property")),
+            _ => Err(Error::conversion::<u32, TpmPtPcr>()),
         }
     }
 }

@@ -1,18 +1,36 @@
 mod capability;
+mod handle;
+mod key;
+mod provision;
 mod random;
+mod session;
 mod tbs;
 
-use std::ffi::c_void;
+use std::{ffi::c_void, ptr};
 
-use super::{
-    codec::marshal_be,
-    codec::{require_len, unmarshal_tpm2b},
-    commands::{Command, CommandHeader, TPM_CC_GET_CAPABILITY, TPM_CC_GET_RANDOM, TPM_HEADER_SIZE},
-    types::{CapabilityData, TPM_RC_SUCCESS, TpmRc, TpmSt},
-};
+use tracing::debug;
 
+use super::types::TpmiShAuthSession;
+
+type SessionSlots = [Option<TpmiShAuthSession>; 3];
 type ContextHandle = *mut c_void;
 
-pub struct Context {
+#[derive(Debug)]
+pub(crate) struct Context {
     handle: ContextHandle,
+    sessions: SessionSlots,
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        if let Err(e) = self.flush_sessions() {
+            debug!(err = ?e, "failed to flush TPM sessions");
+        }
+
+        if let Err(e) = self.close() {
+            debug!(err = ?e, "failed to close TBS context handle");
+        }
+
+        self.handle = ptr::null_mut();
+    }
 }

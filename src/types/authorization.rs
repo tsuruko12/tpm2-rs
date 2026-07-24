@@ -1,17 +1,12 @@
 use std::collections::{HashMap, hash_map::Entry};
 
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::{
-    db::generate_id,
-    error::Result,
-    types::{Hierarchy, policy::Policy},
-};
+use crate::{db::generate_id, error::Result, hierarchy::Hierarchy, policy::PolicyData};
 
-#[derive(Default)]
+#[derive(Default, Zeroize, ZeroizeOnDrop)]
 struct KeyAuthorization {
-    parent_auth: Option<Zeroizing<Vec<u8>>>,
-    selected_policy_branch: Option<usize>,
+    parent_auth: Option<Vec<u8>>,
 }
 
 pub(crate) struct AuthorizationCache {
@@ -55,24 +50,11 @@ impl AuthorizationCache {
         self.key_authorizations.remove(id);
     }
 
-    pub(crate) fn set_parent_auth(&mut self, id: &str, auth: impl Into<Zeroizing<Vec<u8>>>) {
+    pub(crate) fn set_parent_auth(&mut self, id: &str, auth: impl Into<Vec<u8>>) {
         self.key_authorizations
             .entry(id.to_string())
             .or_default()
             .parent_auth = Some(auth.into());
-    }
-
-    pub(crate) fn set_policy_branch(&mut self, id: &str, index: usize) {
-        self.key_authorizations
-            .entry(id.to_string())
-            .or_default()
-            .selected_policy_branch = Some(index);
-    }
-
-    pub(crate) fn get_policy_branch(&self, id: &str) -> Option<usize> {
-        self.key_authorizations
-            .get(id)
-            .and_then(|entry| entry.selected_policy_branch)
     }
 
     pub(crate) fn set_hierarchy_policy_branch(&mut self, hierarchy: Hierarchy, index: usize) {
@@ -98,25 +80,28 @@ impl AuthorizationCache {
 
 #[derive(Default)]
 pub(crate) struct Authorization {
-    auth: Option<Zeroizing<Vec<u8>>>,
-    policy: Option<Policy>,
+    auth: Zeroizing<Vec<u8>>,
+    policy: Option<PolicyData>,
 }
 
 impl Authorization {
-    pub(crate) fn new(auth: Option<&[u8]>, policy: Option<Policy>) -> Self {
-        let auth = auth.map(|v| Zeroizing::new(v.to_vec()));
-        Self { auth, policy }
+    pub(crate) fn new(auth: impl Into<Zeroizing<Vec<u8>>>, policy: Option<PolicyData>) -> Self {
+        Self { auth: auth.into(), policy }
     }
 
-    pub(crate) fn auth_bytes(&self) -> Option<&[u8]> {
-        self.auth.as_ref().map(|v| v.as_slice())
+    pub(crate) fn auth(&self) -> &[u8] {
+        self.auth.as_ref()
     }
 
-    pub(crate) fn policy(&self) -> Option<&Policy> {
+    pub(crate) fn policy(&self) -> Option<&PolicyData> {
         self.policy.as_ref()
     }
 
     pub(crate) fn set_auth(&mut self, auth: impl Into<Zeroizing<Vec<u8>>>) {
-        self.auth = Some(auth.into());
+        self.auth = auth.into();
+    }
+
+    pub(crate) fn as_parts(&self) -> (&[u8], Option<&PolicyData>) {
+        (&self.auth, self.policy())
     }
 }

@@ -1,18 +1,16 @@
-use crate::error::Result;
+use crate::{error::Result, types::TpmCc};
 
-use super::{Command, CommandHeader, Context, TPM_CC_GET_RANDOM, require_len, unmarshal_tpm2b};
-
-const REQUEST_PARAM_SIZE: usize = 2;
-const RESPONSE_MIN_SIZE: usize = 2;
+use super::Context;
+use super::super::{codec::read_tpm2b_exact, commands::Command};
 
 impl Context {
-    pub(crate) fn get_random_once(&mut self, num_bytes: u16) -> Result<Vec<u8>> {
-        let header = CommandHeader::no_sessions(REQUEST_PARAM_SIZE, TPM_CC_GET_RANDOM);
-        let command = Command::new(header, num_bytes.to_be_bytes());
+    pub(crate) fn get_random(&mut self, num_bytes: u16) -> Result<Vec<u8>> {
+        let request_param = num_bytes.to_be_bytes();
+        let command = Command::new(TpmCc::GET_RANDOM)
+            .with_parameters(&request_param);
 
-        let request_params = self.submit(command)?;
-        require_len(&request_params, RESPONSE_MIN_SIZE)?;
-
-        unmarshal_tpm2b(&request_params)
+        let response_body = self.submit(command)?;
+        
+        read_tpm2b_exact(&response_body)
     }
 }

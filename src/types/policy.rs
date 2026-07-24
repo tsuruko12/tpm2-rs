@@ -1,12 +1,44 @@
-use crate::types::{HashAlgorithm, TpmiAlgHash};
+use crate::{Error, Result, types::Tpm2bDigest};
+use super::algorithm::HashAlgorithm;
 
 const MAX_POLICY_OR_BRANCHES: usize = 8;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Policy {
-    AuthValue,
+    Pcr(PcrSelection),
     Command(PolicyCommand),
+    AuthValue,
+    Password,
+    Or(Vec<Policy>),
+    Sequence(Vec<Policy>)
+}
+
+// validate policy when key creation
+// will change Result<Self> to Self later
+
+// flatten like nesting Or
+impl Policy {
+    pub fn pcr(slots: &[PcrSlot]) -> Result<Self> {
+        let selection = PcrSelection::new(HashAlgorithm::Sha256, slots)?;
+        Ok(Self::Pcr(selection))
+    }
+
+    pub fn command(command: PolicyCommand) -> Self {
+        Self::Command(command)
+    }
+
+    pub fn auth_value() -> Self {
+        Self::AuthValue
+    }
+
+    pub fn password() -> Self {
+        Self::Password
+    }
+
+    pub fn or(policies: &[Self]) -> Self {
+        Self::Or(policies.to_vec())
+    }
 }
 
 #[non_exhaustive]
@@ -22,63 +54,33 @@ pub enum PolicyCommand {
     Unseal,
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PcrSlot {
-    Slot0,
-    Slot1,
-    Slot2,
-    Slot3,
-    Slot4,
-    Slot5,
-    Slot6,
-    Slot7,
-    Slot8,
-    Slot9,
-    Slot10,
-    Slot11,
-    Slot12,
-    Slot13,
-    Slot14,
-    Slot15,
-    Slot16,
-    Slot17,
-    Slot18,
-    Slot19,
-    Slot20,
-    Slot21,
-    Slot22,
-    Slot23,
-}
-
-impl From<PcrSlot> for u32 {
-    fn from(value: PcrSlot) -> Self {
-        match value {
-            PcrSlot::Slot0 => 0,
-            PcrSlot::Slot1 => 1,
-            PcrSlot::Slot2 => 2,
-            PcrSlot::Slot3 => 3,
-            PcrSlot::Slot4 => 4,
-            PcrSlot::Slot5 => 5,
-            PcrSlot::Slot6 => 6,
-            PcrSlot::Slot7 => 7,
-            PcrSlot::Slot8 => 8,
-            PcrSlot::Slot9 => 9,
-            PcrSlot::Slot10 => 10,
-            PcrSlot::Slot11 => 11,
-            PcrSlot::Slot12 => 12,
-            PcrSlot::Slot13 => 13,
-            PcrSlot::Slot14 => 14,
-            PcrSlot::Slot15 => 15,
-            PcrSlot::Slot16 => 16,
-            PcrSlot::Slot17 => 17,
-            PcrSlot::Slot18 => 18,
-            PcrSlot::Slot19 => 19,
-            PcrSlot::Slot20 => 20,
-            PcrSlot::Slot21 => 21,
-            PcrSlot::Slot22 => 22,
-            PcrSlot::Slot23 => 23,
-        }
-    }
+    Slot0 = 0,
+    Slot1 = 1,
+    Slot2 = 2,
+    Slot3 = 3,
+    Slot4 = 4,
+    Slot5 = 5,
+    Slot6 = 6,
+    Slot7 = 7,
+    Slot8 = 8,
+    Slot9 = 9,
+    Slot10 = 10,
+    Slot11 = 11,
+    Slot12 = 12,
+    Slot13 = 13,
+    Slot14 = 14,
+    Slot15 = 15,
+    Slot16 = 16,
+    Slot17 = 17,
+    Slot18 = 18,
+    Slot19 = 19,
+    Slot20 = 20,
+    Slot21 = 21,
+    Slot22 = 22,
+    Slot23 = 23,
 }
 
 impl TryFrom<u8> for PcrSlot {
@@ -110,27 +112,32 @@ impl TryFrom<u8> for PcrSlot {
             21 => Ok(Self::Slot21),
             22 => Ok(Self::Slot22),
             23 => Ok(Self::Slot23),
-            _ => Err(crate::Error::Internal("unsupported PCR slot")),
+            _ => Err(Error::conversion::<u8, PcrSlot>()),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PcrSelection {
-    hash: HashAlgorithm,
+pub struct PcrSelection {
+    hash_alg: HashAlgorithm,
     slots: Vec<PcrSlot>,
 }
 
 impl PcrSelection {
-    pub(crate) fn new(hash: HashAlgorithm, slots: &[PcrSlot]) -> Self {
-        Self {
-            hash,
-            slots: slots.to_vec(),
+    pub fn new(hash_alg: HashAlgorithm, slots: &[PcrSlot]) -> Result<Self> {
+        if slots.is_empty() {
+            return Err(Error::InvalidPolicy("PCR selection must contain at least one slot"));
         }
+
+        let mut slots = slots.to_vec();
+        slots.sort_unstable_by_key(|slot| *slot as u8);
+        slots.dedup();
+
+        Ok(Self { hash_alg, slots })
     }
 
-    pub(crate) fn hash(&self) -> HashAlgorithm {
-        self.hash
+    pub(crate) fn hash_alg(&self) -> HashAlgorithm {
+        self.hash_alg
     }
 
     pub(crate) fn slots(&self) -> &[PcrSlot] {
@@ -138,45 +145,66 @@ impl PcrSelection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TpmlPcrSelection {
-    items: Vec<TpmsPcrSelection>,
+#[derive(Debug, Clone)]
+pub(crate) enum PolicyData {
+    Pcr(PcrSelection),
+    Command(PolicyCommand),
+    AuthValue,
+    Password,
+    Or {
+        branches: Vec<PolicyData>,
+        branch_digests: Option<Vec<Tpm2bDigest>>,
+        selected_branch: Option<usize>,
+    },
+    Sequence(Vec<PolicyData>),
 }
 
-impl TpmlPcrSelection {
-    pub(crate) fn new(items: Vec<TpmsPcrSelection>) -> Self {
-        Self { items }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PolicyAuthKind {
+    AuthValue,
+    Password,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TpmsPcrSelection {
-    hash: TpmiAlgHash,
-    pcr_select: Vec<u8>,
-}
+impl PolicyData {
+    pub(crate) fn auth_kind(&self) -> Result<Option<PolicyAuthKind>> {
+        match self {
+            Self::Pcr(_) | Self::Command(_) => Ok(None),
+            Self::AuthValue => Ok(Some(PolicyAuthKind::AuthValue)),
+            Self::Password => Ok(Some(PolicyAuthKind::Password)),
+            Self::Sequence(steps) => {
+                for step in steps {
+                    if let Some(kind) = step.auth_kind()? {
+                        return Ok(Some(kind));
+                    }
+                }
 
-impl TpmsPcrSelection {
-    pub(crate) fn new(hash: TpmiAlgHash, pcr_select: Vec<u8>) -> Self {
-        Self { hash, pcr_select }
+                Ok(None)
+            }
+            Self::Or { .. } => {
+                let (_, branch) = self.selected_or_branch()?;
+                branch.auth_kind()
+            }
+        }
     }
 
-    pub(crate) fn hash(&self) -> TpmiAlgHash {
-        self.hash
-    }
+    pub(crate) fn selected_or_branch(&self) -> Result<(&[Tpm2bDigest], &Self)> {
+        let Self::Or {
+            branches,
+            branch_digests,
+            selected_branch,
+        } = self else {
+            return Err(Error::invalid_state("expected PolicyOr"));
+        };
 
-    pub(crate) fn pcr_select(&self) -> &[u8] {
-        &self.pcr_select
-    }
+        let idx = (*selected_branch)
+            .ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
+        let digests = branch_digests
+            .as_deref()
+            .ok_or(Error::invalid_state("digests should be set when a branch is selected"))?;
+        let branch = branches
+            .get(idx)
+            .ok_or(Error::invalid_state("selected branch index should be in range"))?;
 
-    pub(crate) fn size_of_select(&self) -> usize {
-        self.pcr_select.len()
+        Ok((digests, branch))
     }
 }

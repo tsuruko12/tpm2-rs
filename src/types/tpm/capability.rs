@@ -2,12 +2,12 @@ use super::{
     TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
     TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
 };
-use crate::{Error, Result};
+use crate::{Error, Result, macros::unknown_tpm_data};
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TpmCap {
-    Algs = 0x0000_0000,
+    Algorithms = 0x0000_0000,
     Handles = 0x0000_0001,
     Commands = 0x0000_0002,
     PPCommands = 0x0000_0003,
@@ -19,8 +19,8 @@ pub(crate) enum TpmCap {
 }
 
 impl TpmCap {
-    pub(crate) const fn to_be_bytes(self) -> [u8; 4] {
-        (self as u32).to_be_bytes()
+    pub(crate) fn raw(self) -> u32 {
+        self as u32
     }
 }
 
@@ -29,7 +29,7 @@ impl TryFrom<u32> for TpmCap {
 
     fn try_from(value: u32) -> Result<Self> {
         match value {
-            0x0000_0000 => Ok(Self::Algs),
+            0x0000_0000 => Ok(Self::Algorithms),
             0x0000_0001 => Ok(Self::Handles),
             0x0000_0002 => Ok(Self::Commands),
             0x0000_0003 => Ok(Self::PPCommands),
@@ -38,14 +38,14 @@ impl TryFrom<u32> for TpmCap {
             0x0000_0006 => Ok(Self::TpmProperties),
             0x0000_0007 => Ok(Self::PcrProperties),
             0x0000_0008 => Ok(Self::ECCCurves),
-            _ => Err(Error::Internal("unsupported TPM capability type")),
+            _ => unknown_tpm_data!(value, "capability type"),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum CapabilityData {
-    Algs(TpmlAlgProperty),
+    Algorithms(TpmlAlgProperty),
     Handles(TpmlHandle),
     Commands(TpmlCca),
     PpCommands(TpmlCc),

@@ -1,8 +1,10 @@
+use tracing::error;
+
 use crate::{
-    backend::BackendContext,
-    db::MetadataStore,
-    error::{Error, Result},
-    types::AuthorizationCache,
+    backend::BackendContext, 
+    db::MetadataStore, 
+    error::{Error, Result}, 
+    types::{Authorization, AuthorizationCache},
 };
 
 pub struct Context {
@@ -29,6 +31,15 @@ impl Context {
         })
     }
 
+    pub fn provision(&mut self) -> Result<()> {
+        self.store.init()?;
+        
+        let key_meta = self.backend.create_internal_keys(&Authorization::default())?;
+        self.store.add_internal_key_meta(&key_meta)?;
+
+        Ok(())
+    }
+
     pub fn get_random(&mut self, num_bytes: usize) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
 
@@ -39,16 +50,16 @@ impl Context {
             let remaining = num_bytes - buf.len();
             let chunk_size = remaining.min(u16::MAX as usize) as u16;
 
-            let chunk = self.backend.get_random_once(chunk_size)?;
+            let chunk = self.backend.get_random(chunk_size)?;
 
             if chunk.is_empty() {
-                return Err(Error::Internal("TPM returned no random bytes"));
+                error!("TPM returned no random bytes");
+                return Err(Error::InvalidData);
             }
 
             if chunk.len() > chunk_size as usize {
-                return Err(Error::Internal(
-                    "TPM returned more random bytes than requested",
-                ));
+                error!("TPM returned more random bytes than requested");
+                return Err(Error::InvalidData);
             }
 
             buf.extend_from_slice(&chunk);

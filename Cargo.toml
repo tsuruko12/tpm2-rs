@@ -6,7 +6,7 @@ edition = "2024"
 [features]
 default = ["rustcrypto"]
 
-rustcrypto = ["dep:aes-gcm", "dep:sha1", "dep:sha2", "dep:sha3", "dep:sm3"]
+rustcrypto = ["dep:aes-gcm", "dep:sha1", "dep:sha2", "dep:sha3"]
 openssl = ["dep:openssl"]
 
 bundled = ["rusqlite/bundled"]
@@ -16,20 +16,24 @@ bundled-windows = ["rusqlite/bundled-windows"]
 aes-gcm = { version = "0.10", optional = true }
 asn1 = "0.24"
 base64 = "0.22"
+bitflags = "2.13"
 block-padding = "0.4"
 directories = "6.0"
-getrandom = "0.4"
 openssl = { version = "0.10", optional = true }
+rand = "0.8"
 rusqlite = { version = "0.40", default-features = false }
 sha1 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
 sha3 = { version = "0.10", optional = true }
-sm3 = { version = "0.4", optional = true }
 thiserror = "2.0.18"
 tracing = "0.1"
-zeroize = "1.9"
+zeroize = { version = "1.9", features = ["derive"]}
 
 [target.'cfg(target_os = "windows")'.dependencies]
+aes = "0.8"
+hmac = "0.12"
+rsa = "0.9"
+sha2 = "0.10"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_TpmBaseServices",

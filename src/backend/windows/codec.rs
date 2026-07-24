@@ -1,16 +1,13 @@
-mod macros;
+mod parse;
 mod wire;
 
-pub(super) use macros::marshal_be;
-pub(super) use wire::{
-    require_len, unmarshal_algs, unmarshal_cc, unmarshal_cca, unmarshal_ecc_curves,
-    unmarshal_handles, unmarshal_pcr_properties, unmarshal_pcrs, unmarshal_tpm_properties,
-    unmarshal_tpm2b,
+pub(super) use self::parse::{
+    CreateResponse, CreatePrimaryResponse, GetCapabilityResponse, LoadResponse, PcrReadResponse, 
+    ReadPublicResponse, StartAuthSessionResponse, parse_response_params_and_authorizations
+};
+pub(super) use self::wire::{
+    read_vec, marshal_tpm2b, read_tpm2b_exact, tpm2b_payload_mut, 
+    TpmMarshal, TpmUnmarshal
 };
 
-use super::types::{
-    TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaAlgorithm, TpmaCc, TpmlAlgProperty, TpmlCc,
-    TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty,
-    TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsPcrSelection, TpmsTaggedPcrSelect,
-    TpmsTaggedProperty,
-};
+use self::wire::{ensure_consumed, read_tpm2b, read_u8, read_u32};

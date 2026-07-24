@@ -1,3 +1,5 @@
+use std::any::type_name;
+
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -26,6 +28,10 @@ pub enum Error {
     },
     #[error("{0}")]
     InvalidParameter(String),
+    #[error("selected persistent handle is already in use")]
+    PersistentHandleInUse(u32),
+    #[error("invalid data returned by TPM")]
+    InvalidData,
     #[error("key store data is corrupted")]
     CorruptedStore(#[source] Option<BoxError>),
     #[error("key not found")]
@@ -40,35 +46,46 @@ pub enum Error {
         #[source]
         source: Option<BoxError>,
     },
+    #[error("store I/O operation failed")]
+    StoreIo(#[from] std::io::Error),
     #[error("store operation failed")]
     Store(#[from] rusqlite::Error),
+    #[error("store already exists")]
+    StoreAlreadyExists,
+    #[error("failed to provision")]
+    ProvisionFailed,
+    #[error("provisioning is required")]
+    NotProvisioned,
     #[error("{context}")]
     Unsupported {
         context: String,
         #[source]
         source: Option<BoxError>,
     },
-    #[error("{0}")]
-    Internal(&'static str),
+    #[error("internal error")]
+    Internal,
 }
 
 impl Error {
-    pub(crate) fn connect(err: impl Into<BoxError>) -> Self {
-        Self::Connect(err.into())
+    pub(crate) fn connect(source: impl Into<BoxError>) -> Self {
+        Self::Connect(source.into())
     }
 
-    pub(crate) fn failure(err: impl Into<BoxError>) -> Self {
-        Self::Failure(err.into())
+    pub(crate) fn failure(source: impl Into<BoxError>) -> Self {
+        Self::Failure(source.into())
     }
 
-    pub(crate) fn authorization_failed(err: impl Into<BoxError>) -> Self {
-        Self::AuthorizationFailed(err.into())
+    pub(crate) fn authorization_failed(source: impl Into<BoxError>) -> Self {
+        Self::AuthorizationFailed(source.into())
     }
 
-    pub(crate) fn invalid_key_with_source(context: &'static str, err: impl Into<BoxError>) -> Self {
+    pub(crate) fn invalid_key_with_source(
+        context: &'static str, 
+        source: impl Into<BoxError>,
+    ) -> Self {
         Self::InvalidKey {
             context,
-            source: Some(err.into()),
+            source: Some(source.into()),
         }
     }
 
@@ -79,8 +96,8 @@ impl Error {
         }
     }
 
-    pub(crate) fn invalid_signature(err: impl Into<BoxError>) -> Self {
-        Self::InvalidSignature(err.into())
+    pub(crate) fn invalid_signature(source: impl Into<BoxError>) -> Self {
+        Self::InvalidSignature(source.into())
     }
 
     pub(crate) fn invalid_param(context: impl Into<String>) -> Self {
@@ -89,6 +106,10 @@ impl Error {
 
     pub(crate) fn corrupted_store() -> Self {
         Self::CorruptedStore(None)
+    }
+
+    pub(crate) fn corrupted_store_with_source(source: impl Into<BoxError>) -> Self {
+        Self::CorruptedStore(Some(source.into()))
     }
 
     pub(crate) fn unsupported(context: impl Into<String>) -> Self {
@@ -117,15 +138,95 @@ impl Error {
 
     pub(crate) fn resource_exhausted_with_source(
         context: &'static str,
-        err: impl Into<BoxError>,
+        source: impl Into<BoxError>,
     ) -> Self {
         Self::ResourceExhausted {
             context,
-            source: Some(err.into()),
+            source: Some(source.into()),
         }
     }
 
-    pub(crate) fn busy(err: impl Into<BoxError>) -> Self {
-        Self::Busy(err.into())
+    pub(crate) fn busy(source: impl Into<BoxError>) -> Self {
+        Self::Busy(source.into())
     }
+
+    pub(crate) fn internal(source: InternalError) -> Self {
+        tracing::debug!("{source}");
+        Self::Internal
+    }
+
+    pub(crate) fn insufficient_bytes<T: ?Sized>(
+        required: usize, 
+        remaining: usize,
+    ) -> Self {
+        Self::internal(InternalError::InsufficientBytes {
+            target: type_name::<T>(),
+            required,
+            remaining,
+        })
+    }
+
+    pub(crate) fn trailing_bytes<T: ?Sized>(
+        remaining: usize,
+    ) -> Self {
+        Self::internal(InternalError::TrailingBytes {
+            target: type_name::<T>(),
+            remaining,
+        })
+    }
+
+    pub(crate) fn conversion<From: ?Sized, To: ?Sized>() -> Self {
+        Self::internal(InternalError::Conversion {
+            from: type_name::<From>(),
+            to: type_name::<To>(),
+        })
+    }
+
+    pub(crate) fn random_generation(source: rand::Error) -> Self {
+        Self::internal(InternalError::RandomGeneration(source))
+    }
+
+    pub(crate) fn invalid_state(context: impl Into<String>) -> Self {
+        Self::internal(InternalError::InvalidState(context.into()))
+    }
+
+    pub(crate) fn encryption(source: impl Into<BoxError>) -> Self {
+        Self::internal(InternalError::Encryption(source.into()))
+    }
+
+    pub(crate) fn session_flush(source: impl Into<BoxError>) -> Self {
+        Self::internal(InternalError::SessionFlushFailed(source.into()))
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum InternalError {
+    #[error("target: {target}, required: {required}, remaining: {remaining}")]
+    InsufficientBytes {
+        target: &'static str,
+        required: usize,
+        remaining: usize,
+    },
+    #[error("target: {target}, remaining: {remaining}")]
+    TrailingBytes {
+        target: &'static str,
+        remaining: usize,
+    },
+    #[error("failed to convert {from} to {to}")]
+    Conversion {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[error("{0:?}")]
+    RandomGeneration(#[from] rand::Error),
+    #[error("{0}")]
+    InvalidState(String),
+    #[error("TPM responce code: {0:#x}")]
+    InvalidTpmCommand(u32),
+    #[error("TBS response code {0:#x}")]
+    Tbs(u32),
+    #[error("{0:?}")]
+    Encryption(#[source] BoxError),
+    #[error("failed to flush TPM session")]
+    SessionFlushFailed(BoxError),
 }

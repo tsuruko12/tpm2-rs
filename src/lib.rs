@@ -8,20 +8,27 @@ mod backend;
 mod context;
 mod db;
 pub mod error;
+mod macros;
 mod types;
 
 pub use crate::{
     context::Context,
     error::{Error, Result},
-    types::SymmetricKeyBits,
+    types::{algorithm, ecc, hierarchy, policy, public, rsa, symmetric},
 };
+
+use rand::{rngs::OsRng, RngCore};
 use zeroize::Zeroizing;
+
+use symmetric::SymmetricKeyBits;
+
+// kdfだけ中途半端な設計
 
 const SYMMETRIC_BLOCK_SIZE: usize = 16;
 
 fn generate_random_bytes(length: usize) -> Result<Vec<u8>> {
     let mut key = vec![0u8; length];
-    getrandom::fill(&mut key).map_err(|_| os_rng_err())?;
+    OsRng.try_fill_bytes(&mut key).map_err(Error::random_generation)?;
 
     Ok(key)
 }
@@ -33,11 +40,8 @@ fn generate_sym_key(key_bits: SymmetricKeyBits) -> Result<Zeroizing<Vec<u8>>> {
     };
 
     let mut key = Zeroizing::new(vec![0u8; key_len]);
-    getrandom::fill(key.as_mut_slice()).map_err(|_| os_rng_err())?;
+    OsRng.try_fill_bytes(key.as_mut_slice()).map_err(Error::random_generation)?;
 
     Ok(key)
 }
 
-fn os_rng_err() -> Error {
-    Error::Internal("failed to generate random bytes")
-}

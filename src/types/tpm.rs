@@ -1,20 +1,35 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TpmlCc {
-    items: Vec<TpmCc>,
-}
+mod algorithm;
+mod attribute;
+mod auth;
+mod capability;
+mod command;
+mod digest;
+mod ecc;
+mod handle;
+mod policy;
+mod public;
+mod rsa;
+mod symmetric;
+mod tag;
 
-impl TpmlCc {
-    pub(crate) fn new(items: Vec<TpmCc>) -> Self {
-        Self { items }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-}
-
-pub(crate) type TpmCc = u32;
+pub(crate) use self::auth::*;
+pub(crate) use self::algorithm::{
+    TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmsAlgProperty,
+};
+pub(crate) use self::attribute::{TpmaCc, TpmlCca};
+pub(crate) use self::capability::{CapabilityData, TpmCap};
+pub(crate) use self::command::{TpmCc, TpmlCc};
+pub(crate) use self::digest::Tpm2bDigest;
+pub(crate) use self::ecc::{
+    TpmEccCurve, TpmiAlgEccScheme, TpmiAlgKdf, TpmiEccCurve, TpmlEccCurve, TpmsEccParams,
+    TpmtEccScheme,
+};
+pub(crate) use self::handle::*;
+pub(crate) use self::policy::{TpmlPcrSelection, TpmsPcrSelection};
+pub(crate) use self::public::{TpmaObject, TpmiAlgPublic, TpmtPublic, TpmuPublicId, TpmuPublicParams};
+pub(crate) use self::rsa::{TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParams, TpmtRsaScheme};
+pub(crate) use self::symmetric::{TpmiAlgSymMode, TpmiAlgSymObject, TpmKeyBits, TpmtSymDefObject};
+pub(crate) use self::tag::{
+    TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,
+    TpmsTaggedProperty,
+};

@@ -2,4 +2,4 @@ mod context;
 mod error;
 mod types;
 
-pub use context::Context;
+pub use self::context::Context;

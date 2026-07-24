@@ -2,6 +2,7 @@ mod codec;
 mod commands;
 mod context;
 mod error;
+mod macros;
 mod types;
 
-pub use context::Context;
+pub(crate) use self::context::Context;
