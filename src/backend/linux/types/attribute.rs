@@ -1,14 +1,34 @@
-use tss_esapi::structures::CommandCodeAttributesList;
+use tss_esapi::{
+    attributes::{ObjectAttributes, SessionAttributes, SessionAttributesMask},
+    structures::CommandCodeAttributesList,
+};
 
-use crate::types::{TpmaCc, TpmlCca};
+use crate::{
+    Error, Result,
+    types::{TpmaObject, TpmaSession, TpmlCca},
+};
 
-impl From<CommandCodeAttributesList> for TpmlCca {
-    fn from(value: CommandCodeAttributesList) -> Self {
-        let items = value
+impl TryFrom<CommandCodeAttributesList> for TpmlCca {
+    type Error = Error;
+
+    fn try_from(cca_list: CommandCodeAttributesList) -> Result<Self> {
+        let items = cca_list
             .into_iter()
-            .map(|item| TpmaCc::new(item.into()))
-            .collect();
+            .map(|item| item.0.try_into())
+            .collect::<Result<Vec<_>>>()?;
 
-        Self::new(items)
+        Ok(items.into())
+    }
+}
+
+impl From<TpmaSession> for SessionAttributes {
+    fn from(session_attrs: TpmaSession) -> Self {
+        session_attrs.bits().into()
+    }
+}
+
+impl From<ObjectAttributes> for TpmaObject {
+    fn from(obj_attrs: ObjectAttributes) -> Self {
+        Self::from_bits_retain(obj_attrs.0)
     }
 }

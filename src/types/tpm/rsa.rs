@@ -1,20 +1,25 @@
 use crate::{
-    Error, Result, macros::{newtype, tpm2b_bytes_type}, types::rsa::{RsaKeyBits, RsaScheme},
+    Error, Result,
+    macros::{newtype, tpm2b_bytes_type},
+    types::{
+        TpmsEmpty, TpmsSchemeHash,
+        rsa::{RsaKeyBits, RsaScheme},
+    },
 };
 
-use super::{TpmAlgId, TpmiAlgHash, TpmtSymDefObject};
+use super::{TpmAlgId, TpmtSymDefObject};
 
 tpm2b_bytes_type!(Tpm2bPublicKeyRsa);
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmsRsaParams {
+pub(crate) struct TpmsRsaParms {
     symmetric: TpmtSymDefObject,
     scheme: TpmtRsaScheme,
     key_bits: TpmiRsaKeyBits,
     exponent: u32,
 }
 
-impl TpmsRsaParams {
+impl TpmsRsaParms {
     const DEFAULT_EXPONENT: u32 = 0;
 
     pub(crate) fn new(
@@ -67,75 +72,101 @@ impl TpmsRsaParams {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum TpmtRsaScheme {
-    RsaSsa(TpmiAlgHash),
-    RsaPss(TpmiAlgHash),
-    Oaep(TpmiAlgHash),
-    RsaEs,
-    Null,
+pub(crate) struct TpmtRsaScheme {
+    scheme: TpmiAlgRsaScheme,
+    details: TpmuRsaScheme,
 }
 
 impl TpmtRsaScheme {
-    fn null() -> Self {
-        Self::Null
-    }
-
-    pub(crate) fn into_parts(self) -> (TpmiAlgRsaScheme, Option<TpmiAlgHash>) {
-        match self {
-            Self::RsaSsa(hash) => (TpmiAlgRsaScheme::RSASSA, Some(hash)),
-            Self::RsaPss(hash) => (TpmiAlgRsaScheme::RSAPSS, Some(hash)),
-            Self::Oaep(hash) => (TpmiAlgRsaScheme::OAEP, Some(hash)),
-            Self::RsaEs => (TpmiAlgRsaScheme::RSAES, None),
-            Self::Null => (TpmiAlgRsaScheme::NULL, None),
+    pub(crate) fn oaep(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgRsaScheme::OAEP,
+            details: TpmuRsaScheme::Oaep(scheme_hash),
         }
     }
+
+    pub(crate) fn rsa_ssa(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgRsaScheme::RSA_SSA,
+            details: TpmuRsaScheme::RsaSsa(scheme_hash),
+        }
+    }
+
+    pub(crate) fn rsa_pss(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgRsaScheme::RSA_PSS,
+            details: TpmuRsaScheme::RsaPss(scheme_hash),
+        }
+    }
+
+    pub(crate) fn rsa_es() -> Self {
+        Self {
+            scheme: TpmiAlgRsaScheme::RSA_ES,
+            details: TpmuRsaScheme::RsaEs(TpmsEmpty),
+        }
+    }
+
+    pub(crate) fn null() -> Self {
+        Self {
+            scheme: TpmiAlgRsaScheme::NULL,
+            details: TpmuRsaScheme::Null,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (TpmiAlgRsaScheme, TpmuRsaScheme) {
+        (self.scheme, self.details)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TpmuRsaScheme {
+    RsaSsa(TpmsSchemeHash),
+    RsaPss(TpmsSchemeHash),
+    Oaep(TpmsSchemeHash),
+    RsaEs(TpmsEmpty),
+    Null,
 }
 
 impl From<RsaScheme> for TpmtRsaScheme {
-    fn from(value: RsaScheme) -> Self {
-        match value {
-            RsaScheme::Oaep(hash) => Self::Oaep(hash.into()),
-            RsaScheme::RsaSsa(hash) => Self::RsaSsa(hash.into()),
-            RsaScheme::RsaPss(hash) => Self::RsaPss(hash.into()),
-            RsaScheme::RsaEs => Self::RsaEs,
+    fn from(rsa_scheme: RsaScheme) -> Self {
+        match rsa_scheme {
+            RsaScheme::Oaep(hash) => Self::oaep(hash.into()),
+            RsaScheme::RsaSsa(hash) => Self::rsa_ssa(hash.into()),
+            RsaScheme::RsaPss(hash) => Self::rsa_pss(hash.into()),
+            RsaScheme::RsaEs => Self::rsa_es(),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TpmiAlgRsaScheme(TpmAlgId);
+newtype!(TpmiAlgRsaScheme(TpmAlgId) => u16);
 
 impl TpmiAlgRsaScheme {
-    pub(crate) const RSASSA: Self = Self(TpmAlgId::RsaSsa);
-    pub(crate) const RSAES: Self = Self(TpmAlgId::RsaEs);
-    pub(crate) const RSAPSS: Self = Self(TpmAlgId::RsaPss);
+    pub(crate) const RSA_SSA: Self = Self(TpmAlgId::RsaSsa);
+    pub(crate) const RSA_ES: Self = Self(TpmAlgId::RsaEs);
+    pub(crate) const RSA_PSS: Self = Self(TpmAlgId::RsaPss);
     pub(crate) const OAEP: Self = Self(TpmAlgId::Oaep);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
-    }
 }
 
 impl TryFrom<u16> for TpmiAlgRsaScheme {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        TpmAlgId::try_from(raw)?.try_into()
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
     }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgRsaScheme {
     type Error = Error;
 
-    fn try_from(alg_id: TpmAlgId) -> Result<Self> {
-        match alg_id {
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
             TpmAlgId::RsaSsa
             | TpmAlgId::RsaEs
             | TpmAlgId::RsaPss
             | TpmAlgId::Oaep
-            | TpmAlgId::Null => Ok(Self(alg_id)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgRsaScheme>()),
+            | TpmAlgId::Null => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgRsaScheme>(Some(&alg))),
         }
     }
 }
@@ -143,20 +174,21 @@ impl TryFrom<TpmAlgId> for TpmiAlgRsaScheme {
 newtype!(TpmiRsaKeyBits(u16));
 
 impl TpmiRsaKeyBits {
-    pub(super) const BITS2048: Self = Self(2048);
-    const BITS3072: Self = Self(3072);
-    const BITS4096: Self = Self(4096);
+    pub(crate) const BITS1024: Self = Self(1024);
+    pub(crate) const BITS2048: Self = Self(2048);
+    pub(crate) const BITS3072: Self = Self(3072);
+    pub(crate) const BITS4096: Self = Self(4096);
 }
 
 impl From<u16> for TpmiRsaKeyBits {
-    fn from(raw: u16) -> Self {
-        Self(raw)
+    fn from(value: u16) -> Self {
+        Self(value)
     }
 }
 
 impl From<RsaKeyBits> for TpmiRsaKeyBits {
-    fn from(value: RsaKeyBits) -> Self {
-        match value {
+    fn from(key_bits: RsaKeyBits) -> Self {
+        match key_bits {
             RsaKeyBits::Bits2048 => Self::BITS2048,
             RsaKeyBits::Bits3072 => Self::BITS3072,
             RsaKeyBits::Bits4096 => Self::BITS4096,

@@ -48,7 +48,6 @@ impl TpmsTaggedPcrSelect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TpmPt {
     None = 0x0000_0000,
-
     // Fixed properties
     FamilyIndicator = 0x0000_0100,
     Level = 0x0000_0101,
@@ -99,7 +98,6 @@ pub(crate) enum TpmPt {
     FirmwareSvn = 0x0000_012F,
     FirmwareMaxSvn = 0x0000_0130,
     MlParameterSets = 0x0000_0131,
-
     // Variable properties
     Permanent = 0x0000_0200,
     StartupClear = 0x0000_0201,
@@ -200,7 +198,7 @@ impl TryFrom<u32> for TpmPt {
             0x0000_0212 => Ok(Self::NvWriteRecovery),
             0x0000_0213 => Ok(Self::AuditCounter0),
             0x0000_0214 => Ok(Self::AuditCounter1),
-            _ => Err(Error::conversion::<u32, TpmPt>()),
+            _ => Err(Error::conversion::<u32, TpmPt>(None)),
         }
     }
 }
@@ -245,7 +243,7 @@ impl TryFrom<u32> for TpmPtPcr {
             0x0000_0012 => Ok(Self::PcrDrtmReset),
             0x0000_0013 => Ok(Self::PcrPolicy),
             0x0000_0014 => Ok(Self::PcrAuth),
-            _ => Err(Error::conversion::<u32, TpmPtPcr>()),
+            _ => Err(Error::conversion::<u32, TpmPtPcr>(None)),
         }
     }
 }

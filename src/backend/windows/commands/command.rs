@@ -1,7 +1,7 @@
-use crate::types::{TpmCc, TpmHandle, Tpm2bAuth};
+use crate::types::{Tpm2bAuth, TpmCc, TpmHandle};
 
+use super::super::types::{Tpm2bNonce, TpmaSession, TpmiShAuthSession};
 use super::TpmiStCommandTag;
-use super::super::types::{TpmaSession, TpmiShAuthSession, Tpm2bNonce};
 
 pub(crate) struct Command<'a> {
     header: CommandHeader,
@@ -25,10 +25,7 @@ impl<'a> Command<'a> {
         self
     }
 
-    pub(crate) fn with_authorizations(
-        mut self,
-        authorizations: &'a [&'a TpmsAuthCommand],
-    ) -> Self {
+    pub(crate) fn with_authorizations(mut self, authorizations: &'a [&'a TpmsAuthCommand]) -> Self {
         if !authorizations.is_empty() {
             self.authorizations = authorizations;
             self.header.use_sessions();

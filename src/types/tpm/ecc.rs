@@ -1,37 +1,39 @@
 use super::{TpmAlgId, TpmiAlgHash, TpmtSymDefObject};
 use crate::{
     Error, Result,
-    macros::{tpm2b_bytes_type, tpm_list_type, unknown_tpm_data},
+    macros::{newtype, tpm_list_type, tpm2b_bytes_type},
+    types::{TpmsSchemeHash, TpmtKdfScheme},
 };
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmsEccParams {
+pub(crate) struct TpmsEccParms {
     symmetric: TpmtSymDefObject,
     scheme: TpmtEccScheme,
     curve_id: TpmiEccCurve,
-    kdf: TpmtKdfScheme, // fixed to null
+    kdf: TpmtKdfScheme,
 }
 
-impl TpmsEccParams {
+impl TpmsEccParms {
     pub(crate) fn new(
         symmetric: TpmtSymDefObject,
         scheme: TpmtEccScheme,
         curve_id: TpmiEccCurve,
+        kdf: TpmtKdfScheme,
     ) -> Self {
         Self {
             symmetric,
             scheme,
             curve_id,
-            kdf: TpmtKdfScheme::Null,
+            kdf,
         }
     }
 
-    fn ecdsa(curve_id: TpmiEccCurve, hash_alg: TpmiAlgHash) -> Self {
+    fn ecdsa(curve_id: TpmiEccCurve, scheme_hash: TpmsSchemeHash) -> Self {
         Self {
             symmetric: TpmtSymDefObject::null(),
-            scheme: TpmtEccScheme::ecdsa(hash_alg),
+            scheme: TpmtEccScheme::ecdsa(scheme_hash),
             curve_id,
-            kdf: TpmtKdfScheme::Null,
+            kdf: TpmtKdfScheme::null(),
         }
     }
 
@@ -73,6 +75,12 @@ pub(crate) enum TpmEccCurve {
     Curve448 = 0x0041,
 }
 
+impl TpmEccCurve {
+    pub(crate) fn raw(self) -> u16 {
+        self as u16
+    }
+}
+
 impl TryFrom<u16> for TpmEccCurve {
     type Error = Error;
 
@@ -92,76 +100,196 @@ impl TryFrom<u16> for TpmEccCurve {
             0x0032 => Ok(Self::BpP512R1),
             0x0040 => Ok(Self::Curve25519),
             0x0041 => Ok(Self::Curve448),
-            _ => unknown_tpm_data!(value, "ECC curve identifier"),
+            _ => Err(Error::conversion::<u16, TpmEccCurve>(None)),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum TpmtSigScheme {
-    RsaSsa(TpmiAlgHash),
-    RsaPss(TpmiAlgHash),
-    Ecdsa(TpmiAlgHash),
-    Null,
+pub(crate) struct TpmtEccScheme {
+    scheme: TpmiAlgEccScheme,
+    details: TpmuEccScheme,
 }
-
-impl TpmtSigScheme {
-    pub(crate) fn into_parts(self) -> (TpmiAlgSigScheme, Option<TpmiAlgHash>) {
-        match self {
-            Self::RsaSsa(hash) => (TpmiAlgSigScheme(TpmAlgId::RsaSsa), Some(hash)),
-            Self::RsaPss(hash) => (TpmiAlgSigScheme(TpmAlgId::RsaPss), Some(hash)),
-            Self::Ecdsa(hash) => (TpmiAlgSigScheme(TpmAlgId::Ecdsa), Some(hash)),
-            Self::Null => (TpmiAlgSigScheme(TpmAlgId::Null), None),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmtEccScheme(TpmtSigScheme);
 
 impl TpmtEccScheme {
-    pub(crate) fn ecdsa(hash_alg: TpmiAlgHash) -> Self {
-        TpmtEccScheme(TpmtSigScheme::Ecdsa(hash_alg))
+    pub(crate) fn ecdsa(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgEccScheme::ECDSA,
+            details: TpmuEccScheme::Ecdsa(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ecdh(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgEccScheme::ECDH,
+            details: TpmuEccScheme::Ecdh(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ecdaa(details: TpmsSchemeEcdaa) -> Self {
+        Self {
+            scheme: TpmiAlgEccScheme::ECDAA,
+            details: TpmuEccScheme::Ecdaa(details),
+        }
+    }
+
+    pub(crate) fn sm2(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgEccScheme::SM2,
+            details: TpmuEccScheme::Sm2(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ec_schnorr(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgEccScheme::EC_SCHNORR,
+            details: TpmuEccScheme::EcSchnorr(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ec_mqv(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgEccScheme::EC_MQV,
+            details: TpmuEccScheme::EcMqv(scheme_hash),
+        }
     }
 
     pub(crate) fn null() -> Self {
-        Self(TpmtSigScheme::Null)
-    }
-
-    pub(crate) fn into_parts(self) -> (TpmiAlgEccScheme, Option<TpmiAlgHash>) {
-        match self.0 {
-            TpmtSigScheme::Ecdsa(hash) => (TpmiAlgEccScheme(TpmAlgId::Ecdsa), Some(hash)),
-            TpmtSigScheme::Null => (TpmiAlgEccScheme(TpmAlgId::Null), None),
-            _ => unreachable!("TpmtEccScheme only contains ECC schemes"),
+        Self {
+            scheme: TpmiAlgEccScheme::NULL,
+            details: TpmuEccScheme::Null,
         }
     }
-}
 
-impl TryFrom<TpmtSigScheme> for TpmtEccScheme {
-    type Error = Error;
-
-    fn try_from(value: TpmtSigScheme) -> Result<Self> {
-        match value {
-            TpmtSigScheme::Ecdsa(_) | TpmtSigScheme::Null => Ok(Self(value)),
-            _ => Err(Error::conversion::<TpmtSigScheme, TpmtEccScheme>()),
-        }
+    pub(crate) fn into_parts(self) -> (TpmiAlgEccScheme, TpmuEccScheme) {
+        (self.scheme, self.details)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmiAlgSigScheme(TpmAlgId);
+pub(crate) enum TpmuEccScheme {
+    Ecdsa(TpmsSchemeHash),
+    Ecdh(TpmsSchemeHash),
+    Ecdaa(TpmsSchemeEcdaa),
+    Sm2(TpmsSchemeHash),
+    EcSchnorr(TpmsSchemeHash),
+    EcMqv(TpmsSchemeHash),
+    Null,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmtSigScheme {
+    scheme: TpmiAlgSigScheme,
+    details: TpmuSigScheme,
+}
+
+impl TpmtSigScheme {
+    pub(crate) fn rsa_ssa(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::RSA_SSA,
+            details: TpmuSigScheme::RsaSsa(scheme_hash),
+        }
+    }
+
+    pub(crate) fn rsa_pss(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::RSA_PSS,
+            details: TpmuSigScheme::RsaPss(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ecdsa(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::ECDSA,
+            details: TpmuSigScheme::Ecdsa(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ecdaa(scheme_ecdaa: TpmsSchemeEcdaa) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::ECDAA,
+            details: TpmuSigScheme::Ecdaa(scheme_ecdaa),
+        }
+    }
+
+    pub(crate) fn sm2(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::SM2,
+            details: TpmuSigScheme::Sm2(scheme_hash),
+        }
+    }
+
+    pub(crate) fn ec_schnorr(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::EC_SCHNORR,
+            details: TpmuSigScheme::EcSchnorr(scheme_hash),
+        }
+    }
+
+    pub(crate) fn hmac(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::HMAC,
+            details: TpmuSigScheme::Hmac(scheme_hash),
+        }
+    }
+
+    pub(crate) fn null() -> Self {
+        Self {
+            scheme: TpmiAlgSigScheme::NULL,
+            details: TpmuSigScheme::Null,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (TpmiAlgSigScheme, TpmuSigScheme) {
+        (self.scheme, self.details)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TpmuSigScheme {
+    RsaSsa(TpmsSchemeHash),
+    RsaPss(TpmsSchemeHash),
+    Ecdsa(TpmsSchemeHash),
+    Sm2(TpmsSchemeHash),
+    EcSchnorr(TpmsSchemeHash),
+    Eddsa(TpmsSchemeHash),
+    Hmac(TpmsSchemeHash),
+    Ecdaa(TpmsSchemeEcdaa),
+    Null,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmsSchemeEcdaa {
+    pub(crate) hash_alg: TpmiAlgHash,
+    pub(crate) count: u16,
+}
+
+newtype!(TpmiAlgSigScheme(TpmAlgId) => u16);
 
 impl TpmiAlgSigScheme {
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
+    pub(crate) const RSA_SSA: Self = Self(TpmAlgId::RsaSsa);
+    pub(crate) const RSA_PSS: Self = Self(TpmAlgId::RsaPss);
+    pub(crate) const ECDSA: Self = Self(TpmAlgId::Ecdsa);
+    pub(crate) const ECDAA: Self = Self(TpmAlgId::Ecdaa);
+    pub(crate) const SM2: Self = Self(TpmAlgId::Sm2);
+    pub(crate) const EC_SCHNORR: Self = Self(TpmAlgId::EcSchnorr);
+    pub(crate) const HMAC: Self = Self(TpmAlgId::Hmac);
+    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
+}
+
+impl TryFrom<u16> for TpmiAlgSigScheme {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
     }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgSigScheme {
     type Error = Error;
 
-    fn try_from(value: TpmAlgId) -> Result<Self> {
-        match value {
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
             TpmAlgId::RsaSsa
             | TpmAlgId::RsaPss
             | TpmAlgId::Ecdsa
@@ -173,37 +301,37 @@ impl TryFrom<TpmAlgId> for TpmiAlgSigScheme {
             | TpmAlgId::Hmac
             | TpmAlgId::MlDsa
             | TpmAlgId::HashMlDsa
-            | TpmAlgId::Null => Ok(Self(value)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSigScheme>()),
+            | TpmAlgId::Null => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSigScheme>(Some(&alg))),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TpmiAlgEccScheme(TpmAlgId);
+newtype!(TpmiAlgEccScheme(TpmAlgId) => u16);
 
 impl TpmiAlgEccScheme {
-    pub(crate) const ECDSA: Self = Self(TpmAlgId::Ecdsa);
-    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
-    }
+    const ECDSA: Self = Self(TpmAlgId::Ecdsa);
+    const ECDH: Self = Self(TpmAlgId::Ecdh);
+    const ECDAA: Self = Self(TpmAlgId::Ecdaa);
+    const SM2: Self = Self(TpmAlgId::Sm2);
+    const EC_SCHNORR: Self = Self(TpmAlgId::EcSchnorr);
+    const EC_MQV: Self = Self(TpmAlgId::EcMqv);
+    const NULL: Self = Self(TpmAlgId::Null);
 }
 
 impl TryFrom<u16> for TpmiAlgEccScheme {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        TpmAlgId::try_from(raw)?.try_into()
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
     }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgEccScheme {
     type Error = Error;
 
-    fn try_from(value: TpmAlgId) -> Result<Self> {
-        match value {
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
             TpmAlgId::Ecdsa
             | TpmAlgId::Ecdaa
             | TpmAlgId::Sm2
@@ -212,30 +340,25 @@ impl TryFrom<TpmAlgId> for TpmiAlgEccScheme {
             | TpmAlgId::HashEdDsa
             | TpmAlgId::Ecdh
             | TpmAlgId::EcMqv
-            | TpmAlgId::Null => Ok(Self(value)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgEccScheme>()),
+            | TpmAlgId::Null => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgEccScheme>(Some(&alg))),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmiEccCurve(TpmEccCurve);
+newtype!(TpmiEccCurve(TpmEccCurve) => u16);
 
 impl TpmiEccCurve {
     pub(crate) const NIST_P256: Self = Self(TpmEccCurve::NistP256);
     pub(crate) const NIST_P384: Self = Self(TpmEccCurve::NistP384);
     pub(crate) const NIST_P521: Self = Self(TpmEccCurve::NistP521);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0 as u16
-    }
 }
 
 impl TryFrom<u16> for TpmiEccCurve {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        TpmEccCurve::try_from(raw)?.try_into()
+    fn try_from(value: u16) -> Result<Self> {
+        TpmEccCurve::try_from(value)?.try_into()
     }
 }
 
@@ -257,51 +380,7 @@ impl TryFrom<TpmEccCurve> for TpmiEccCurve {
             | TpmEccCurve::BpP512R1
             | TpmEccCurve::Curve25519
             | TpmEccCurve::Curve448 => Ok(Self(curve)),
-            _ => Err(Error::conversion::<TpmEccCurve, TpmiEccCurve>()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TpmtKdfScheme {
-    Null,
-}
-
-impl TpmtKdfScheme {
-    pub(crate) fn raw(self) -> u16 {
-        TpmAlgId::Null.raw()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmiAlgKdf(TpmAlgId);
-
-impl TpmiAlgKdf {
-    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
-    }
-}
-
-impl TryFrom<u16> for TpmiAlgKdf {
-    type Error = Error;
-
-    fn try_from(raw: u16) -> Result<Self> {
-        TpmAlgId::try_from(raw)?.try_into()
-    }    
-}
-
-impl TryFrom<TpmAlgId> for TpmiAlgKdf {
-    type Error = Error;
-
-    fn try_from(alg_id: TpmAlgId) -> Result<Self> {
-        match alg_id {
-            TpmAlgId::Null => Ok(Self(alg_id)),
-            _ => {
-                tracing::error!(?alg_id, "unsupported KDF algorithm");
-                Err(Error::InvalidData)
-            }
+            _ => Err(Error::conversion::<TpmEccCurve, TpmiEccCurve>(Some(&curve))),
         }
     }
 }

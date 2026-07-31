@@ -10,11 +10,7 @@ pub(crate) struct TpmtTkCreation {
 }
 
 impl TpmtTkCreation {
-    pub(crate) fn new(
-        tag: TpmSt,
-        hierarchy: TpmiRhHierarchy,
-        digest: Tpm2bDigest,
-    ) -> Self {
+    pub(crate) fn new(tag: TpmSt, hierarchy: TpmiRhHierarchy, digest: Tpm2bDigest) -> Self {
         Self {
             tag,
             hierarchy,

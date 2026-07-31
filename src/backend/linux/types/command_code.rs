@@ -5,21 +5,26 @@ use crate::{
     types::{TpmCc, TpmlCc},
 };
 
-impl From<CommandCodeList> for TpmlCc {
-    fn from(value: CommandCodeList) -> Self {
-        let items = value
+impl TryFrom<CommandCodeList> for TpmlCc {
+    type Error = Error;
+
+    fn try_from(cc_list: CommandCodeList) -> Result<Self> {
+        let items = cc_list
             .into_inner()
             .into_iter()
-            .map(|v| u32::from(v))
-            .collect();
+            .map(|v| u32::from(v).try_into())
+            .collect::<Result<Vec<_>>>()?;
 
-        Self::new(items)
+        Ok(items.into())
     }
 }
 
-pub(crate) fn to_command_code(value: TpmCc) -> Result<CommandCode> {
-    CommandCode::try_from(value).map_err(|_| {
-        tracing::error!(value = ?value, "failed to convert to ESAPI value");
-        Error::Internal("failed to convert command code to ESAPI value")
-    })
+impl TryFrom<TpmCc> for CommandCode {
+    type Error = Error;
+
+    fn try_from(cc: TpmCc) -> Result<Self> {
+        cc.raw()
+            .try_into()
+            .map_err(|_| Error::conversion::<TpmCc, CommandCode>(None))
+    }
 }

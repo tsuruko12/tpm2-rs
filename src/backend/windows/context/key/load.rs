@@ -1,13 +1,16 @@
-use crate::{Result, types::{LoadedParent, TpmCc, TpmHandle, TpmiDhObject, TpmtPublic}};
 use super::{
-    Context, 
+    Context,
     codec::{LoadResponse, TpmMarshal, marshal_tpm2b, tpm2b_payload_mut},
     commands::Command,
     session::{
-        CpHashData, HmacSessionState, encrypt_command_parameter, decrypt_response_parameter,
-        split_prepared_sessions, update_command_hmacs
+        CpHashData, HmacSessionState, decrypt_response_parameter, encrypt_command_parameter,
+        split_prepared_sessions, update_command_hmacs,
     },
-    types::{TpmaSession, Tpm2bName, Tpm2bPrivate}
+    types::{Tpm2bName, Tpm2bPrivate, TpmaSession},
+};
+use crate::{
+    Result,
+    types::{LoadedParent, TpmCc, TpmHandle, TpmiDhObject, TpmtPublic},
 };
 
 impl Context {
@@ -27,9 +30,9 @@ impl Context {
         let parent_name = self.read_object_name(parent.handle())?;
 
         let mut sessions = self.prepare_sessions(
-            parent.authorization(), 
+            parent.authorization(),
             TpmaSession::encrypt_decrypt(),
-            session_salt_key_handle.into(), 
+            session_salt_key_handle.into(),
             hmac_session_state,
         )?;
 
@@ -42,7 +45,7 @@ impl Context {
                 handle_names: &[&parent_name],
                 parameters: &request_params,
             };
-            update_command_hmacs(&mut sessions, &cp_hash_data)?;            
+            update_command_hmacs(&mut sessions, &cp_hash_data)?;
         }
 
         let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
@@ -51,10 +54,10 @@ impl Context {
             .with_handles(vec![parent.handle().into()])
             .with_parameters(&request_params)
             .with_authorizations(&authorizations);
-        
+
         let response_body = self.submit(command)?;
         self.clear_sessions();
-        
+
         let mut response = LoadResponse::parse(&response_body, auth_contexts.len())?;
 
         if session_salt_key_handle.is_some() {
@@ -63,7 +66,7 @@ impl Context {
                 &mut response.parameters,
                 &auth_contexts,
                 &response.authorizations,
-            )?;            
+            )?;
         }
 
         response.into_parts()

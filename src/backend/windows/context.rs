@@ -12,13 +12,12 @@ use tracing::debug;
 
 use super::types::TpmiShAuthSession;
 
-type SessionSlots = [Option<TpmiShAuthSession>; 3];
 type ContextHandle = *mut c_void;
 
 #[derive(Debug)]
 pub(crate) struct Context {
     handle: ContextHandle,
-    sessions: SessionSlots,
+    sessions: [Option<TpmiShAuthSession>; 3],
 }
 
 impl Drop for Context {

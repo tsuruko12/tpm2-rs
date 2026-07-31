@@ -1,4 +1,7 @@
-use crate::{Error, Result, macros::{newtype, tpm_list_type}};
+use crate::{
+    Error, Result,
+    macros::{newtype, tpm_list_type},
+};
 
 tpm_list_type!(TpmlHandle(TpmHandle););
 
@@ -9,14 +12,14 @@ impl TpmHandle {
     pub(crate) const RH_PLATFORM: Self = TpmHandle(0x4000000C);
     pub(crate) const RH_NULL: Self = TpmHandle(0x4000_0007);
 
-    pub(crate) const fn new(raw: u32) -> Self {
-        Self(raw)
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
     }
 }
 
 impl From<u32> for TpmHandle {
-    fn from(raw: u32) -> Self {
-        Self(raw)
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }
 
@@ -45,16 +48,16 @@ impl TryFrom<TpmHandle> for TpmiDhObject {
         match handle.raw() {
             Self::TRANSIENT_FIRST..=Self::TRANSIENT_LAST
             | Self::PERSISTENT_FIRST..=Self::PERSISTENT_LAST => Ok(Self(handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiDhObject>()),
-        }    
+            _ => Err(Error::conversion::<TpmHandle, TpmiDhObject>(None)),
+        }
     }
 }
 
 impl TryFrom<u32> for TpmiDhObject {
     type Error = Error;
 
-    fn try_from(raw: u32) -> Result<Self> {
-        TpmHandle::from(raw).try_into()
+    fn try_from(value: u32) -> Result<Self> {
+        TpmHandle::from(value).try_into()
     }
 }
 
@@ -62,7 +65,6 @@ newtype!(TpmiRhProvision(TpmHandle) => u32);
 
 impl TpmiRhProvision {
     pub(crate) const OWNER: Self = Self(TpmHandle::RH_OWNER);
-    pub(crate) const PLATFORM: Self = Self(TpmHandle::RH_PLATFORM);
 }
 
 newtype!(TpmiDhPersistent(TpmHandle) => u32);
@@ -72,19 +74,19 @@ impl TpmiDhPersistent {
     const PERSISTENT_LAST: u32 = 0x81FF_FFFF;
 
     pub(crate) const SRK_HANDLE: Self = Self(TpmHandle::new(0x8100_0001));
-    pub(crate) const OWNER_AVAILABEL_FIRST: Self = Self(TpmHandle::new(0x8100_8000));
-    pub(crate) const OWNER_AVAILABEL_LAST: Self = Self(TpmHandle::new(0x8100_FFFF));
+    pub(crate) const OWNER_AVAILABLE_FIRST: Self = Self(TpmHandle::new(0x8100_8000));
+    pub(crate) const OWNER_AVAILABLE_LAST: Self = Self(TpmHandle::new(0x8100_FFFF));
 }
 
 impl TryFrom<u32> for TpmiDhPersistent {
     type Error = Error;
 
-    fn try_from(raw: u32) -> Result<Self> {
-        if (Self::PERSISTENT_FIRST..=Self::PERSISTENT_LAST).contains(&raw) {
-            return Ok(Self(raw.into()))
+    fn try_from(value: u32) -> Result<Self> {
+        if (Self::PERSISTENT_FIRST..=Self::PERSISTENT_LAST).contains(&value) {
+            return Ok(Self(value.into()));
         }
 
-        Err(Error::conversion::<TpmiDhObject, TpmiDhPersistent>())
+        Err(Error::conversion::<TpmiDhObject, TpmiDhPersistent>(None))
     }
 }
 
@@ -93,7 +95,3 @@ impl From<TpmiDhPersistent> for TpmiDhObject {
         Self(handle.into())
     }
 }
-
-
-
-

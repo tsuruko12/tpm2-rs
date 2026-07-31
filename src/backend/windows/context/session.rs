@@ -4,21 +4,23 @@ mod policy;
 use rsa::{BigUint, RsaPublicKey};
 use zeroize::Zeroizing;
 
-use crate::{
-    Error, Result,
-    types::{
-        Authorization, PolicyAuthKind, PolicyData, TpmCc, TpmHandle, TpmiAlgHash, TpmiDhObject,
-        TpmtSymDefObject, Tpm2bAuth
-    },
-};
 use super::super::{
     codec::{StartAuthSessionResponse, TpmMarshal, marshal_tpm2b},
     commands::{Command, TpmsAuthCommand, TpmsAuthResponse},
     types::{Tpm2bNonce, TpmSe, TpmaSession, TpmiShAuthSession, TpmiShHmac},
 };
 use super::Context;
+use crate::{
+    Error, Result,
+    types::{
+        Authorization, PolicyAuthKind, PolicyData, Tpm2bAuth, TpmCc, TpmHandle, TpmiAlgHash,
+        TpmiDhObject, TpmtSymDefObject,
+    },
+};
 
-pub(super) use self::crypto::{decrypt_response_parameter, encrypt_command_parameter, verify_response_hmac};
+pub(super) use self::crypto::{
+    decrypt_response_parameter, encrypt_command_parameter, verify_response_hmac,
+};
 use self::crypto::{derive_session_key, generate_caller_nonce, generate_encrypted_salt};
 use super::super::{codec, commands, types};
 
@@ -74,7 +76,8 @@ impl HmacSessionState {
             auth_command,
             session_value,
             ..
-        } = session else {
+        } = session
+        else {
             return Err(Error::invalid_state(
                 "prepared session at HMAC session index was not HMAC",
             ));
@@ -210,13 +213,14 @@ impl Context {
         session_salt_key_handle: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
     ) -> Result<Vec<PreparedSession>> {
+        // memo: ３つまで固定にした方がいいかも
         // session_salt_key_handle is only None before the handle is created
         let session_salt_key_handle = if let Some(handle) = session_salt_key_handle {
             handle
         } else {
-            return Ok(
-                vec![PreparedSession::Password { auth_command: TpmsAuthCommand::password() }]
-            );
+            return Ok(vec![PreparedSession::Password {
+                auth_command: TpmsAuthCommand::password(),
+            }]);
         };
 
         let session_salt_key = SessionSaltKey {
@@ -244,11 +248,13 @@ impl Context {
             return Ok(sessions);
         }
 
-        if (session_attrs.is_empty() || session_attrs == TpmaSession::CONTINUE_SESSION) 
-            && auth.is_empty() 
+        if (session_attrs.is_empty() || session_attrs == TpmaSession::CONTINUE_SESSION)
+            && auth.is_empty()
             && hmac_session_state.is_none()
         {
-            sessions.push(PreparedSession::Password { auth_command: TpmsAuthCommand::password() });
+            sessions.push(PreparedSession::Password {
+                auth_command: TpmsAuthCommand::password(),
+            });
         } else {
             sessions.push(self.prepare_hmac_session(
                 session_attrs,
@@ -274,16 +280,19 @@ impl Context {
     fn prepare_policy_session(
         &mut self,
         policy: &PolicyData,
-        session_salt_key: &SessionSaltKey,
-        require_auth: Option<(PolicyAuthKind, &[u8])>,
+        session_salt_key: &SessionSaltKey, // memo: thinking Option is better here
+        required_auth: Option<(PolicyAuthKind, &[u8])>,
     ) -> Result<PreparedSession> {
+        // memo: set continue_session attr because applying policy command flushes sessions after success
+        self.ensure_session_slot_available()?;
+
         let session_attrs = TpmaSession::empty();
         let nonce_caller = generate_caller_nonce()?;
 
-        let (auth_command, nonce_tpm, session_value, requires_hmac) = if let Some(require_auth) =
-            require_auth
+        let (auth_command, nonce_tpm, session_value, requires_hmac) = if let Some(required_auth) =
+            required_auth
         {
-            let (auth_kind, auth) = require_auth;
+            let (auth_kind, auth) = required_auth;
             let (encrypted_salt, salt) = generate_encrypted_salt(&session_salt_key.public_key)?;
 
             let response = self.start_auth_session(
@@ -348,6 +357,8 @@ impl Context {
         auth: Option<&[u8]>,
         hmac_session_state: Option<HmacSessionState>,
     ) -> Result<PreparedSession> {
+        self.ensure_session_slot_available()?;
+
         let nonce_caller = generate_caller_nonce()?;
 
         let (session_handle, session_value, nonce_tpm) = if let Some(state) = hmac_session_state {
@@ -411,17 +422,26 @@ impl Context {
 
         let response_body = self.submit(command)?;
         let response = StartAuthSessionResponse::parse(&response_body)?;
-        self.register_session(response.session_handle)?;
+
+        self.register_session(response.session_handle);
 
         Ok(response)
     }
 
-    fn register_session(&mut self, session: TpmiShAuthSession) -> Result<()> {
+    fn ensure_session_slot_available(&self) -> Result<()> {
+        if self.sessions.iter().any(Option::is_none) {
+            Ok(())
+        } else {
+            Err(Error::invalid_state("no available session slot"))
+        }
+    }
+
+    fn register_session(&mut self, session: TpmiShAuthSession) {
         let slot = self
             .sessions
             .iter_mut()
             .find(|slot| slot.is_none())
-            .ok_or_else(|| Error::invalid_state("no available session slot"))?;
+            .expect("session slot availability was checked");
 
         *slot = Some(session);
 
@@ -429,9 +449,7 @@ impl Context {
     }
 }
 
-pub(super) fn find_hmac_session(
-    sessions: &[PreparedSession],
-) -> Option<usize> {
+pub(super) fn find_hmac_session(sessions: &[PreparedSession]) -> Option<usize> {
     for (idx, session) in sessions.iter().enumerate() {
         let handle = session.auth_command().session_handle();
 

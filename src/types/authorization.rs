@@ -86,7 +86,10 @@ pub(crate) struct Authorization {
 
 impl Authorization {
     pub(crate) fn new(auth: impl Into<Zeroizing<Vec<u8>>>, policy: Option<PolicyData>) -> Self {
-        Self { auth: auth.into(), policy }
+        Self {
+            auth: auth.into(),
+            policy,
+        }
     }
 
     pub(crate) fn auth(&self) -> &[u8] {

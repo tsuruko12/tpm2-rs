@@ -21,11 +21,7 @@ const PCR_SELECT_SIZE: usize = 3;
 const MAX_PCRS_PER_READ: usize = 8;
 
 impl Context {
-    pub(super) fn apply_policy(
-        &mut self,
-        handle: TpmiShPolicy,
-        policy: &PolicyData,
-    ) -> Result<()> {
+    pub(super) fn apply_policy(&mut self, handle: TpmiShPolicy, policy: &PolicyData) -> Result<()> {
         self.apply_policy_step(TpmHandle::from(handle), policy)
     }
 
@@ -159,9 +155,7 @@ impl Context {
             match update_counter {
                 Some(expected_counter) => {
                     if expected_counter != counter {
-                        return Err(Error::authorization_failed(TpmError::ResponseCode(
-                            TpmRc::PCR_CHANGED,
-                        )));
+                        return Err(Error::authorization_failed("PCR value changed during read"));
                     }
                 }
                 None => update_counter = Some(counter),

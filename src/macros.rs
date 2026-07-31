@@ -52,7 +52,7 @@ macro_rules! tpm2b_secret_type {
                 Self(value)
             }
         }
-    }
+    };
 }
 
 macro_rules! impl_tpm2b_common {
@@ -104,7 +104,7 @@ macro_rules! tpm_list_type {
             pub(crate) fn default() -> Self {
                 Self { items: Vec::new() }
             }
-            
+
             pub(crate) fn len(&self) -> usize {
                 self.items.len()
             }
@@ -130,7 +130,9 @@ macro_rules! tpm_list_type {
 
         impl From<&[$item]> for $name {
             fn from(items: &[$item]) -> Self {
-                Self { items: items.into() }
+                Self {
+                    items: items.into(),
+                }
             }
         }
     };
@@ -172,6 +174,6 @@ macro_rules! impl_into_inner {
 }
 
 pub(crate) use {
-    impl_into_inner, impl_tpm2b_common, newtype, tpm_list_type, tpm2b_secret_type, 
-    tpm2b_bytes_type, unknown_tpm_data,
+    impl_into_inner, impl_tpm2b_common, newtype, tpm_list_type, tpm2b_bytes_type,
+    tpm2b_secret_type, unknown_tpm_data,
 };

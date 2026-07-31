@@ -1,15 +1,33 @@
+use tss_esapi::constants::CommandCode;
 use tss_esapi::structures::{
-    PcrSelectSize, PcrSelection, PcrSelectionList, PcrSlot as EsapiPcrSlot,
+    PcrSelectSize, PcrSelection as EsapiPcrSelection, PcrSelectionList, PcrSlot as EsapiPcrSlot,
 };
 
+use crate::error::BoxError;
+use crate::types::PolicyCommand;
 use crate::{
     Error, Result,
-    types::{PcrSlot, TpmAlgId, TpmlPcrSelection, TpmsPcrSelection},
+    types::{PcrSlot, TpmiAlgHash, TpmlPcrSelection, TpmsPcrSelection},
 };
 
+impl From<PolicyCommand> for CommandCode {
+    fn from(command: PolicyCommand) -> Self {
+        match command {
+            PolicyCommand::CreatePrimary => Self::CreatePrimary,
+            PolicyCommand::Create => Self::Create,
+            PolicyCommand::Load => Self::Load,
+            PolicyCommand::Import => Self::Import,
+            PolicyCommand::Duplicate => Self::Duplicate,
+            PolicyCommand::Sign => Self::Sign,
+            PolicyCommand::Decrypt => Self::RsaDecrypt,
+            PolicyCommand::Unseal => Self::Unseal,
+        }
+    }
+}
+
 impl From<PcrSlot> for EsapiPcrSlot {
-    fn from(value: PcrSlot) -> Self {
-        match value {
+    fn from(slot: PcrSlot) -> Self {
+        match slot {
             PcrSlot::Slot0 => Self::Slot0,
             PcrSlot::Slot1 => Self::Slot1,
             PcrSlot::Slot2 => Self::Slot2,
@@ -38,78 +56,74 @@ impl From<PcrSlot> for EsapiPcrSlot {
     }
 }
 
-impl TryFrom<TpmsPcrSelection> for PcrSelection {
+impl TryFrom<TpmsPcrSelection> for EsapiPcrSelection {
     type Error = Error;
 
-    fn try_from(value: TpmsPcrSelection) -> Result<Self> {
-        let select_size = u8::try_from(value.size_of_select())
-            .map_err(|_| Error::Internal("invalid PCR select size"))?;
-        let size_of_select = PcrSelectSize::try_from(select_size)
-            .map_err(|_| Error::Internal("invalid PCR select size"))?;
-        let selected_pcr_slots = pcr_select_to_slots(value.pcr_select())?;
-
-        Self::create(
-            value.hash().try_into()?,
-            size_of_select,
-            &selected_pcr_slots,
-        )
-        .map_err(|_| Error::Internal("invalid PCR selection"))
+    fn try_from(pcr_selection: TpmsPcrSelection) -> Result<Self> {
+        convert_pcr_selection(&pcr_selection)
+            .map_err(|_| Error::conversion::<TpmsPcrSelection, EsapiPcrSelection>(None))
     }
 }
 
-impl From<PcrSelection> for TpmsPcrSelection {
-    fn from(value: PcrSelection) -> Self {
-        let hash = TpmAlgId::from(value.hashing_algorithm());
-        let pcr_select = pcr_slots_to_select_bytes(&value.selected());
+fn convert_pcr_selection(
+    pcr_selection: &TpmsPcrSelection,
+) -> std::result::Result<EsapiPcrSelection, BoxError> {
+    let size_of_select = PcrSelectSize::try_parse_usize(pcr_selection.size_of_select())?;
+    let selected_pcr_slots = pcr_select_to_slots(pcr_selection.pcr_select())?;
+    let hash = pcr_selection.hash().try_into()?;
+
+    Ok(EsapiPcrSelection::create(
+        hash,
+        size_of_select,
+        &selected_pcr_slots,
+    )?)
+}
+
+impl From<EsapiPcrSelection> for TpmsPcrSelection {
+    fn from(pcr_selection: EsapiPcrSelection) -> Self {
+        let hash = TpmiAlgHash::from(pcr_selection.hashing_algorithm());
+        let pcr_select =
+            pcr_slots_to_select(&pcr_selection.selected(), pcr_selection.size_of_select());
 
         Self::new(hash, pcr_select)
     }
 }
 
 impl From<PcrSelectionList> for TpmlPcrSelection {
-    fn from(value: PcrSelectionList) -> Self {
-        let items = value
+    fn from(pcr_selection_list: PcrSelectionList) -> Self {
+        let items = pcr_selection_list
             .get_selections()
             .iter()
             .cloned()
             .map(|selection| TpmsPcrSelection::from(selection))
-            .collect();
+            .collect::<Vec<_>>();
 
-        Self::new(items)
+        items.into()
     }
 }
 
 pub(super) fn pcr_select_to_slots(bytes: &[u8]) -> Result<Vec<EsapiPcrSlot>> {
     let mut slots = Vec::new();
 
-    for (byte_idx, byte) in bytes.iter().enumerate() {
+    for (byte_idx, &byte) in bytes.iter().enumerate() {
         for bit_idx in 0..8 {
-            if *byte & (1u8 << bit_idx) == 0 {
-                continue;
+            if byte & (1 << bit_idx) != 0 {
+                let slot_idx = (byte_idx * 8 + bit_idx) as u8;
+                slots.push(PcrSlot::try_from(slot_idx)?.into());
             }
-
-            let slot_idx = (byte_idx * 8 + bit_idx) as u8;
-            slots.push(PcrSlot::try_from(slot_idx)?.into());
         }
     }
 
     Ok(slots)
 }
 
-fn pcr_slots_to_select_bytes(slots: &[EsapiPcrSlot]) -> Vec<u8> {
-    let mut bitmap = 0u32;
-
-    for slot in slots {
-        bitmap |= u32::from(*slot);
-    }
-
-    let bytes = bitmap.to_le_bytes();
-
-    let size = bytes
+pub(super) fn pcr_slots_to_select(
+    slots: &[EsapiPcrSlot],
+    size_of_select: PcrSelectSize,
+) -> Vec<u8> {
+    let bitmap = slots
         .iter()
-        .rposition(|byte| *byte != 0)
-        .map(|idx| idx + 1)
-        .unwrap_or(0);
+        .fold(0, |bitmap, slot| bitmap | u32::from(*slot));
 
-    bytes[..size].to_vec()
+    bitmap.to_le_bytes()[..size_of_select.as_usize()].to_vec()
 }

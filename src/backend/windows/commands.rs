@@ -1,7 +1,10 @@
 mod command;
 mod response;
 
-use crate::{Error, Result, macros::{newtype, unknown_tpm_data}};
+use crate::{
+    Error, Result,
+    macros::{newtype, unknown_tpm_data},
+};
 
 pub(super) use self::command::{Command, CommandHeader, TpmsAuthCommand};
 pub(super) use self::response::{ResponseHeader, TpmsAuthResponse};
@@ -36,8 +39,8 @@ impl TpmSt {
 impl TryFrom<u16> for TpmSt {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-            match Self(raw) {
+    fn try_from(value: u16) -> Result<Self> {
+        match Self(value) {
             Self::RSP_COMMAND
             | Self::NULL
             | Self::NO_SESSIONS
@@ -55,8 +58,8 @@ impl TryFrom<u16> for TpmSt {
             | Self::AUTH_SECRET
             | Self::HASHCHECK
             | Self::AUTH_SIGNED
-            | Self::FU_MANIFEST => Ok(Self(raw)),
-            _ => unknown_tpm_data!(raw, "structure tag"),
+            | Self::FU_MANIFEST => Ok(Self(value)),
+            _ => Err(Error::conversion::<u16, TpmSt>()),
         }
     }
 }
@@ -67,10 +70,6 @@ pub(crate) struct TpmiStCommandTag(TpmSt);
 impl TpmiStCommandTag {
     pub(crate) const NO_SESSIONS: Self = Self(TpmSt::NO_SESSIONS);
     pub(crate) const SESSIONS: Self = Self(TpmSt::SESSIONS);
-
-    pub(crate) fn raw(&self) -> u16 {
-        self.0.raw()
-    }
 }
 
 impl TryFrom<u16> for TpmiStCommandTag {
@@ -78,9 +77,8 @@ impl TryFrom<u16> for TpmiStCommandTag {
 
     fn try_from(value: u16) -> Result<Self> {
         match TpmSt(value) {
-            TpmSt::NO_SESSIONS => Ok(Self::NO_SESSIONS),
-            TpmSt::SESSIONS => Ok(Self::SESSIONS),
-            _ => unknown_tpm_data!(value, "command tag"),
+            TpmSt::NO_SESSIONS | TpmSt::SESSIONS => Ok(Self(TpmSt(value))),
+            _ => Err(Error::conversion::<u16, TpmiStCommandTag>()),
         }
     }
 }
@@ -90,7 +88,7 @@ impl std::fmt::Debug for TpmiStCommandTag {
         match *self {
             Self::NO_SESSIONS => f.write_str("NO_SESSIONS"),
             Self::SESSIONS => f.write_str("SESSIONS"),
-            _ => write!(f, "UNKNOWN ({:#10})", self.raw()),
+            _ => write!(f, "UNKNOWN ({:#010x})", self.raw()),
         }
     }
 }

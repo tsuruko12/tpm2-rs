@@ -1,10 +1,9 @@
-use crate::{
-    Result, backend::windows::codec::TpmMarshal, types::{CapabilityData, TpmCap, TpmCc},
-};
+use super::super::{codec::GetCapabilityResponse, commands::Command};
 use super::Context;
-use super::super::{
-    commands::Command,
-    codec::GetCapabilityResponse,
+use crate::{
+    Result,
+    backend::windows::codec::TpmMarshal,
+    types::{CapabilityData, TpmCap, TpmCc},
 };
 
 impl Context {
@@ -13,20 +12,19 @@ impl Context {
         capability: TpmCap,
         property: u32,
         property_count: u32,
-    ) -> Result<(bool, CapabilityData)> {
+    ) -> Result<(CapabilityData, bool)> {
         let mut request_params = Vec::new();
 
         capability.raw().marshal(&mut request_params)?;
         property.marshal(&mut request_params)?;
         property_count.marshal(&mut request_params)?;
 
-        let command = Command::new(TpmCc::GET_CAPABILITY)
-            .with_parameters(&request_params);
+        let command = Command::new(TpmCc::GET_CAPABILITY).with_parameters(&request_params);
 
         let response_body = self.submit(command)?;
-        
+
         GetCapabilityResponse::parse(&response_body, capability)
-            .map(|response| (response.more_data, response.capability_data))
+            .map(|response| (response.capability_data, response.more_data))
     }
 }
 

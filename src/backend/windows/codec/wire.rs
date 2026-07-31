@@ -1,28 +1,31 @@
 use tracing::{debug, error};
 
-use crate::{
-    error::{Error, Result}, 
-    types::{TpmiAlgHash, Tpm2bDigest, TpmKeyBits, TpmaObject, TpmiAlgEccScheme, TpmiAlgKdf, 
-        TpmiAlgPublic, TpmiAlgRsaScheme, TpmtRsaScheme, TpmtSymDefObject,
-        TpmiAlgSymMode, TpmiAlgSymObject, TpmiEccCurve, TpmiRsaKeyBits, TpmlAlgProperty, TpmlPcrSelection, 
-        TpmsEccParams, TpmsRsaParams, TpmtEccScheme, TpmtPublic,  TpmuPublicId, TpmuPublicParams,
-        TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmaAlgorithm, TpmaCc, TpmPt, TpmPtPcr,
-        TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlTaggedPcrProperty,
-        TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsPcrSelection, TpmsTaggedPcrSelect,
-        TpmsTaggedProperty, Tpm2bAuth
-    },
-};
 use super::super::{
     commands::{
-        Command, ResponseHeader, TpmiStCommandTag, TpmsAuthCommand, TpmsAuthResponse, TpmSt, 
-        TPM_HEADER_SIZE
-    }, 
+        Command, ResponseHeader, TPM_HEADER_SIZE, TpmSt, TpmiStCommandTag, TpmsAuthCommand,
+        TpmsAuthResponse,
+    },
     types::{
-        TpmaLocality, TpmaSession, TpmiRhHierarchy, TpmRc, Tpm2bCreationData,
-        Tpm2bData, Tpm2bName, Tpm2bNonce, Tpm2bPublic, TpmlDigest, TpmsCreationData,
-        TpmsSensitiveCreate, TpmtTkCreation,
-    }
+        Tpm2bCreationData, Tpm2bData, Tpm2bName, Tpm2bNonce, Tpm2bPublic, TpmRc, TpmaLocality,
+        TpmaSession, TpmiRhHierarchy, TpmlDigest, TpmsCreationData, TpmsSensitiveCreate,
+        TpmtTkCreation,
+    },
 };
+use crate::{
+    error::{Error, Result},
+    types::{
+        Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmKeyBits, TpmPt,
+        TpmPtPcr, TpmaAlgorithm, TpmaCc, TpmaObject, TpmiAlgEccScheme, TpmiAlgHash, TpmiAlgKdf,
+        TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject, TpmiEccCurve,
+        TpmiRsaKeyBits, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle,
+        TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsAlgProperty,
+        TpmsEccParms, TpmsPcrSelection, TpmsRsaParms, TpmsSchemeEcdaa, TpmsTaggedPcrSelect,
+        TpmsTaggedProperty, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmtRsaScheme,
+        TpmtSymDefObject, TpmuEccScheme, TpmuPublicId, TpmuPublicParms,
+    },
+};
+
+// memo: implement both traits for TpmAlgId and TpmiAlgHash to clearn up code, (TpmsEmpty as well)
 
 pub(crate) trait TpmMarshal {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()>;
@@ -71,9 +74,10 @@ impl<'a> TpmMarshal for Command<'_> {
         let authorization_size = if authorization_bytes.is_empty() {
             None
         } else {
-            Some(u32::try_from(authorization_bytes.len()).map_err(|_| {
-                Error::invalid_state("authorization area length exceeds u32")
-            })?)
+            Some(
+                u32::try_from(authorization_bytes.len())
+                    .map_err(|_| Error::invalid_state("authorization area length exceeds u32"))?,
+            )
         };
 
         let command_size = TPM_HEADER_SIZE
@@ -152,13 +156,14 @@ impl TpmMarshal for TpmtPublic {
         self.object_attributes().bits().marshal(buf)?;
         marshal_tpm2b(buf, self.auth_policy().as_bytes())?;
 
+        // memo: changed TpmuPublicParms varinants
         match self.parameters() {
-            TpmuPublicParams::Ecc(params) => {
+            TpmuPublicParms::Ecc(params) => {
                 params.marshal(buf)?;
-            },
-            TpmuPublicParams::Rsa(params) => {
+            }
+            TpmuPublicParms::Rsa(params) => {
                 params.marshal(buf)?;
-            },
+            } // memo: add the rest branches
         }
 
         self.unique().marshal(buf)?;
@@ -167,7 +172,7 @@ impl TpmMarshal for TpmtPublic {
     }
 }
 
-impl TpmMarshal for TpmsRsaParams {
+impl TpmMarshal for TpmsRsaParms {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         self.symmetric().marshal(buf)?;
 
@@ -182,16 +187,34 @@ impl TpmMarshal for TpmsRsaParams {
     }
 }
 
-impl TpmMarshal for TpmsEccParams {
+impl TpmMarshal for TpmsEccParms {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         self.symmetric().marshal(buf)?;
 
-        let (scheme, hash) = self.scheme().into_parts();
+        let (scheme, details) = self.scheme().into_parts();
         scheme.raw().marshal(buf)?;
-        hash.map(|alg| alg.raw().marshal(buf)).transpose()?;
+
+        match details {
+            TpmuEccScheme::Ecdsa(hash)
+            | TpmuEccScheme::Ecdh(hash)
+            | TpmuEccScheme::Sm2(hash)
+            | TpmuEccScheme::EcSchnorr(hash)
+            | TpmuEccScheme::EcMqv(hash) => hash.hash_alg.raw().marshal(buf)?,
+            TpmuEccScheme::Ecdaa(details) => {
+                let (hash_alg, count) = details.into_parts();
+                hash_alg.raw().marshal(buf)?;
+                count.marshal(buf)?;
+            }
+            TpmuEccScheme::Null => {}
+        }
 
         self.curve_id().raw().marshal(buf)?;
-        self.kdf().raw().marshal(buf)?;
+
+        let (kdf, hash_alg) = self.kdf().into_parts();
+        kdf.raw().marshal(buf)?;
+        if let Some(hash_alg) = hash_alg {
+            hash_alg.raw().marshal(buf)?;
+        }
 
         Ok(())
     }
@@ -214,7 +237,7 @@ impl TpmMarshal for TpmuPublicId {
                 let (x, y) = point.as_parts();
                 marshal_tpm2b(buf, x.as_bytes())?;
                 marshal_tpm2b(buf, y.as_bytes())?;
-            },
+            }
             Self::Rsa(public_key) => marshal_tpm2b(buf, public_key.as_bytes())?,
         }
 
@@ -278,7 +301,7 @@ impl TpmUnmarshal for ResponseHeader {
         debug!(
             tag = format_args!("{tag:?}"),
             response_size,
-            response_code = format_args!("{:#05X}", response_code.raw()),
+            response_code = format_args!("{:#010X}", response_code.raw()),
             "unmarshaled TPM response header"
         );
 
@@ -289,8 +312,8 @@ impl TpmUnmarshal for ResponseHeader {
 impl TpmUnmarshal for TpmsAuthResponse {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let nonce = Tpm2bNonce::from(read_tpm2b(input)?);
-        let session_attributes = TpmaSession::from_bits(read_u8(input)?)
-            .ok_or(Error::InvalidData)?;
+        let session_attributes =
+            TpmaSession::from_bits(read_u8(input)?).ok_or(Error::InvalidData)?;
         let hmac = Tpm2bAuth::from(read_tpm2b(input)?);
 
         Ok(Self::new(nonce, session_attributes, hmac))
@@ -315,23 +338,24 @@ impl TpmUnmarshal for Tpm2bPublic {
         })?;
 
         let auth_policy = Tpm2bDigest::try_from(read_tpm2b(&mut remaining)?)?;
+        // memo: Changed TpmuPublicParms variants
         let (parameters, unique) = match alg_type {
             TpmiAlgPublic::RSA => {
-                let parameters = TpmuPublicParams::Rsa(TpmsRsaParams::unmarshal(&mut remaining)?);
+                let parameters = TpmuPublicParms::Rsa(TpmsRsaParms::unmarshal(&mut remaining)?);
                 let unique = TpmuPublicId::rsa(read_tpm2b(&mut remaining)?);
                 (parameters, unique)
-            },
+            }
             TpmiAlgPublic::ECC => {
-                let parameters = TpmuPublicParams::Ecc(TpmsEccParams::unmarshal(&mut remaining)?);
+                let parameters = TpmuPublicParms::Ecc(TpmsEccParms::unmarshal(&mut remaining)?);
                 let x = read_tpm2b(&mut remaining)?;
                 let y = read_tpm2b(&mut remaining)?;
                 let unique = TpmuPublicId::ecc(x, y);
                 (parameters, unique)
-            },
+            }
             alg_type => {
                 error!(?alg_type, "unsupported TPM public algorithm");
                 return Err(Error::InvalidData);
-            },
+            }
         };
 
         Ok(Self::from(TpmtPublic::new(
@@ -396,22 +420,23 @@ impl TpmUnmarshal for TpmtSymDefObject {
     }
 }
 
-impl TpmUnmarshal for TpmsRsaParams {
+impl TpmUnmarshal for TpmsRsaParms {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let symmetric = TpmtSymDefObject::unmarshal(input)?;
         let scheme = TpmiAlgRsaScheme::try_from(u16::unmarshal(input)?)?;
 
+        // memo: changed TpmtRsaScheme so refactor this
         let scheme = match scheme {
-            TpmiAlgRsaScheme::RSASSA => {
+            TpmiAlgRsaScheme::RSA_SSA => {
                 TpmtRsaScheme::RsaSsa(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            },
-            TpmiAlgRsaScheme::RSAES => TpmtRsaScheme::RsaEs,
-            TpmiAlgRsaScheme::RSAPSS => {
+            }
+            TpmiAlgRsaScheme::RSA_ES => TpmtRsaScheme::RsaEs,
+            TpmiAlgRsaScheme::RSA_PSS => {
                 TpmtRsaScheme::RsaPss(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            },
+            }
             TpmiAlgRsaScheme::OAEP => {
                 TpmtRsaScheme::Oaep(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            },
+            }
             TpmiAlgRsaScheme::NULL => TpmtRsaScheme::Null,
             _ => unreachable!("TpmiAlgRsaScheme only contains RSA schemes"),
         };
@@ -423,24 +448,47 @@ impl TpmUnmarshal for TpmsRsaParams {
     }
 }
 
-impl TpmUnmarshal for TpmsEccParams {
+impl TpmUnmarshal for TpmsEccParms {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let symmetric = TpmtSymDefObject::unmarshal(input)?;
         let scheme = match TpmiAlgEccScheme::try_from(u16::unmarshal(input)?)? {
             TpmiAlgEccScheme::ECDSA => {
                 TpmtEccScheme::ecdsa(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            },
+            }
+            TpmiAlgEccScheme::ECDH => {
+                TpmtEccScheme::ecdh(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
+            }
+            TpmiAlgEccScheme::ECDAA => {
+                let hash_alg = TpmiAlgHash::try_from(u16::unmarshal(input)?)?;
+                let count = u16::unmarshal(input)?;
+                TpmtEccScheme::ecdaa(TpmsSchemeEcdaa::new(hash_alg, count))
+            }
+            TpmiAlgEccScheme::SM2 => {
+                TpmtEccScheme::sm2(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
+            }
+            TpmiAlgEccScheme::EC_SCHNORR => {
+                TpmtEccScheme::ec_schnorr(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
+            }
+            TpmiAlgEccScheme::EC_MQV => {
+                TpmtEccScheme::ec_mqv(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
+            }
             TpmiAlgEccScheme::NULL => TpmtEccScheme::null(),
             scheme => {
                 error!(?scheme, "unsupported TPM ECC scheme");
                 return Err(Error::InvalidData);
-            },
+            }
         };
 
         let curve_id = TpmiEccCurve::try_from(u16::unmarshal(input)?)?;
-        TpmiAlgKdf::try_from(u16::unmarshal(input)?)?;
+        let kdf_scheme = TpmiAlgKdf::try_from(u16::unmarshal(input)?)?;
+        let kdf_hash_alg = if kdf_scheme == TpmiAlgKdf::NULL {
+            None
+        } else {
+            Some(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
+        };
+        let kdf = TpmtKdfScheme::from_parts(kdf_scheme, kdf_hash_alg)?;
 
-        Ok(Self::new(symmetric, scheme, curve_id))
+        Ok(Self::with_kdf(symmetric, scheme, curve_id, kdf))
     }
 }
 
@@ -472,9 +520,7 @@ impl TpmUnmarshal for TpmlAlgProperty {
 
 impl TpmUnmarshal for TpmlHandle {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
-        let items = unmarshal_list(input, 4, None, |input| {
-            TpmHandle::unmarshal(input)
-        })?;
+        let items = unmarshal_list(input, 4, None, |input| TpmHandle::unmarshal(input))?;
 
         Ok(items.into())
     }
@@ -482,9 +528,7 @@ impl TpmUnmarshal for TpmlHandle {
 
 impl TpmUnmarshal for TpmlCca {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
-        let items = unmarshal_list(input, 4, None, |input| {
-            TpmaCc::try_from(read_u32(input)?)
-        })?;
+        let items = unmarshal_list(input, 4, None, |input| TpmaCc::try_from(read_u32(input)?))?;
 
         Ok(items.into())
     }
@@ -492,9 +536,7 @@ impl TpmUnmarshal for TpmlCca {
 
 impl TpmUnmarshal for TpmlCc {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
-        let items = unmarshal_list(input, 4, None, |input| {
-            TpmCc::try_from(read_u32(input)?)
-        })?;
+        let items = unmarshal_list(input, 4, None, |input| TpmCc::try_from(read_u32(input)?))?;
 
         Ok(items.into())
     }
@@ -596,16 +638,15 @@ fn unmarshal_list<T>(
 }
 
 fn validate_count(
-    bytes_len: usize, 
-    count: usize, 
-    min_item_size: usize, 
+    bytes_len: usize,
+    count: usize,
+    min_item_size: usize,
     max_count: Option<usize>,
 ) -> Result<()> {
     let min_size = count.checked_mul(min_item_size).ok_or_else(|| {
         error!(
             count,
-            min_item_size,
-            "TPM list item count overflow while calculating required size"
+            min_item_size, "TPM list item count overflow while calculating required size"
         );
         Error::InvalidData
     })?;
@@ -624,8 +665,7 @@ fn validate_count(
         if count > max_count {
             error!(
                 item_count = count,
-                max_count,
-                "TPM list item count exceeds the maximum"
+                max_count, "TPM list item count exceeds the maximum"
             );
             return Err(Error::InvalidData);
         }
@@ -634,16 +674,13 @@ fn validate_count(
     Ok(())
 }
 
-pub(crate) fn marshal_tpm2b<T: TpmMarshal + ?Sized>(
-    buf: &mut Vec<u8>,
-    value: &T,
-) -> Result<()> {
+pub(crate) fn marshal_tpm2b<T: TpmMarshal + ?Sized>(buf: &mut Vec<u8>, value: &T) -> Result<()> {
     let mut inner = Vec::new();
     value.marshal(&mut inner)?;
 
     let size = u16::try_from(inner.len())
         .map_err(|_| Error::invalid_state("TPM2B buffer size exceeds u16"))?;
-    
+
     size.marshal(buf)?;
     buf.extend_from_slice(&inner);
 
@@ -682,10 +719,7 @@ fn read_bytes_for_size(input: &mut &[u8]) -> Result<Vec<u8>> {
 
 pub(crate) fn ensure_consumed(input: &[u8]) -> Result<()> {
     if !input.is_empty() {
-        error!(
-            remaining_size = input.len(),
-            "trailing bytes remain"
-        );
+        error!(remaining_size = input.len(), "trailing bytes remain");
         return Err(Error::InvalidData);
     }
 

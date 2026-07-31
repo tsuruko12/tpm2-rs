@@ -17,7 +17,7 @@ pub use crate::{
     types::{algorithm, ecc, hierarchy, policy, public, rsa, symmetric},
 };
 
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use zeroize::Zeroizing;
 
 use symmetric::SymmetricKeyBits;
@@ -28,7 +28,9 @@ const SYMMETRIC_BLOCK_SIZE: usize = 16;
 
 fn generate_random_bytes(length: usize) -> Result<Vec<u8>> {
     let mut key = vec![0u8; length];
-    OsRng.try_fill_bytes(&mut key).map_err(Error::random_generation)?;
+    OsRng
+        .try_fill_bytes(&mut key)
+        .map_err(Error::random_generation)?;
 
     Ok(key)
 }
@@ -40,8 +42,9 @@ fn generate_sym_key(key_bits: SymmetricKeyBits) -> Result<Zeroizing<Vec<u8>>> {
     };
 
     let mut key = Zeroizing::new(vec![0u8; key_len]);
-    OsRng.try_fill_bytes(key.as_mut_slice()).map_err(Error::random_generation)?;
+    OsRng
+        .try_fill_bytes(key.as_mut_slice())
+        .map_err(Error::random_generation)?;
 
     Ok(key)
 }
-

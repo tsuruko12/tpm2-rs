@@ -1,15 +1,14 @@
+use super::{Tpm2bName, TpmaLocality};
 use crate::{
-    macros::{tpm2b_bytes_type, tpm2b_secret_type}, 
-    types::{Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmlPcrSelection}
+    macros::{tpm2b_bytes_type, tpm2b_secret_type},
+    types::{Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmlPcrSelection},
 };
-use super::{TpmaLocality, Tpm2bName};
 
 tpm2b_bytes_type!(Tpm2bNonce);
 tpm2b_bytes_type!(Tpm2bData);
 tpm2b_bytes_type!(Tpm2bCreationData(TpmsCreationData));
 tpm2b_secret_type!(Tpm2bSensitiveCreate(TpmsSensitiveCreate));
 tpm2b_secret_type!(Tpm2bSensitiveData);
-tpm2b_secret_type!(Tpm2bPrivate);
 
 #[derive(Debug, Clone)]
 pub(crate) struct TpmsCreationData {

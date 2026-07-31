@@ -7,7 +7,8 @@ use directories::ProjectDirs;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
-    Error, Result, generate_random_bytes, policy::{Policy, PolicyCommand}, types::TpmiDhPersistent,
+    Error, Result, generate_random_bytes,
+    policy::{Policy, PolicyCommand},
 };
 
 const DB_FILE: &str = "store.db"; // will change later
@@ -180,7 +181,7 @@ PRAGMA user_version = 1;
 
 #[derive(Debug, Clone)]
 pub(crate) struct InternalKeyMeta {
-    pub(crate) handle: TpmiDhPersistent,
+    pub(crate) handle: u32,
     pub(crate) object_name: Vec<u8>,
 }
 
@@ -236,7 +237,7 @@ impl MetadataStore {
             (HANDLE_SESSION_SALT_KEY, session_salt_key),
             (HANDLE_SHARED_WRAPPING_KEY, shared_wrapping_key),
         ] {
-            tx.execute(stmt, (kind, meta.handle.raw(), &meta.object_name))?;
+            tx.execute(stmt, (kind, meta.handle, &meta.object_name))?;
         }
 
         tx.commit()?;
@@ -301,14 +302,18 @@ impl MetadataStore {
             WHERE kind = ?1
         "#;
 
-        let (handle, object_name) = self.conn
+        let (handle, object_name) = self
+            .conn
             .query_row(stmt, [kind], |row| {
                 Ok((row.get::<_, u32>(0)?, row.get::<_, Vec<u8>>(1)?))
             })
             .optional()?
             .ok_or_else(Error::corrupted_store)?;
 
-        Ok(InternalKeyMeta { handle: handle.try_into()?, object_name })
+        Ok(InternalKeyMeta {
+            handle: handle,
+            object_name,
+        })
     }
 }
 

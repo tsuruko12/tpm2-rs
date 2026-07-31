@@ -1,9 +1,9 @@
 use tracing::error;
 
 use crate::{
-    backend::BackendContext, 
-    db::MetadataStore, 
-    error::{Error, Result}, 
+    backend::BackendContext,
+    db::MetadataStore,
+    error::{Error, Result},
     types::{Authorization, AuthorizationCache},
 };
 
@@ -33,11 +33,20 @@ impl Context {
 
     pub fn provision(&mut self) -> Result<()> {
         self.store.init()?;
-        
-        let key_meta = self.backend.create_internal_keys(&Authorization::default())?;
-        self.store.add_internal_key_meta(&key_meta)?;
 
-        Ok(())
+        let owner_authorization = Authorization::default();
+
+        let key_meta = self
+            .backend
+            .create_internal_keys(&owner_authorization)?;
+
+        match self.store.add_internal_key_meta(&key_meta) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.backend.evict_persistent_handles(&key_meta, None, &owner_authorization);
+                Err(e)         
+            }
+        }
     }
 
     pub fn get_random(&mut self, num_bytes: usize) -> Result<Vec<u8>> {

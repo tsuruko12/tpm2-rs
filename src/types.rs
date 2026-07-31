@@ -10,15 +10,18 @@ pub mod symmetric;
 mod tpm;
 
 pub(crate) use self::authorization::{Authorization, AuthorizationCache};
+pub(crate) use self::ecc::EccCurve;
 pub(crate) use self::key::*;
 pub(crate) use self::policy::*;
 pub(crate) use self::tpm::{
-    CapabilityData, TpmaObject, TpmCap, TpmCc, TpmAlgId, TpmiAlgHash, 
-    TpmiAlgSymMode, TpmiAlgSymObject, TpmiAlgPublic, TpmiAlgRsaScheme, TpmlPcrSelection,
-    TpmiDhObject, TpmHandle, TpmKeyBits, TpmsEccParams, TpmsPcrSelection,  TpmiAlgEccScheme, TpmiAlgKdf,
-    TpmsRsaParams, TpmtPublic, TpmtSymDefObject, TpmuPublicId, TpmuPublicParams, Tpm2bDigest,
-    TpmiEccCurve, TpmiRsaKeyBits, TpmlAlgProperty, TpmtEccScheme, TpmtRsaScheme, TpmEccCurve,
-    TpmaAlgorithm, TpmaCc, TpmPt, TpmPtPcr, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlTaggedPcrProperty,
-    TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsTaggedPcrSelect, TpmsTaggedProperty, Tpm2bAuth, 
-    TpmiRhProvision, TpmiDhPersistent
+    CapabilityData, Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCap, TpmCc, TpmEccCurve, TpmHandle,
+    TpmKeyBits, TpmPt, TpmPtPcr, TpmaAlgorithm, TpmaCc, TpmaObject, TpmaSession, TpmiAlgEccScheme,
+    TpmiAlgHash, TpmiAlgKdf, TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject,
+    TpmiDhObject, TpmiDhPersistent, TpmiEccCurve, TpmiRhProvision, TpmiRsaKeyBits, TpmlAlgProperty,
+    TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty,
+    TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsEccParms, TpmsEmpty, TpmsKeyedHashParms,
+    TpmsPcrSelection, TpmsRsaParms, TpmsSchemeEcdaa, TpmsSchemeHash, TpmsSchemeXor,
+    TpmsTaggedPcrSelect, TpmsTaggedProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedHashScheme,
+    TpmtPublic, TpmtRsaScheme, TpmtSigScheme, TpmtSymDefObject, TpmuEccScheme, TpmuKdfScheme,
+    TpmuPublicId, TpmuPublicParms, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSigScheme,
 };

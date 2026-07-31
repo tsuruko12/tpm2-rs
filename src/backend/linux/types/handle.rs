@@ -1,15 +1,29 @@
-use tss_esapi::structures::HandleList;
+use tss_esapi::{handles::TpmHandle as EsapiTpmHandle, structures::HandleList};
 
-use crate::types::{TpmHandle, TpmlHandle};
+use crate::{
+    Error, Result,
+    types::{TpmHandle, TpmlHandle},
+};
 
 impl From<HandleList> for TpmlHandle {
-    fn from(value: HandleList) -> Self {
-        let items = value
+    fn from(handle_list: HandleList) -> Self {
+        let items = handle_list
             .into_inner()
             .into_iter()
             .map(|handle| TpmHandle::new(handle.into()))
-            .collect();
+            .collect::<Vec<_>>();
 
-        Self::new(items)
+        items.into()
+    }
+}
+
+impl TryFrom<TpmHandle> for EsapiTpmHandle {
+    type Error = Error;
+
+    fn try_from(handle: TpmHandle) -> Result<Self> {
+        handle
+            .raw()
+            .try_into()
+            .map_err(|_| Error::conversion::<TpmHandle, EsapiTpmHandle>(None))
     }
 }

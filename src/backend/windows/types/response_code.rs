@@ -156,7 +156,7 @@ impl TpmRc {
 }
 
 impl From<u32> for TpmRc {
-    fn from(raw: u32) -> Self {
-        Self(raw)
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }

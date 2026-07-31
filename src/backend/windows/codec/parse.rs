@@ -1,29 +1,28 @@
 use tracing::error;
 
-use crate::{
-    Error, Result, 
-    types::{
-        CapabilityData, Tpm2bDigest, TpmCap, TpmHandle, TpmtPublic,
-        TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection,
-        TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, 
-    }
-};
-use super::{ensure_consumed, read_tpm2b, read_u8, read_u32, read_vec, TpmUnmarshal};
 use super::super::{
     codec::read_tpm2b_exact,
     commands::TpmsAuthResponse,
     types::{
-        TpmiShAuthSession, TpmlDigest, TpmtTkCreation, Tpm2bCreationData, Tpm2bName, Tpm2bNonce, 
-        Tpm2bPrivate, Tpm2bPublic
-    }    
+        Tpm2bCreationData, Tpm2bName, Tpm2bNonce, Tpm2bPrivate, Tpm2bPublic, TpmiShAuthSession,
+        TpmlDigest, TpmtTkCreation,
+    },
+};
+use super::{TpmUnmarshal, ensure_consumed, read_tpm2b, read_u8, read_u32, read_vec};
+use crate::{
+    Error, Result,
+    types::{
+        CapabilityData, Tpm2bDigest, TpmCap, TpmHandle, TpmlAlgProperty, TpmlCc, TpmlCca,
+        TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
+        TpmtPublic,
+    },
 };
 
 pub(crate) fn parse_response_params_and_authorizations(
-    bytes: &mut &[u8], 
+    bytes: &mut &[u8],
     auth_count: usize,
 ) -> Result<(Vec<u8>, Vec<TpmsAuthResponse>)> {
-    let param_size = usize::try_from(read_u32(bytes)?)
-        .map_err(|_| Error::InvalidData)?;
+    let param_size = usize::try_from(read_u32(bytes)?).map_err(|_| Error::InvalidData)?;
     let params = read_vec(bytes, param_size)?;
 
     let mut authorizations = Vec::with_capacity(auth_count);
@@ -49,10 +48,7 @@ impl GetCapabilityResponse {
             0 => false,
             1 => true,
             value => {
-                error!(
-                    value, 
-                    "invalid TPMI_YES_NO value in capability response"
-                );
+                error!(value, "invalid TPMI_YES_NO value in capability response");
                 return Err(Error::InvalidData);
             }
         };
@@ -71,7 +67,10 @@ impl GetCapabilityResponse {
 
         ensure_consumed(bytes)?;
 
-        Ok(Self { more_data, capability_data })
+        Ok(Self {
+            more_data,
+            capability_data,
+        })
     }
 }
 
@@ -84,12 +83,12 @@ impl CapabilityData {
             TpmCap::PPCommands => Ok(Self::PpCommands(TpmlCc::unmarshal(bytes)?)),
             TpmCap::AuditCommands => Ok(Self::AuditCommands(TpmlCc::unmarshal(bytes)?)),
             TpmCap::Pcrs => Ok(Self::Pcrs(TpmlPcrSelection::unmarshal(bytes)?)),
-            TpmCap::TpmProperties => Ok(Self::TpmProperties(
-                TpmlTaggedTpmProperty::unmarshal(bytes)?,
-            )),
-            TpmCap::PcrProperties => Ok(Self::PcrProperties(
-                TpmlTaggedPcrProperty::unmarshal(bytes)?,
-            )),
+            TpmCap::TpmProperties => Ok(Self::TpmProperties(TpmlTaggedTpmProperty::unmarshal(
+                bytes,
+            )?)),
+            TpmCap::PcrProperties => Ok(Self::PcrProperties(TpmlTaggedPcrProperty::unmarshal(
+                bytes,
+            )?)),
             TpmCap::ECCCurves => Ok(Self::EccCurves(TpmlEccCurve::unmarshal(bytes)?)),
         }
     }
@@ -126,7 +125,10 @@ impl StartAuthSessionResponse {
         let session_handle = TpmiShAuthSession::try_from(u32::unmarshal(&mut bytes)?)?;
         let nonce = Tpm2bNonce::from(read_tpm2b_exact(bytes)?);
 
-        Ok(Self { session_handle, nonce })
+        Ok(Self {
+            session_handle,
+            nonce,
+        })
     }
 }
 
@@ -138,14 +140,14 @@ pub(crate) struct PcrReadResponse {
 }
 
 impl PcrReadResponse {
-    pub(crate) fn parse(mut bytes: &[u8]) ->  Result<Self> {
+    pub(crate) fn parse(mut bytes: &[u8]) -> Result<Self> {
         let pcr_update_counter = u32::unmarshal(&mut bytes)?;
         let pcr_selection_out = TpmlPcrSelection::unmarshal(&mut bytes)?;
         let pcr_values = TpmlDigest::unmarshal(&mut bytes)?;
 
         ensure_consumed(bytes)?;
 
-        Ok(Self { 
+        Ok(Self {
             pcr_update_counter,
             pcr_selection_out,
             pcr_values,
@@ -162,10 +164,8 @@ pub(crate) struct CreatePrimaryResponse {
 impl CreatePrimaryResponse {
     pub(crate) fn parse(mut bytes: &[u8], auth_count: usize) -> Result<Self> {
         let object_handle = TpmHandle::unmarshal(&mut bytes)?;
-        let (parameters, authorizations) = parse_response_params_and_authorizations(
-            &mut bytes,
-            auth_count,
-        )?;
+        let (parameters, authorizations) =
+            parse_response_params_and_authorizations(&mut bytes, auth_count)?;
 
         Ok(Self {
             object_handle,
@@ -196,12 +196,13 @@ pub(crate) struct CreateResponse {
 
 impl CreateResponse {
     pub(crate) fn parse(mut bytes: &[u8], auth_count: usize) -> Result<Self> {
-        let (parameters, authorizations) = parse_response_params_and_authorizations(
-            &mut bytes,
-            auth_count,
-        )?;
+        let (parameters, authorizations) =
+            parse_response_params_and_authorizations(&mut bytes, auth_count)?;
 
-        Ok(Self { parameters, authorizations })
+        Ok(Self {
+            parameters,
+            authorizations,
+        })
     }
 
     pub(crate) fn into_parts(self) -> Result<(Tpm2bPrivate, TpmtPublic, Vec<TpmsAuthResponse>)> {
@@ -228,9 +229,14 @@ pub(crate) struct LoadResponse {
 impl LoadResponse {
     pub(crate) fn parse(mut bytes: &[u8], auth_count: usize) -> Result<Self> {
         let object_handle = TpmHandle::unmarshal(&mut bytes)?;
-        let (parameters, authorizations) = parse_response_params_and_authorizations(&mut bytes, auth_count)?;
+        let (parameters, authorizations) =
+            parse_response_params_and_authorizations(&mut bytes, auth_count)?;
 
-        Ok(Self { object_handle, parameters, authorizations })
+        Ok(Self {
+            object_handle,
+            parameters,
+            authorizations,
+        })
     }
 
     pub(crate) fn into_parts(self) -> Result<(TpmHandle, Tpm2bName)> {

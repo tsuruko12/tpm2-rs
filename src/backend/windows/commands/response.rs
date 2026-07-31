@@ -1,8 +1,11 @@
-use crate::{Error, Result, types::{TpmHandle, Tpm2bAuth}};
-use super::TpmiStCommandTag;
 use super::super::{
-    codec::{read_vec, TpmUnmarshal},
+    codec::{TpmUnmarshal, read_vec},
     types::{Tpm2bNonce, TpmRc, TpmaSession},
+};
+use super::TpmiStCommandTag;
+use crate::{
+    Error, Result,
+    types::{Tpm2bAuth, TpmHandle},
 };
 
 pub(crate) struct Response {
@@ -61,11 +64,7 @@ pub(crate) struct ResponseBody {
 }
 
 impl ResponseBody {
-    fn parse(
-        input: &mut &[u8],
-        response_handle_count: usize,
-        uses_sessions: bool,
-    ) -> Result<Self> {
+    fn parse(input: &mut &[u8], response_handle_count: usize, uses_sessions: bool) -> Result<Self> {
         let mut handles = Vec::with_capacity(response_handle_count);
 
         for _ in 0..response_handle_count {
@@ -73,8 +72,8 @@ impl ResponseBody {
         }
 
         let (params, auth_area) = if uses_sessions {
-            let param_size = usize::try_from(u32::unmarshal(input)?)
-                .map_err(|_| Error::InvalidData)?;
+            let param_size =
+                usize::try_from(u32::unmarshal(input)?).map_err(|_| Error::InvalidData)?;
             let params = read_vec(input, param_size)?;
 
             let auth_area = if input.is_empty() {
@@ -137,4 +136,4 @@ impl TpmsAuthResponse {
     pub(crate) fn as_parts(&self) -> (&Tpm2bNonce, TpmaSession, &Tpm2bAuth) {
         (&self.nonce, self.session_attributes, &self.hmac)
     }
-} 
+}

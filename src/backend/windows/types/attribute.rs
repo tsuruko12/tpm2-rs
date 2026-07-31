@@ -8,7 +8,7 @@ bitflags! {
         const TWO = 0x04;
         const THREE = 0x08;
         const FOUR = 0x10;
-        
-        const EXTENDED_MASK = 0xE0;
+
+        const _ = 0xE0; // Extended
     }
 }

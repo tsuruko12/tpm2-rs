@@ -7,12 +7,15 @@ use windows_sys::Win32::System::TpmBaseServices::{
     Tbsip_Context_Close, Tbsip_Submit_Command,
 };
 
-use crate::{backend::windows::commands::ResponseHeader, error::{Error, Result}};
-use super::Context;
 use super::super::{
     codec::{TpmMarshal, TpmUnmarshal},
-    commands::{Command, TpmiStCommandTag, TPM_HEADER_SIZE},
-    types::TpmRc
+    commands::{Command, TPM_HEADER_SIZE, TpmiStCommandTag},
+    types::TpmRc,
+};
+use super::Context;
+use crate::{
+    backend::windows::commands::ResponseHeader,
+    error::{Error, Result},
 };
 
 const TBS_RESPONSE_BUFFER_SIZE: usize = 256 * 1024;
@@ -89,10 +92,7 @@ fn get_response_body(response: &[u8], expected_tag: TpmiStCommandTag) -> Result<
     let response_len = response.len();
 
     if response_len < TPM_HEADER_SIZE {
-        error!(
-            actual_size = response.len(), 
-            "response header is too short"
-        );
+        error!(actual_size = response.len(), "response header is too short");
         return Err(Error::InvalidData);
     }
 
@@ -101,7 +101,7 @@ fn get_response_body(response: &[u8], expected_tag: TpmiStCommandTag) -> Result<
 
     if header.response_size() as usize != response_len {
         error!(
-            declared_size = header.response_size(), 
+            declared_size = header.response_size(),
             remaining_size = response_len,
             "response size mismatch"
         );

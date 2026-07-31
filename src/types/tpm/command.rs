@@ -1,5 +1,7 @@
 use crate::{
-    Error, Result, macros::{newtype, tpm_list_type, unknown_tpm_data}, policy::PolicyCommand,
+    Error, Result,
+    macros::{newtype, tpm_list_type},
+    policy::PolicyCommand,
 };
 
 tpm_list_type!(TpmlCc(TpmCc););
@@ -56,7 +58,7 @@ impl TryFrom<u32> for TpmCc {
         if (Self::FIRST..=Self::LAST).contains(&value) {
             Ok(Self(value))
         } else {
-            unknown_tpm_data!(value, "command code")
+            Err(Error::conversion::<u32, TpmCc>(None))
         }
     }
 }

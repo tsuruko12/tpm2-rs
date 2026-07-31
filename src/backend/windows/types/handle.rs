@@ -1,4 +1,8 @@
-use crate::{Error, Result, macros::newtype, types::{TpmHandle, TpmiDhObject}};
+use crate::{
+    Error, Result,
+    macros::newtype,
+    types::{TpmHandle, TpmiDhObject},
+};
 
 newtype!(TpmiDhEntity(TpmHandle) => u32);
 
@@ -44,7 +48,7 @@ impl TryFrom<TpmHandle> for TpmiRhHierarchy {
             | Self::SVN_ENDORSEMENT_FIRST..=Self::SVN_ENDORSEMENT_LAST
             | Self::SVN_PLATFORM_FIRST..=Self::SVN_PLATFORM_LAST
             | Self::SVN_NULL_FIRST..=Self::SVN_NULL_LAST => Ok(Self(handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiRhHierarchy>()),
+            _ => Err(Error::conversion::<TpmHandle, TpmiRhHierarchy>(None)),
         }
     }
 }
@@ -53,14 +57,6 @@ newtype!(TpmiShAuthSession(TpmHandle) => u32);
 
 impl TpmiShAuthSession {
     pub(crate) const RS_PW: Self = Self(TpmHandle::new(0x40000009));
-}
-
-impl TryFrom<u32> for TpmiShAuthSession {
-    type Error = Error;
-
-    fn try_from(raw: u32) -> Result<Self> {
-        Ok(Self(TpmHandle::from(raw)))
-    }
 }
 
 newtype!(TpmiShPolicy(TpmHandle) => u32);
@@ -79,7 +75,7 @@ impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
         if (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&handle_raw) {
             Ok(Self(handle_raw.into()))
         } else {
-            Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>())
+            Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
         }
     }
 }
@@ -100,7 +96,7 @@ impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
         if (TpmiShHmac::FIRST..=TpmiShHmac::LAST).contains(&handle_raw) {
             Ok(Self(handle_raw.into()))
         } else {
-            Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>())
+            Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
         }
     }
 }
@@ -118,10 +114,10 @@ impl TryFrom<TpmiDhObject> for TpmiDhContext {
 
     fn try_from(handle: TpmiDhObject) -> Result<Self> {
         if handle.is_transient() {
-            return Ok(Self(handle.into()))
+            return Ok(Self(handle.into()));
         }
 
-        Err(Error::conversion::<TpmiDhObject, TpmiDhContext>())
+        Err(Error::conversion::<TpmiDhObject, TpmiDhContext>(None))
     }
 }
 

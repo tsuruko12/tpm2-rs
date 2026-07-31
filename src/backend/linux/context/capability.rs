@@ -1,22 +1,39 @@
-use crate::{
-    Error, Result,
-    types::{CapabilityData, TpmCap},
+use tss_esapi::{
+    constants::CapabilityType,
+    interface_types::algorithm::HashingAlgorithm,
+    structures::{CapabilityData, PcrSelectSize},
 };
+
+use crate::{Error, Result};
 
 use super::Context;
 
 impl Context {
     pub(crate) fn get_capability_once(
         &mut self,
-        capability: TpmCap,
+        capability: CapabilityType,
         property: u32,
         property_count: u32,
-    ) -> Result<(bool, CapabilityData)> {
-        let (data, more) = self
-            .ctx
-            .get_capability(capability.into(), property, property_count)
-            .map_err(|e| Error::from_tss_err(e))?;
+    ) -> Result<(CapabilityData, bool)> {
+        self.ctx
+            .get_capability(capability, property, property_count)
+            .map_err(|e| Error::from_tss_err(e))
+    }
 
-        Ok((more, data.try_into()?))
+    pub(super) fn get_sha256_pcr_select_size(&mut self) -> Result<PcrSelectSize> {
+        let (data, _) = self.get_capability_once(CapabilityType::AssignedPcr, 0, 0)?;
+
+        let CapabilityData::AssignedPcr(selection_list) = data else {
+            tracing::error!("unexpected capability data for AssignedPcr");
+            return Err(Error::InvalidData);
+        };
+
+        for selection in selection_list.get_selections() {
+            if selection.hashing_algorithm() == HashingAlgorithm::Sha256 {
+                return Ok(selection.size_of_select());
+            }
+        }
+
+        Err(Error::unsupported("SHA-256 PCR bank is not supported"))
     }
 }

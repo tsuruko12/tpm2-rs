@@ -1,5 +1,8 @@
 use std::any::type_name;
 
+use tracing::debug;
+use tss_esapi::{WrapperErrorKind, constants::Tss2ResponseCodeKind};
+
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -80,7 +83,7 @@ impl Error {
     }
 
     pub(crate) fn invalid_key_with_source(
-        context: &'static str, 
+        context: &'static str,
         source: impl Into<BoxError>,
     ) -> Self {
         Self::InvalidKey {
@@ -150,15 +153,22 @@ impl Error {
         Self::Busy(source.into())
     }
 
-    pub(crate) fn internal(source: InternalError) -> Self {
-        tracing::debug!("{source}");
+    pub(crate) fn internal_from_tss2_rc(err: Tss2ResponseCodeKind) -> Self {
+        debug!("{err:?}");
         Self::Internal
     }
 
-    pub(crate) fn insufficient_bytes<T: ?Sized>(
-        required: usize, 
-        remaining: usize,
-    ) -> Self {
+    pub(crate) fn internal_from_wrapper_err(err: WrapperErrorKind) -> Self {
+        debug!("{err}");
+        Self::Internal
+    }
+
+    pub(crate) fn internal(source: InternalError) -> Self {
+        debug!("{source}");
+        Self::Internal
+    }
+
+    pub(crate) fn insufficient_bytes<T: ?Sized>(required: usize, remaining: usize) -> Self {
         Self::internal(InternalError::InsufficientBytes {
             target: type_name::<T>(),
             required,
@@ -166,18 +176,27 @@ impl Error {
         })
     }
 
-    pub(crate) fn trailing_bytes<T: ?Sized>(
-        remaining: usize,
-    ) -> Self {
+    pub(crate) fn trailing_bytes<T: ?Sized>(remaining: usize) -> Self {
         Self::internal(InternalError::TrailingBytes {
             target: type_name::<T>(),
             remaining,
         })
     }
 
-    pub(crate) fn conversion<From: ?Sized, To: ?Sized>() -> Self {
+    pub(crate) fn conversion<From: std::fmt::Debug + ?Sized, To: ?Sized>(
+        value: Option<&From>,
+    ) -> Self {
+        let from = match value {
+            Some(v) => {
+                let ty = type_name::<From>().rsplit("::").next().unwrap();
+
+                format!("{ty} ({v:?})")
+            }
+            None => type_name::<From>().rsplit("::").next().unwrap().to_string(),
+        };
+
         Self::internal(InternalError::Conversion {
-            from: type_name::<From>(),
+            from,
             to: type_name::<To>(),
         })
     }
@@ -197,6 +216,14 @@ impl Error {
     pub(crate) fn session_flush(source: impl Into<BoxError>) -> Self {
         Self::internal(InternalError::SessionFlushFailed(source.into()))
     }
+
+    pub(crate) fn invalid_tpm_command(rc: u32) -> Self {
+        Self::internal(InternalError::InvalidTpmCommand(rc))
+    }
+
+    pub(crate) fn esapi(source: impl Into<BoxError>) -> Self {
+        Self::internal(InternalError::Esapi(source.into()))
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -213,18 +240,17 @@ pub(crate) enum InternalError {
         remaining: usize,
     },
     #[error("failed to convert {from} to {to}")]
-    Conversion {
-        from: &'static str,
-        to: &'static str,
-    },
+    Conversion { from: String, to: &'static str },
     #[error("{0:?}")]
     RandomGeneration(#[from] rand::Error),
     #[error("{0}")]
     InvalidState(String),
-    #[error("TPM responce code: {0:#x}")]
+    #[error("TPM responce code: {0:#010x}")]
     InvalidTpmCommand(u32),
-    #[error("TBS response code {0:#x}")]
+    #[error("TBS response code: {0:#010x}")]
     Tbs(u32),
+    #[error("ESAPI operation failed: {0:#}")]
+    Esapi(#[source] BoxError),
     #[error("{0:?}")]
     Encryption(#[source] BoxError),
     #[error("failed to flush TPM session")]

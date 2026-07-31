@@ -9,12 +9,15 @@ use sha2::{Digest, Sha256};
 use tracing::error;
 use zeroize::Zeroizing;
 
-use crate::{Error, Result, types::{TpmCc, Tpm2bAuth}};
 use super::{
     CpHashData, PreparedSession, ResponseAuthContext,
     codec::tpm2b_payload_mut,
     commands::TpmsAuthResponse,
     types::{Tpm2bNonce, TpmRc, TpmaSession},
+};
+use crate::{
+    Error, Result,
+    types::{Tpm2bAuth, TpmCc},
 };
 
 const DIGEST_SIZE: usize = 32;

@@ -2,6 +2,23 @@ use crate::{Error, Result, macros::newtype};
 
 use super::TpmAlgId;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmsSymCipherParms {
+    sym: TpmtSymDefObject,
+}
+
+impl From<TpmtSymDefObject> for TpmsSymCipherParms {
+    fn from(sym: TpmtSymDefObject) -> Self {
+        Self { sym }
+    }
+}
+
+impl TpmsSymCipherParms {
+    pub(crate) fn sym(self) -> TpmtSymDefObject {
+        self.sym
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmtSymDefObject {
     algorithm: TpmiAlgSymObject,
@@ -26,7 +43,7 @@ impl TpmtSymDefObject {
         Self::new(
             TpmiAlgSymObject::AES,
             TpmKeyBits::AES_128,
-            TpmiAlgSymMode::CFB
+            TpmiAlgSymMode::CFB,
         )
     }
 
@@ -46,49 +63,45 @@ impl TpmtSymDefObject {
 
     pub(crate) fn algorithm(&self) -> TpmiAlgSymObject {
         self.algorithm
-    } 
+    }
 
     pub(crate) fn key_bits(&self) -> TpmKeyBits {
         self.key_bits
-    } 
-  
+    }
+
     pub(crate) fn mode(&self) -> TpmiAlgSymMode {
         self.mode
-    } 
-
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TpmiAlgSymObject(TpmAlgId);
+newtype!(TpmiAlgSymObject(TpmAlgId) => u16);
 
 impl TpmiAlgSymObject {
-    pub(super) const AES: Self = Self(TpmAlgId::Aes);
-    pub(super) const NULL: Self = Self(TpmAlgId::Null);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
-    }
+    pub(crate) const AES: Self = Self(TpmAlgId::Aes);
+    pub(crate) const SM4: Self = Self(TpmAlgId::Sm4);
+    pub(crate) const CAMELLIA: Self = Self(TpmAlgId::Camellia);
+    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
 }
 
 impl TryFrom<u16> for TpmiAlgSymObject {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        TpmAlgId::try_from(raw)?.try_into()
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
     }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgSymObject {
     type Error = Error;
 
-    fn try_from(alg_id: TpmAlgId) -> Result<Self> {
-        match alg_id {
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
             TpmAlgId::Tdes
             | TpmAlgId::Aes
             | TpmAlgId::Sm4
             | TpmAlgId::Camellia
-            | TpmAlgId::Null => Ok(Self(alg_id)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSymObject>()),
+            | TpmAlgId::Null => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSymObject>(Some(&alg))),
         }
     }
 }
@@ -101,44 +114,43 @@ impl TpmKeyBits {
 }
 
 impl From<u16> for TpmKeyBits {
-    fn from(raw: u16) -> Self {
-        Self(raw)
+    fn from(value: u16) -> Self {
+        Self(value)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TpmiAlgSymMode(TpmAlgId);
+newtype!(TpmiAlgSymMode(TpmAlgId) => u16);
 
 impl TpmiAlgSymMode {
-    pub(super) const CFB: Self = Self(TpmAlgId::Cfb);
-    pub(super) const NULL: Self = Self(TpmAlgId::Null);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
-    }
+    pub(crate) const CFB: Self = Self(TpmAlgId::Cfb);
+    pub(crate) const CTR: Self = Self(TpmAlgId::Ctr);
+    pub(crate) const OFB: Self = Self(TpmAlgId::Ofb);
+    pub(crate) const CBC: Self = Self(TpmAlgId::Cbc);
+    pub(crate) const ECB: Self = Self(TpmAlgId::Ecb);
+    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
 }
 
 impl TryFrom<u16> for TpmiAlgSymMode {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        TpmAlgId::try_from(raw)?.try_into()
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
     }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgSymMode {
     type Error = Error;
 
-    fn try_from(alg_id: TpmAlgId) -> Result<Self> {
-        match alg_id {
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
             TpmAlgId::Ctr
             | TpmAlgId::Ofb
             | TpmAlgId::Cbc
             | TpmAlgId::Cfb
             | TpmAlgId::Ecb
             | TpmAlgId::Cmac
-            | TpmAlgId::Null => Ok(Self(alg_id)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSymMode>()),
+            | TpmAlgId::Null => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSymMode>(Some(&alg))),
         }
     }
 }

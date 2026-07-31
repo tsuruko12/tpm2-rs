@@ -1,5 +1,7 @@
 use crate::{
-    Error, Result, macros::{newtype, tpm_list_type, unknown_tpm_data}, types::algorithm::HashAlgorithm,
+    Error, Result,
+    macros::{newtype, tpm_list_type},
+    types::algorithm::HashAlgorithm,
 };
 
 tpm_list_type!(TpmlAlgProperty(TpmsAlgProperty););
@@ -90,8 +92,8 @@ impl TpmAlgId {
 impl TryFrom<u16> for TpmAlgId {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        match raw {
+    fn try_from(value: u16) -> Result<Self> {
+        match value {
             0x0001 => Ok(Self::Rsa),
             0x0003 => Ok(Self::Tdes),
             0x0004 => Ok(Self::Sha1),
@@ -141,13 +143,12 @@ impl TryFrom<u16> for TpmAlgId {
             0x00A0 => Ok(Self::MlKem),
             0x00A1 => Ok(Self::MlDsa),
             0x00A2 => Ok(Self::HashMlDsa),
-            _ => unknown_tpm_data!(raw, "algorithm identifier"),
+            _ => Err(Error::conversion::<u16, TpmAlgId>(None)),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TpmiAlgHash(TpmAlgId);
+newtype!(TpmiAlgHash(TpmAlgId) => u16);
 
 impl TpmiAlgHash {
     pub(crate) const SHA1: Self = Self(TpmAlgId::Sha1);
@@ -163,58 +164,160 @@ impl TpmiAlgHash {
     pub(crate) const SHAKE256_256: Self = Self(TpmAlgId::Shake256_256);
     pub(crate) const SHAKE256_512: Self = Self(TpmAlgId::Shake256_512);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-
-    pub(crate) fn raw(self) -> u16 {
-        self.0.raw()
-    }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgHash {
     type Error = Error;
 
-    fn try_from(alg_id: TpmAlgId) -> Result<Self> {
-        match alg_id {
-            TpmAlgId::Sha1 
-                | TpmAlgId::Sha256
-                | TpmAlgId::Sha384
-                | TpmAlgId::Sha512
-                | TpmAlgId::Sha256_192
-                | TpmAlgId::Null
-                | TpmAlgId::Sm3_256
-                | TpmAlgId::Sha3_256
-                | TpmAlgId::Sha3_384
-                | TpmAlgId::Sha3_512
-                | TpmAlgId::Shake256_192
-                | TpmAlgId::Shake256_256
-                | TpmAlgId::Shake256_512 => Ok(Self(alg_id)),
-            _ => unknown_tpm_data!(alg_id, "hash algorithm identifier"),
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
+            TpmAlgId::Sha1
+            | TpmAlgId::Sha256
+            | TpmAlgId::Sha384
+            | TpmAlgId::Sha512
+            | TpmAlgId::Sha256_192
+            | TpmAlgId::Null
+            | TpmAlgId::Sm3_256
+            | TpmAlgId::Sha3_256
+            | TpmAlgId::Sha3_384
+            | TpmAlgId::Sha3_512
+            | TpmAlgId::Shake256_192
+            | TpmAlgId::Shake256_256
+            | TpmAlgId::Shake256_512 => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgHash>(Some(&alg))),
         }
-    }
-}
-
-impl From<TpmiAlgHash> for TpmAlgId {
-    fn from(value: TpmiAlgHash) -> Self {
-        value.0
     }
 }
 
 impl TryFrom<u16> for TpmiAlgHash {
     type Error = Error;
 
-    fn try_from(raw: u16) -> Result<Self> {
-        Self::try_from(TpmAlgId::try_from(raw)?)
+    fn try_from(value: u16) -> Result<Self> {
+        Self::try_from(TpmAlgId::try_from(value)?)
     }
 }
 
 impl From<HashAlgorithm> for TpmiAlgHash {
-    fn from(hash_alg: HashAlgorithm) -> Self {
-        match hash_alg {
+    fn from(hash: HashAlgorithm) -> Self {
+        match hash {
             HashAlgorithm::Sha1 => Self::SHA1,
             HashAlgorithm::Sha256 => Self::SHA256,
             HashAlgorithm::Sha384 => Self::SHA384,
             HashAlgorithm::Sha512 => Self::SHA512,
         }
     }
+}
+
+impl From<HashAlgorithm> for TpmsSchemeHash {
+    fn from(hash: HashAlgorithm) -> Self {
+        Self {
+            hash_alg: hash.into(),
+        }
+    }
+}
+
+impl From<TpmiAlgHash> for TpmsSchemeHash {
+    fn from(hash_alg: TpmiAlgHash) -> Self {
+        Self { hash_alg }
+    }
+}
+
+newtype!(TpmiAlgKdf(TpmAlgId) => u16);
+
+impl TpmiAlgKdf {
+    pub(crate) const MGF1: Self = Self(TpmAlgId::Mgf1);
+    pub(crate) const KDF2: Self = Self(TpmAlgId::Kdf2);
+    pub(crate) const KDF1_SP800_56A: Self = Self(TpmAlgId::Kdf1Sp80056a);
+    pub(crate) const KDF1_SP800_108: Self = Self(TpmAlgId::Kdf1Sp800108);
+    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
+}
+
+impl TryFrom<u16> for TpmiAlgKdf {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
+    }
+}
+
+impl TryFrom<TpmAlgId> for TpmiAlgKdf {
+    type Error = Error;
+
+    fn try_from(alg: TpmAlgId) -> Result<Self> {
+        match alg {
+            TpmAlgId::Mgf1
+            | TpmAlgId::Kdf2
+            | TpmAlgId::Kdf1Sp80056a
+            | TpmAlgId::Kdf1Sp800108
+            | TpmAlgId::Hkdf
+            | TpmAlgId::Null => Ok(Self(alg)),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgKdf>(Some(&alg))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmsSchemeHash {
+    pub(crate) hash_alg: TpmiAlgHash,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmsEmpty;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmtKdfScheme {
+    scheme: TpmiAlgKdf,
+    details: TpmuKdfScheme,
+}
+
+impl TpmtKdfScheme {
+    pub(crate) fn mgf1(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgKdf::MGF1,
+            details: TpmuKdfScheme::Mgf1(scheme_hash),
+        }
+    }
+
+    pub(crate) fn kdf2(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgKdf::KDF2,
+            details: TpmuKdfScheme::Kdf2(scheme_hash),
+        }
+    }
+
+    pub(crate) fn kdf1_sp800_56a(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgKdf::KDF1_SP800_56A,
+            details: TpmuKdfScheme::Kdf1Sp800_56a(scheme_hash),
+        }
+    }
+
+    pub(crate) fn kdf1_sp800_108(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            scheme: TpmiAlgKdf::KDF1_SP800_108,
+            details: TpmuKdfScheme::Kdf1Sp800_108(scheme_hash),
+        }
+    }
+
+    pub(crate) fn null() -> Self {
+        Self {
+            scheme: TpmiAlgKdf::NULL,
+            details: TpmuKdfScheme::Null,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (TpmiAlgKdf, TpmuKdfScheme) {
+        (self.scheme, self.details)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TpmuKdfScheme {
+    Mgf1(TpmsSchemeHash),
+    Kdf2(TpmsSchemeHash),
+    Kdf1Sp800_56a(TpmsSchemeHash),
+    Kdf1Sp800_108(TpmsSchemeHash),
+    Null,
 }
 
 newtype!(TpmaAlgorithm(u32));
@@ -262,7 +365,7 @@ impl TpmaAlgorithm {
 }
 
 impl From<u32> for TpmaAlgorithm {
-    fn from(raw: u32) -> Self {
-        Self(raw)
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }

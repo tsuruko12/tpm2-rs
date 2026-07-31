@@ -1,5 +1,5 @@
-use crate::{Error, Result, types::Tpm2bDigest};
 use super::algorithm::HashAlgorithm;
+use crate::{Error, Result, types::Tpm2bDigest};
 
 const MAX_POLICY_OR_BRANCHES: usize = 8;
 
@@ -11,7 +11,7 @@ pub enum Policy {
     AuthValue,
     Password,
     Or(Vec<Policy>),
-    Sequence(Vec<Policy>)
+    Sequence(Vec<Policy>),
 }
 
 // validate policy when key creation
@@ -112,7 +112,7 @@ impl TryFrom<u8> for PcrSlot {
             21 => Ok(Self::Slot21),
             22 => Ok(Self::Slot22),
             23 => Ok(Self::Slot23),
-            _ => Err(Error::conversion::<u8, PcrSlot>()),
+            _ => Err(Error::conversion::<u8, PcrSlot>(Some(&value))),
         }
     }
 }
@@ -126,7 +126,9 @@ pub struct PcrSelection {
 impl PcrSelection {
     pub fn new(hash_alg: HashAlgorithm, slots: &[PcrSlot]) -> Result<Self> {
         if slots.is_empty() {
-            return Err(Error::InvalidPolicy("PCR selection must contain at least one slot"));
+            return Err(Error::InvalidPolicy(
+                "PCR selection must contain at least one slot",
+            ));
         }
 
         let mut slots = slots.to_vec();
@@ -192,18 +194,19 @@ impl PolicyData {
             branches,
             branch_digests,
             selected_branch,
-        } = self else {
+        } = self
+        else {
             return Err(Error::invalid_state("expected PolicyOr"));
         };
 
-        let idx = (*selected_branch)
-            .ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
-        let digests = branch_digests
-            .as_deref()
-            .ok_or(Error::invalid_state("digests should be set when a branch is selected"))?;
-        let branch = branches
-            .get(idx)
-            .ok_or(Error::invalid_state("selected branch index should be in range"))?;
+        let idx =
+            (*selected_branch).ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
+        let digests = branch_digests.as_deref().ok_or(Error::invalid_state(
+            "digests should be set when a branch is selected",
+        ))?;
+        let branch = branches.get(idx).ok_or(Error::invalid_state(
+            "selected branch index should be in range",
+        ))?;
 
         Ok((digests, branch))
     }

@@ -1,36 +1,24 @@
-use crate::{
-    Error, Result, 
-    types::{
-        Authorization, LoadedParent, TpmCc, TpmHandle, TpmiDhObject, TpmlPcrSelection, TpmtPublic,
-        Tpm2bAuth
-    }
-};
 use super::{
-    codec::{CreateResponse, CreatePrimaryResponse, TpmMarshal, 
-        marshal_tpm2b, tpm2b_payload_mut},
+    Context,
+    codec::{CreatePrimaryResponse, CreateResponse, TpmMarshal, marshal_tpm2b, tpm2b_payload_mut},
     commands::Command,
-    Context, 
     session::{
         CpHashData, HmacSessionState, decrypt_response_parameter, encrypt_command_parameter,
         find_hmac_session, split_prepared_sessions, update_command_hmacs,
     },
+    types::{Tpm2bData, TpmaSession, TpmiRhHierarchy, TpmsSensitiveCreate},
+};
+use crate::{
+    Error, Result,
     types::{
-        TpmaSession, TpmiRhHierarchy, TpmsSensitiveCreate, Tpm2bData, 
-        Tpm2bName, Tpm2bPrivate
-    }
+        Authorization, CreatedObject, LoadedParent, Tpm2bAuth, TpmCc, TpmiDhObject,
+        TpmlPcrSelection, TpmtPublic,
+    },
 };
 
-#[derive(Debug)]
-pub(crate) struct CreatedObject {
-    pub(crate) handle: TpmHandle,
-    pub(crate) public: TpmtPublic,
-    pub(crate) private: Option<Tpm2bPrivate>,
-    pub(crate) name: Tpm2bName,
-}
-
 impl Context {
-    pub(crate) fn create_and_load(
-        &mut self, 
+    pub(super) fn create_and_load(
+        &mut self,
         public: &TpmtPublic,
         auth: Tpm2bAuth,
         parent: &LoadedParent,
@@ -46,9 +34,9 @@ impl Context {
         let command_code = TpmCc::CREATE;
 
         let mut sessions = self.prepare_sessions(
-            parent.authorization(), 
+            parent.authorization(),
             TpmaSession::encrypt_decrypt().with_continue_session(),
-            session_salt_key_handle, 
+            session_salt_key_handle,
             None,
         )?;
 
@@ -61,7 +49,7 @@ impl Context {
                 handle_names: &[parent.name()],
                 parameters: &request_params,
             };
-            update_command_hmacs(&mut sessions, &cp_hash_data)?;            
+            update_command_hmacs(&mut sessions, &cp_hash_data)?;
         }
 
         let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
@@ -89,11 +77,8 @@ impl Context {
 
             let hmac_idx = hmac_session
                 .ok_or_else(|| Error::invalid_state("expected HMAC session was not found"))?;
-            let hmac_session_state = HmacSessionState::from_response(
-                hmac_idx, 
-                sessions,
-                auth_responses,
-            )?;
+            let hmac_session_state =
+                HmacSessionState::from_response(hmac_idx, sessions, auth_responses)?;
 
             (out_private, out_public, Some(hmac_session_state))
         } else {
@@ -102,26 +87,32 @@ impl Context {
         };
 
         let (handle, name) = self.load_handle(
-            &out_private, 
-            &out_public, 
-            parent, 
-            session_salt_key_handle, 
+            &out_private,
+            &out_public,
+            parent,
+            session_salt_key_handle,
             hmac_session_state,
         )?;
 
-        Ok(CreatedObject { handle, public: out_public.into(), private: Some(out_private), name })
+        Ok(CreatedObject {
+            handle,
+            public: out_public.into(),
+            private: Some(out_private),
+            name,
+        })
     }
 
-    pub(crate) fn create_owner_primary(
-        &mut self, 
-        public: &TpmtPublic, 
+    pub(super) fn create_owner_primary(
+        &mut self,
+        public: &TpmtPublic,
         owner_authorization: &Authorization,
         session_salt_key_handle: Option<TpmiDhObject>,
-    ) -> Result<CreatedObject> {        
+    ) -> Result<CreatedObject> {
         let mut request_params = Vec::new();
 
-        marshal_tpm2b(&mut request_params, &TpmsSensitiveCreate::asymmetric(
-            Tpm2bAuth::default())
+        marshal_tpm2b(
+            &mut request_params,
+            &TpmsSensitiveCreate::asymmetric(Tpm2bAuth::default()),
         )?;
         marshal_tpm2b(&mut request_params, public)?;
         marshal_tpm2b(&mut request_params, Tpm2bData::default().as_bytes())?;
@@ -131,7 +122,7 @@ impl Context {
         let owner_handle = TpmiRhHierarchy::OWNER;
 
         let mut sessions = self.prepare_sessions(
-            owner_authorization, 
+            owner_authorization,
             TpmaSession::encrypt_decrypt(),
             session_salt_key_handle,
             None,
@@ -146,7 +137,7 @@ impl Context {
                 handle_names: &[&owner_handle.raw().to_be_bytes()],
                 parameters: &request_params,
             };
-            update_command_hmacs(&mut sessions, &cp_hash_data)?;            
+            update_command_hmacs(&mut sessions, &cp_hash_data)?;
         }
 
         let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
@@ -167,11 +158,16 @@ impl Context {
                 &mut response.parameters,
                 &auth_contexts,
                 &response.authorizations,
-            )?;            
+            )?;
         }
 
         let (handle, out_public, name) = response.into_parts()?;
 
-        Ok(CreatedObject { handle, public: out_public.into(), private: None, name })
+        Ok(CreatedObject {
+            handle,
+            public: out_public.into(),
+            private: None,
+            name,
+        })
     }
 }

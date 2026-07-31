@@ -1,4 +1,8 @@
-use crate::{Error, Result, macros::{newtype, tpm_list_type}};
+use crate::{
+    Error, Result,
+    macros::{newtype, tpm_list_type},
+};
+use bitflags::bitflags;
 
 tpm_list_type!(TpmlCca(TpmaCc););
 
@@ -22,13 +26,44 @@ impl TryFrom<u32> for TpmaCc {
 
     fn try_from(value: u32) -> Result<Self> {
         if value & Self::RESERVED_MASK != 0 {
-            tracing::error!(
-                value = format_args!("{value:#010x}"),
-                "invalid command attributes"
-            );
-            return Err(Error::InvalidData);
+            return Err(Error::conversion::<u32, TpmaCc>(None));
         }
 
         Ok(Self(value))
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct TpmaSession: u8 {
+        const CONTINUE_SESSION = 0x01;
+        const AUDIT_EXCLUSIVE = 0x02;
+        const AUDIT_RESET = 0x04;
+        const DECRYPT = 0x20;
+        const ENCRYPT = 0x40;
+        const AUDIT = 0x80;
+    }
+}
+
+impl TpmaSession {
+    pub(crate) fn continue_session() -> Self {
+        Self::CONTINUE_SESSION
+    }
+
+    pub(crate) fn decrypt() -> Self {
+        Self::DECRYPT
+    }
+
+    pub(crate) fn encrypt() -> Self {
+        Self::ENCRYPT
+    }
+
+    pub(crate) fn encrypt_decrypt() -> Self {
+        Self::DECRYPT | Self::ENCRYPT
+    }
+
+    pub(crate) fn with_continue_session(mut self) -> Self {
+        self |= Self::CONTINUE_SESSION;
+        self
     }
 }

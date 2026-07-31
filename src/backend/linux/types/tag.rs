@@ -1,59 +1,63 @@
-use tracing::error;
+use tracing::debug;
 use tss_esapi::{
     constants::{PcrPropertyTag, PropertyTag},
     structures::{
-        PcrSelectSize, TaggedPcrPropertyList, TaggedPcrSelect as EsapiTaggedPcrSelect,
-        TaggedProperty as EsapiTaggedProperty, TaggedTpmPropertyList,
+        PcrSelectSize, TaggedPcrPropertyList, TaggedPcrSelect, TaggedProperty,
+        TaggedTpmPropertyList,
     },
-    tss2_esys::TPMS_TAGGED_PCR_SELECT,
 };
 
-use super::policy::pcr_select_to_slots;
+use super::policy;
 use crate::{
     Error, Result,
+    error::BoxError,
     types::{
         TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,
         TpmsTaggedProperty,
     },
 };
 
-impl TryFrom<TpmsTaggedProperty> for EsapiTaggedProperty {
+impl TryFrom<TpmsTaggedProperty> for TaggedProperty {
     type Error = Error;
 
-    fn try_from(value: TpmsTaggedProperty) -> Result<Self> {
-        let property = PropertyTag::try_from(value.property() as u32).map_err(|_| {
-            error!(value = ?value, "failed to convert to ESAPI value");
-            Error::Internal("failed to convert tagged property to ESAPI value")
-        })?;
+    fn try_from(tagged_prop: TpmsTaggedProperty) -> Result<Self> {
+        let property = PropertyTag::try_from(tagged_prop.property() as u32)
+            .map_err(|_| Error::conversion::<TpmsTaggedProperty, TaggedProperty>(None))?;
 
-        Ok(Self::new(property, value.value()))
+        Ok(Self::new(property, tagged_prop.value()))
     }
 }
 
-impl TryFrom<TpmsTaggedPcrSelect> for EsapiTaggedPcrSelect {
+impl TryFrom<TpmsTaggedPcrSelect> for TaggedPcrSelect {
     type Error = Error;
 
-    fn try_from(value: TpmsTaggedPcrSelect) -> Result<Self> {
-        let tag = PcrPropertyTag::try_from(value.tag() as u32).map_err(|_| {
-            error!(value = ?value, "failed to convert to ESAPI value");
-            Error::Internal("failed to convert pcr property tag to ESAPI value")
-        })?;
-        let select_size = u8::try_from(value.pcr_select().len())
-            .map_err(|_| Error::Internal("invalid PCR select size"))?;
-        let size_of_select = PcrSelectSize::try_from(select_size)
-            .map_err(|_| Error::Internal("invalid PCR select size"))?;
-        let selected_pcr_slots = pcr_select_to_slots(value.pcr_select())?;
-
-        Self::create(tag, size_of_select, &selected_pcr_slots)
-            .map_err(|_| Error::Internal("invalid tagged PCR selection"))
+    fn try_from(tagged_pcr_select: TpmsTaggedPcrSelect) -> Result<Self> {
+        convert_tagged_pcr_select(&tagged_pcr_select).map_err(|e| {
+            debug!("{e}");
+            Error::conversion::<TpmsTaggedPcrSelect, TaggedPcrSelect>(None)
+        })
     }
+}
+
+fn convert_tagged_pcr_select(
+    tagged_pcr_select: &TpmsTaggedPcrSelect,
+) -> std::result::Result<TaggedPcrSelect, BoxError> {
+    let tag = PcrPropertyTag::try_from(tagged_pcr_select.tag() as u32)?;
+    let size_of_select = PcrSelectSize::try_parse_usize(tagged_pcr_select.pcr_select().len())?;
+    let selected_pcr_slots = policy::pcr_select_to_slots(tagged_pcr_select.pcr_select())?;
+
+    Ok(TaggedPcrSelect::create(
+        tag,
+        size_of_select,
+        &selected_pcr_slots,
+    )?)
 }
 
 impl TryFrom<TaggedTpmPropertyList> for TpmlTaggedTpmProperty {
     type Error = Error;
 
-    fn try_from(value: TaggedTpmPropertyList) -> Result<Self> {
-        let items = value
+    fn try_from(prop_list: TaggedTpmPropertyList) -> Result<Self> {
+        let items = prop_list
             .into_iter()
             .map(|item| {
                 let property = TpmPt::try_from(u32::from(item.property()))?;
@@ -61,34 +65,41 @@ impl TryFrom<TaggedTpmPropertyList> for TpmlTaggedTpmProperty {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(Self::new(items))
+        Ok(Self::from(items))
     }
 }
 
 impl TryFrom<TaggedPcrPropertyList> for TpmlTaggedPcrProperty {
     type Error = Error;
 
-    fn try_from(value: TaggedPcrPropertyList) -> Result<Self> {
-        let items = value
+    fn try_from(prop_list: TaggedPcrPropertyList) -> Result<Self> {
+        let items = prop_list
             .into_iter()
-            .map(tpms_tagged_pcr_select_from_esapi)
+            .map(TpmsTaggedPcrSelect::try_from)
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(Self::new(items))
+        Ok(Self::from(items))
     }
 }
 
-fn tpms_tagged_pcr_select_from_esapi(value: EsapiTaggedPcrSelect) -> Result<TpmsTaggedPcrSelect> {
-    let raw: TPMS_TAGGED_PCR_SELECT = value.into();
-    let size = usize::from(raw.sizeofSelect);
-    let pcr_select = raw
-        .pcrSelect
-        .get(..size)
-        .ok_or(Error::Internal("invalid PCR select size"))?
-        .to_vec();
+impl TryFrom<TaggedPcrSelect> for TpmsTaggedPcrSelect {
+    type Error = Error;
 
-    Ok(TpmsTaggedPcrSelect::new(
-        TpmPtPcr::try_from(raw.tag)?,
-        pcr_select,
-    ))
+    fn try_from(tagged_pcr_select: TaggedPcrSelect) -> Result<Self> {
+        let tag = tagged_pcr_select.pcr_property_tag().try_into()?;
+        let pcr_select = policy::pcr_slots_to_select(
+            &tagged_pcr_select.selected_pcrs(),
+            tagged_pcr_select.size_of_select(),
+        );
+
+        Ok(Self::new(tag, pcr_select))
+    }
+}
+
+impl TryFrom<PcrPropertyTag> for TpmPtPcr {
+    type Error = Error;
+
+    fn try_from(tag: PcrPropertyTag) -> Result<Self> {
+        (tag as u32).try_into()
+    }
 }

@@ -19,7 +19,18 @@ impl TryFrom<Vec<u8>> for Tpm2bDigest {
             return Err(Error::invalid_state("digest length exceeds 64 bytes"));
         }
 
-        Ok(Self(value))        
+        Ok(Self(value))
     }
 }
 
+impl TryFrom<&[u8]> for Tpm2bDigest {
+    type Error = Error;
+
+    fn try_from(value: &[u8]) -> Result<Self> {
+        if value.len() > Self::MAX_SIZE {
+            return Err(Error::invalid_state("digest length exceeds 64 bytes"));
+        }
+
+        Ok(Self(value.to_vec()))
+    }
+}
