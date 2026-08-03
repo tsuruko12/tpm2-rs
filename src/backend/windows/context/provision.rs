@@ -128,9 +128,9 @@ impl Context {
 
     pub(crate) fn evict_persistent_handles(
         &mut self, 
+        owner_authorization: &Authorization,
         key_meta: &[InternalKeyMeta], 
         persistent_handles: Option<&[TpmiDhObject]>,
-        owner_authorization: &Authorization,
     ) {
         match persistent_handles {
             Some(handles) => {

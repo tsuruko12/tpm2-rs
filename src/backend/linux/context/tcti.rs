@@ -16,19 +16,13 @@ impl Context {
             })
             .map_err(Error::connect)?;
 
-        Ok(Self {
-            ctx,
-            sessions: [None, None, None],
-        })
+        Ok(Self { ctx })
     }
 
     pub(crate) fn create_context_from_tcti_env() -> Result<Self> {
         let tcti = TctiNameConf::from_environment_variable().map_err(Error::connect)?;
         let ctx = EsapiContext::new(tcti).map_err(Error::connect)?;
 
-        Ok(Self {
-            ctx,
-            sessions: [None, None, None],
-        })
+        Ok(Self { ctx })
     }
 }

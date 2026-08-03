@@ -43,8 +43,8 @@ impl Context {
         match self.store.add_internal_key_meta(&key_meta) {
             Ok(()) => Ok(()),
             Err(e) => {
-                self.backend.evict_persistent_handles(&key_meta, None, &owner_authorization);
-                Err(e)         
+                self.backend.evict_persistent_handles(&owner_authorization, &key_meta, None);
+                Err(e)
             }
         }
     }

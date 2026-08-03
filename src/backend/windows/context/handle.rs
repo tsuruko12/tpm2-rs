@@ -18,7 +18,7 @@ use super::super::{
 };
 
 impl Context {
-    pub(crate) fn evict_control(
+    pub(super) fn evict_control(
         &mut self,
         handle: TpmiDhObject,
         persistent_handle: &mut TpmiDhPersistent,
@@ -115,6 +115,7 @@ impl Context {
     }
 
     pub(super) fn flush_sessions(&mut self) -> Result<()> {
+        // memo: don't flush password session
         for idx in 0..self.sessions.len() {
             if let Some(handle) = self.sessions[idx] {
                 if let Err(err) = self.flush_context(handle) {

@@ -38,7 +38,7 @@ pub(crate) use self::rsa::{
     TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme,
 };
 pub(crate) use self::symmetric::{
-    TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmtSymDefObject, TpmsSymCipherParms, TpmuSymDetails
+    TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmtSymDefObject, TpmsSymCipherParms
 };
 pub(crate) use self::tag::{
     TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,

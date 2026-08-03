@@ -4,11 +4,12 @@ use tss_esapi::{
     structures::{Name, Private, Public},
 };
 
-use super::Context;
 use crate::{
     Error, Result,
     types::{LoadedParent, TpmaSession},
 };
+use super::Context;
+use super::super::CommandResources;
 
 impl Context {
     pub(super) fn load_handle(
@@ -17,49 +18,42 @@ impl Context {
         public: &Public,
         parent: &LoadedParent,
         session_salt_key: Option<KeyHandle>,
-        hmac_session: Option<AuthSession>,
+        caller_resources: Option<&mut CommandResources>,
     ) -> Result<(KeyHandle, Name)> {
+        let mut default_resources = CommandResources::default();
+        let resources = caller_resources.unwrap_or(&mut default_resources);
+
         let parent_handle = parent.handle();
         let parent_authorization = parent.authorization();
+        let session_attrs = TpmaSession::decrypt().with_continue_session();
 
-        // memo: set continue_sessions to normarize from create_and_load
-        let session_attrs = TpmaSession::decrypt();
-        let sessions = match hmac_session {
-            Some(hmac) => {
-                self.prepare_sessions_with_hmac(
-                    hmac,
-                    session_attrs,
-                    parent_authorization.policy(),
-                    session_salt_key,
-                )?
-            },
-            None => {
-                self.prepare_sessions(
-                    parent_handle,
-                    parent_authorization,
-                    session_attrs,
-                    session_salt_key,
-                )?
-            },
-        };
-
-        let result = self
-            .ctx
-            .execute_with_sessions(sessions, |ctx| {
-                ctx.load(parent_handle, private.clone(), public.clone())
-            })
-            .map_err(Error::from_tss_err);
-
-        match result {
-            Ok(handle) => {
-                self.clear_sessions();
-                Ok((handle, self.read_object_name(handle)?))
+        let result = (|| {
+            match session_salt_key {
+                Some(_) => {
+                    self.prepare_sessions(
+                        resources, 
+                        parent_handle, 
+                        parent_authorization, 
+                        session_attrs, 
+                        session_salt_key,
+                    )?
+                },
+                None => resources.add_session(AuthSession::Password)?,
             }
-            Err(e) => {
-                let _ = self.flush_sessions();
-                Err(e)
-            }
-        }
+
+            let handle = self
+                .ctx
+                .execute_with_sessions(resources.session_slots(), |ctx| {
+                    ctx.load(parent_handle, private.clone(), public.clone())
+                })
+                .map_err(Error::from_tss_err)?;
+            
+            resources.add_transient_handle(handle);
+
+            Ok((handle, self.read_object_name(handle)?))
+        })();
+
+        self.finish_command(result, resources)
     }
 
     pub(crate) fn load_tpm_handle(

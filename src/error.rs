@@ -200,10 +200,6 @@ impl Error {
         Self::internal(InternalError::Encryption(source.into()))
     }
 
-    pub(crate) fn session_flush(source: impl Into<BoxError>) -> Self {
-        Self::internal(InternalError::SessionFlushFailed(source.into()))
-    }
-
     pub(crate) fn invalid_tpm_command(rc: u32) -> Self {
         Self::internal(InternalError::InvalidTpmCommand(rc))
     }
@@ -240,6 +236,4 @@ pub(crate) enum InternalError {
     Esapi(#[source] BoxError),
     #[error("{0:?}")]
     Encryption(#[source] BoxError),
-    #[error("failed to flush TPM session")]
-    SessionFlushFailed(BoxError),
 }

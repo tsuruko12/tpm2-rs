@@ -1,15 +1,15 @@
 use tss_esapi::{
     handles::KeyHandle,
-    interface_types::resource_handles::Hierarchy,
+    interface_types::{resource_handles::Hierarchy, session_handles::AuthSession},
     structures::{Auth, Public},
 };
 
 use crate::{
-    Error, Result,
-    types::{Authorization, CreatedObject, LoadedParent, TpmaSession},
+    Error, Result, types::{Authorization, CreatedObject, LoadedParent, TpmaSession}
 };
 
 use super::Context;
+use super::super::CommandResources;
 
 // memo: adjust code for session_salt_key is None
 impl Context {
@@ -20,54 +20,61 @@ impl Context {
         parent: &LoadedParent,
         session_salt_key: Option<KeyHandle>,
     ) -> Result<CreatedObject> {
+        // use password session when session_salt_key is None
+        let mut resources = CommandResources::default();
         let parent_handle = parent.handle();
 
-        let sessions = self.prepare_sessions(
-            parent_handle,
-            parent.authorization(),
-            TpmaSession::encrypt_decrypt().with_continue_session(),
-            session_salt_key,
-        )?;
-
-        let result = self
-            .ctx
-            .execute_with_sessions(sessions, |ctx| {
-                ctx.create(
-                    parent_handle,
-                    public.clone().into(),
-                    Some(auth),
-                    None,
-                    None,
-                    None,
-                )
-            })
-            .map(|created| (created.out_private, created.out_public))
-            .map_err(Error::from_tss_err);
-
-        let (out_private, out_public) = match result {
-            Ok((private, public)) => (private, public),
-            Err(e) => {
-                let _ = self.flush_sessions();
-                return Err(e);
+        let result = (|| {
+            match session_salt_key {
+                Some(_) => {
+                    self.prepare_sessions(
+                        &mut resources,
+                        parent_handle,
+                        parent.authorization(),
+                        TpmaSession::encrypt_decrypt().with_continue_session(),
+                        session_salt_key,
+                    )?; 
+                },
+                None => resources.add_session(AuthSession::Password)?,
             }
-        };
 
-        self.clear_policy_session();
+            let (out_private, out_public) = self
+                .ctx
+                .execute_with_sessions(resources.session_slots(), |ctx| {
+                    ctx.create(
+                        parent_handle,
+                        public.clone().into(),
+                        Some(auth),
+                        None,
+                        None,
+                        None,
+                    )
+                })
+                .map(|created| (created.out_private, created.out_public))
+                .map_err(Error::from_tss_err)?;
 
-        let (handle, name) = self.load_handle(
-            &out_private,
-            &out_public,
-            parent,
-            session_salt_key,
-            self.find_hmac_session(),
-        )?;
+            match session_salt_key {
+                Some(_) => resources.clear_policy_session(),
+                None => resources.clear_password_session(),
+            }
 
-        Ok(CreatedObject {
-            handle,
-            public: out_public.try_into()?,
-            private: Some(out_private.value().into()),
-            name: name.value().into(),
-        })
+            let (handle, name) = self.load_handle(
+                &out_private,
+                &out_public,
+                parent,
+                session_salt_key,
+                Some(&mut resources),
+            )?;
+
+            Ok(CreatedObject {
+                handle,
+                public: out_public.try_into()?,
+                private: Some(out_private.value().into()),
+                name: name.value().into(),
+            })   
+        })();
+
+        self.finish_command(result, &mut resources)
     }
 
     pub(crate) fn create_owner_primary(
@@ -76,32 +83,39 @@ impl Context {
         owner_authorization: &Authorization,
         session_salt_key: Option<KeyHandle>,
     ) -> Result<CreatedObject> {
+        let mut resources = CommandResources::default();
         let owner_handle = Hierarchy::Owner;
 
-        let sessions = self.prepare_sessions(
-            owner_handle,
-            owner_authorization,
-            TpmaSession::encrypt_decrypt(),
-            session_salt_key,
-        )?;
+        let result = (|| {
+            self.prepare_sessions(
+                &mut resources,
+                owner_handle,
+                owner_authorization,
+                TpmaSession::encrypt_decrypt(),
+                session_salt_key,
+            )?;
 
-        let (handle, out_public) = self
-            .ctx
-            .execute_with_sessions(sessions, |ctx| {
-                ctx.create_primary(owner_handle, public.clone(), None, None, None, None)
+            let (handle, out_public) = self
+                .ctx
+                .execute_with_sessions(resources.session_slots(), |ctx| {
+                    ctx.create_primary(owner_handle, public.clone(), None, None, None, None)
+                })
+                .map(|created| (created.key_handle, created.out_public))
+                .map_err(Error::from_tss_err)?;
+            
+            resources.add_transient_handle(handle);
+            resources.clear_sessions();
+
+            let name = self.ctx.tr_get_name(handle.into()).map_err(Error::esapi)?;
+
+            Ok(CreatedObject {
+                handle,
+                public: out_public.try_into()?,
+                private: None,
+                name: name.value().into(),
             })
-            .map(|created| (created.key_handle, created.out_public))
-            .map_err(Error::from_tss_err)?;
+        })();
 
-        self.clear_sessions();
-
-        let name = self.ctx.tr_get_name(handle.into()).map_err(Error::esapi)?;
-
-        Ok(CreatedObject {
-            handle: handle,
-            public: out_public.try_into()?,
-            private: None,
-            name: name.value().into(),
-        })
+        self.finish_command(result, &mut resources)
     }
 }

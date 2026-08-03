@@ -8,13 +8,14 @@ use crate::{
     db::InternalKeyMeta,
     types::{Authorization, CreatedObject, LoadedParent, TpmiDhPersistent, TpmtPublic},
 };
-use super::Context;
+use super::{Context, CommandResources};
 
 impl Context {
     pub(crate) fn create_internal_keys(
         &mut self,
         owner_authorization: &Authorization,
     ) -> Result<Vec<InternalKeyMeta>> {
+        let mut resources = CommandResources::default();
         let mut key_meta = Vec::with_capacity(3);
         let mut persistent_handles = Vec::with_capacity(3);
 
@@ -22,30 +23,39 @@ impl Context {
             .expect("SRK handle must be a valid persistent handle");
         let srk_authorization = Authorization::default();
 
-        let (srk_meta, srk_handle) = self.create_and_persist(srk_handle, owner_authorization, None, None, |ctx| {
-            ctx.create_owner_primary(
-                &(TpmtPublic::storage_parent().try_into()?), 
-                owner_authorization, 
-                None,
-            )
-        })?;
-
-        let parent = LoadedParent::new(
-            srk_handle.into(),
-            srk_meta.object_name.clone(),
-            srk_authorization,
-        );
-
-        key_meta.push(srk_meta);
-        persistent_handles.push(srk_handle);
-
         let result = (|| {
+            let (srk_meta, srk_handle) = self.create_and_persist(
+                &mut resources,
+                srk_handle, 
+                owner_authorization, 
+                None, 
+                None, 
+                |ctx| {
+                    ctx.create_owner_primary(
+                        &(TpmtPublic::storage_parent().try_into()?), 
+                        owner_authorization, 
+                        None,
+                    )
+            })?;
+
+            let parent = LoadedParent::new(
+                srk_handle.into(),
+                srk_meta.object_name.clone(),
+                srk_authorization,
+            );
+
+            key_meta.push(srk_meta);
+            persistent_handles.push(srk_handle);
+
+            self.flush_handles(&mut resources.transient_handles)?;
+
             let owner_available_first_raw = TpmiDhPersistent::OWNER_AVAILABLE_FIRST.raw();
             let serch_end = PersistentTpmHandle::new(TpmiDhPersistent::OWNER_AVAILABLE_LAST.raw())
                 .expect("owner handle must be in the persistent range");
             let rsa_public = TpmtPublic::rsa_decrypt().try_into()?;
 
             let (session_salt_key_meta, session_salt_key_handle) = self.create_and_persist(
+                &mut resources,
                 PersistentTpmHandle::new(owner_available_first_raw)
                     .expect("owner handle must be in the persistent range"),
                 owner_authorization,
@@ -57,7 +67,10 @@ impl Context {
             key_meta.push(session_salt_key_meta);
             persistent_handles.push(session_salt_key_handle);
 
+            self.flush_handles(&mut resources.transient_handles)?;
+
             let (shared_wrapping_key_meta, shared_wrapping_key_handle) = self.create_and_persist(
+                &mut resources,
                 PersistentTpmHandle::new(owner_available_first_raw + 1).unwrap(),
                 owner_authorization,
                 Some(serch_end),
@@ -75,26 +88,48 @@ impl Context {
             key_meta.push(shared_wrapping_key_meta);
             persistent_handles.push(shared_wrapping_key_handle);
 
+            self.flush_handles(&mut resources.transient_handles)?;
+
             Ok(())
         })();
 
         match result {
             Ok(()) => {
-                for handle in persistent_handles {
-                    let _ = self.release_handle(handle, true);
-                }
+                let result = (|| {
+                    self.release_resources(&mut resources)?;
+                    self.close_handles(&mut persistent_handles)?;
+                    Ok(())
+                })();
 
-                Ok(key_meta)
+                match result {
+                    Ok(()) => Ok(key_meta),
+                    Err(e) => {
+                        self.evict_persistent_handles(
+                            owner_authorization,
+                            &key_meta, 
+                            Some(&mut persistent_handles),    
+                        );
+
+                        Err(e)
+                    }
+                }
             },
             Err(e) => {
-                self.evict_persistent_handles(&key_meta, Some(&persistent_handles), owner_authorization);
+                self.cleanup_resources(&mut resources);
+                self.evict_persistent_handles(
+                    owner_authorization,
+                    &key_meta, 
+                    Some(&mut persistent_handles),    
+                );
+
                 Err(e)
-            },
+            }
         }
     }
 
     fn create_and_persist<F>(
         &mut self,
+        resources: &mut CommandResources,
         mut persistent_handle: PersistentTpmHandle,
         owner_authorization: &Authorization,
         serch_end: Option<PersistentTpmHandle>,
@@ -105,48 +140,58 @@ impl Context {
         F: FnOnce(&mut Self) -> Result<CreatedObject>,
     {
         let created = create(self)?;
+        resources.add_transient_handle(created.handle);
 
-        let result = self.evict_control(
+        let handle = self.evict_control(
+            resources,
             created.handle.into(),
             &mut persistent_handle,
             owner_authorization,
             session_salt_key_handle,
             serch_end,
-        );
-        let _ = self.release_handle(created.handle, false);
+        )?;
 
         Ok((InternalKeyMeta {
             handle: persistent_handle.into(),
             object_name: created.name.into_bytes(),
             },
-            result?,
+            handle,
         ))
     }
 
     pub(crate) fn evict_persistent_handles(
         &mut self, 
-        key_meta: &[InternalKeyMeta], 
-        persistent_handles: Option<&[ObjectHandle]>,
         owner_authorization: &Authorization,
+        key_meta: &[InternalKeyMeta], 
+        persistent_handles: Option<&mut [ObjectHandle]>,
     ) {
+        let mut resources = CommandResources::default();
+        let handle_len = match &persistent_handles {
+            Some(handles) => handles.len(),
+            None => key_meta.len(),
+        };
+
         match persistent_handles {
             Some(handles) => {
-                for (meta, &loaded_handle) in
-                    key_meta.iter().rev().zip(handles.iter().rev())
+                for (meta, loaded_handle) in key_meta[..handle_len]
+                    .iter()
+                    .rev()
+                    .zip(handles.iter_mut().rev())
                 {
                     let mut persistent_handle =
                         PersistentTpmHandle::new(meta.handle)
                             .expect("created persistent handle must be valid");
 
                     if let Err(err) = self.evict_control(
-                        loaded_handle,
+                        &mut resources,
+                        *loaded_handle,
                         &mut persistent_handle,
                         owner_authorization,
                         None,
                         None,
                     ) {
                         tracing::debug!(?err, "rollback failed");
-                        let _ = self.release_handle(loaded_handle, true);
+                        let _ = self.close_handle(loaded_handle);
                     }
                 }
             }
@@ -155,24 +200,27 @@ impl Context {
                     let mut persistent_handle =
                         PersistentTpmHandle::new(meta.handle)
                             .expect("created persistent handle must be valid");
-                    let Ok(loaded_handle) =
+                    let Ok(mut handle) =
                         self.load_tpm_handle(persistent_handle)
                     else {
                         continue;
                     };
 
                     if let Err(err) = self.evict_control(
-                        loaded_handle,
+                        &mut resources,
+                        handle,
                         &mut persistent_handle,
                         owner_authorization,
                         None,
                         None,
                     ) {
                         tracing::debug!(?err, "rollback failed");
-                        let _ = self.release_handle(loaded_handle, true);
+                        let _ = self.close_handle(&mut handle);
                     }
                 }
             }
         }
+
+        self.cleanup_resources(&mut resources);
     }
 }

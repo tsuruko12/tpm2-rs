@@ -24,7 +24,7 @@ impl Context {
         parent: &LoadedParent,
         session_salt_key_handle: Option<TpmiDhObject>,
     ) -> Result<CreatedObject> {
-        // parent authorization (internal SRK) is empty for now
+        // use password session when session_salt_key is None
         let mut request_params = Vec::new();
 
         marshal_tpm2b(&mut request_params, &TpmsSensitiveCreate::asymmetric(auth))?;
