@@ -28,27 +28,23 @@ pub(crate) struct Context {
     ctx: EsapiContext,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(super) struct CommandResources {
+#[derive(Debug, Default, Clone)]
+struct CommandResources {
     sessions: SessionSlotArray,
     transient_handles: Vec<ObjectHandle>,
     persistent_handles: Vec<ObjectHandle>,
 }
 
 impl CommandResources {
-    pub(super) fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
-
-    pub(super) fn sessions(&self) -> &SessionSlotArray {
+    fn sessions(&self) -> &SessionSlotArray {
         &self.sessions
     }
 
-    pub(super) fn session_slots(&self) -> SessionSlots {
+    fn session_slots(&self) -> SessionSlots {
         (self.sessions[0], self.sessions[1], self.sessions[2])
     }
 
-    pub(super) fn add_session(&mut self, session: AuthSession) -> Result<()> {
+    fn add_session(&mut self, session: AuthSession) -> Result<()> {
         let slot = self
             .sessions
             .iter_mut()
@@ -60,15 +56,15 @@ impl CommandResources {
         Ok(())
     }
 
-    pub(super) fn add_transient_handle(&mut self, handle: impl Into<ObjectHandle>) {
+    fn add_transient_handle(&mut self, handle: impl Into<ObjectHandle>) {
         self.transient_handles.push(handle.into());
     }
 
-    pub(super) fn add_persistent_handle(&mut self, handle: impl Into<ObjectHandle>) {
+    fn add_persistent_handle(&mut self, handle: impl Into<ObjectHandle>) {
         self.persistent_handles.push(handle.into());
     }
 
-    pub(super) fn find_hmac_session(&self) -> Option<AuthSession> {
+    fn find_hmac_session(&self) -> Option<AuthSession> {
         self.sessions
             .iter()
             .flatten()
@@ -76,7 +72,7 @@ impl CommandResources {
             .find(|session| matches!(session, AuthSession::HmacSession(_)))
     }
 
-    pub(super) fn clear_policy_session(&mut self) {
+    fn clear_policy_session(&mut self) {
         for session in self.sessions.iter_mut() {
             if let Some(handle) = session {
                 if PolicySession::try_from(*handle).is_ok() {
@@ -87,7 +83,7 @@ impl CommandResources {
         }
     }
 
-    pub(super) fn clear_password_session(&mut self) {
+    fn clear_password_session(&mut self) {
         for session in self.sessions.iter_mut() {
             if let Some(handle) = session {
                 if *handle == AuthSession::Password {
@@ -98,7 +94,7 @@ impl CommandResources {
         }
     }
 
-    pub(super) fn clear_sessions(&mut self) {
+    fn clear_sessions(&mut self) {
         self.sessions.fill(None);
     }
 }
@@ -111,9 +107,7 @@ impl Context {
     ) -> Result<T> {
         match result {
             Ok(value) => {
-                if !resources.is_empty() {
-                    self.flush_sessions(&mut resources.sessions)?;
-                }
+                self.flush_sessions(&mut resources.sessions)?;
                 Ok(value)
             },
             Err(e) => {

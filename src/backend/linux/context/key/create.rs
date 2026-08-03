@@ -11,7 +11,6 @@ use crate::{
 use super::Context;
 use super::super::CommandResources;
 
-// memo: adjust code for session_salt_key is None
 impl Context {
     pub(crate) fn create_and_load(
         &mut self,
@@ -84,14 +83,19 @@ impl Context {
         session_salt_key: Option<KeyHandle>,
     ) -> Result<CreatedObject> {
         let mut resources = CommandResources::default();
+        
         let owner_handle = Hierarchy::Owner;
+        let session_attrs = match session_salt_key {
+            Some(_) => TpmaSession::encrypt_decrypt(),
+            None => TpmaSession::empty(),
+        };
 
         let result = (|| {
             self.prepare_sessions(
                 &mut resources,
                 owner_handle,
                 owner_authorization,
-                TpmaSession::encrypt_decrypt(),
+                session_attrs,
                 session_salt_key,
             )?;
 

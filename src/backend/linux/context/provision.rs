@@ -151,9 +151,10 @@ impl Context {
             serch_end,
         )?;
 
-        Ok((InternalKeyMeta {
-            handle: persistent_handle.into(),
-            object_name: created.name.into_bytes(),
+        Ok((
+            InternalKeyMeta {
+                handle: persistent_handle.into(),
+                object_name: created.name.into_bytes(),
             },
             handle,
         ))
@@ -166,14 +167,10 @@ impl Context {
         persistent_handles: Option<&mut [ObjectHandle]>,
     ) {
         let mut resources = CommandResources::default();
-        let handle_len = match &persistent_handles {
-            Some(handles) => handles.len(),
-            None => key_meta.len(),
-        };
 
         match persistent_handles {
             Some(handles) => {
-                for (meta, loaded_handle) in key_meta[..handle_len]
+                for (meta, loaded_handle) in key_meta
                     .iter()
                     .rev()
                     .zip(handles.iter_mut().rev())
@@ -194,7 +191,7 @@ impl Context {
                         let _ = self.close_handle(loaded_handle);
                     }
                 }
-            }
+            },
             None => {
                 for meta in key_meta.iter().rev() {
                     let mut persistent_handle =

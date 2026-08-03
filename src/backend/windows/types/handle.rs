@@ -57,6 +57,14 @@ newtype!(TpmiShAuthSession(TpmHandle));
 
 impl TpmiShAuthSession {
     pub(crate) const RS_PW: Self = Self(TpmHandle::new(0x40000009));
+
+    pub(crate) fn is_policy_session(&self) -> bool {
+        (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&self.raw())
+    }
+
+    pub(crate) fn is_hmac_session(&self) -> bool {
+        (TpmiShHmac::FIRST..=TpmiShHmac::LAST).contains(&self.raw())
+    }
 }
 
 impl TryFrom<u32> for TpmiShAuthSession {
@@ -85,7 +93,7 @@ impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
     fn try_from(handle: TpmiShAuthSession) -> Result<Self> {
         let handle_raw = handle.raw();
 
-        if (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&handle_raw) {
+        if handle.is_policy_session() {
             Ok(Self(handle_raw.into()))
         } else {
             Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
@@ -106,7 +114,7 @@ impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
     fn try_from(handle: TpmiShAuthSession) -> Result<Self> {
         let handle_raw = handle.raw();
 
-        if (TpmiShHmac::FIRST..=TpmiShHmac::LAST).contains(&handle_raw) {
+        if handle.is_hmac_session() {
             Ok(Self(handle_raw.into()))
         } else {
             Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))

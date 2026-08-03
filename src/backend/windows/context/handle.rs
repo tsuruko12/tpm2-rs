@@ -5,7 +5,7 @@ use crate::{
     types::{Authorization, TpmCc, TpmHandle, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision},
 };
 use super::{
-    Context,
+    Context, CommandResources, SessionSlots,
     session::{
         CpHashData, authorization_commands, response_auth_contexts, update_command_hmacs,
     },
@@ -14,12 +14,13 @@ use super::super::{
     codec::parse_response_params_and_authorizations,
     commands::Command,
     macros::reject_trailing_bytes,
-    types::{TpmRc, TpmaSession, TpmiDhContext, TpmiShPolicy},
+    types::{TpmRc, TpmaSession, TpmiDhContext},
 };
 
 impl Context {
     pub(super) fn evict_control(
         &mut self,
+        resources: &mut CommandResources,
         handle: TpmiDhObject,
         persistent_handle: &mut TpmiDhPersistent,
         owner_authorization: &Authorization,
@@ -30,15 +31,16 @@ impl Context {
         let owner_handle = TpmiRhProvision::OWNER;
         let handle_name = self.read_object_name(handle)?;
 
-        let mut sessions = self.prepare_sessions(
-            owner_authorization,
-            TpmaSession::empty(),
-            session_salt_key_handle,
-            None,
-        )?;
-
         let result = (|| {
-            loop {
+            let mut sessions = self.prepare_sessions(
+                resources,
+                owner_authorization,
+                TpmaSession::empty(),
+                session_salt_key_handle,
+                None,
+            )?;
+
+            let response_body = loop {
                 let request_parameter = persistent_handle.raw().to_be_bytes();
                 let owner_name = owner_handle.raw().to_be_bytes();
 
@@ -58,19 +60,22 @@ impl Context {
                     .with_authorizations(&authorizations);
 
                 match self.submit(command) {
-                    Ok(response_body) => break Ok(response_body),
+                    Ok(response_body) => {
+                        resources.clear_sessions();
+                        break response_body;
+                    },
                     Err(err) => {
                         let raw_handle = persistent_handle.raw();
 
                         if err.tpm_rc() == Some(TpmRc::NV_DEFINED) {
                             if let Some(end) = search_end {
-                                let handle = raw_handle + 1;
+                                let next_handle = raw_handle + 1;
 
-                                if handle > end.raw() {
+                                if next_handle > end.raw() {
                                     return Err(Error::PersistentHandleInUse(raw_handle));
                                 }
 
-                                *persistent_handle = TpmiDhPersistent::try_from(handle)?;
+                                *persistent_handle = TpmiDhPersistent::try_from(next_handle)?;
                                 continue;
                             }
                             return Err(Error::PersistentHandleInUse(raw_handle));
@@ -78,88 +83,88 @@ impl Context {
                         return Err(err);
                     }
                 }
+            };
+
+            let auth_contexts = response_auth_contexts(&sessions);
+            let (returned_params, auth_responses) = parse_response_params_and_authorizations(
+                &mut response_body.as_slice(),
+                auth_contexts.len(),
+            )?;
+
+            if !returned_params.is_empty() {
+                reject_trailing_bytes!(returned_params.len());
             }
+
+            Ok(auth_contexts
+                .iter()
+                .zip(auth_responses.iter())
+                .filter(|(auth_context, _)| auth_context.requires_hmac())
+                .try_for_each(|(auth_context, auth_response)| {
+                    auth_context.verify_hmac(command_code, &returned_params, auth_response)
+                })?)
         })();
 
-        let response_body = match result {
-            Ok(response_body) => {
-                self.clear_sessions();
-                response_body
-            },
-            Err(err) => {
-                let _ = self.flush_sessions();
-                return Err(err);
-            }
-        };
+        self.finish_command(result, resources)
+    }
 
-        let auth_contexts = response_auth_contexts(&sessions);
-        
-        let (returned_params, auth_responses) = parse_response_params_and_authorizations(
-            &mut response_body.as_slice(),
-            auth_contexts.len(),
-        )?;
-
-        if !returned_params.is_empty() {
-            reject_trailing_bytes!(returned_params.len());
-        }
-
-        auth_contexts
-            .iter()
-            .zip(auth_responses.iter())
-            .filter(|(auth_context, _)| auth_context.requires_hmac())
-            .try_for_each(|(auth_context, auth_response)| {
-                auth_context.verify_hmac(command_code, &returned_params, auth_response)
-            })?;
+    pub(super) fn release_resources(&mut self, resources: &mut CommandResources) -> Result<()> {
+        self.flush_sessions(&mut resources.sessions)?;
+        self.flush_handles(&mut resources.transient_handles)?;
 
         Ok(())
     }
 
-    pub(super) fn flush_sessions(&mut self) -> Result<()> {
-        // memo: don't flush password session
-        for idx in 0..self.sessions.len() {
-            if let Some(handle) = self.sessions[idx] {
-                if let Err(err) = self.flush_context(handle) {
-                    debug!(?handle, "failed to flush TPM handle");
-                    return Err(err);
-                }
-                self.sessions[idx] = None;
-            }
-        }
-
-        Ok(())
+    pub(super) fn cleanup_resources(&mut self, resources: &mut CommandResources) {
+        let _ = self.flush_sessions(&mut resources.sessions);
+        let _ = self.flush_handles(&mut resources.transient_handles);
     }
 
-    pub(super) fn clear_sessions(&mut self) {
-        self.sessions.fill(None);
-    }
+    pub(super) fn flush_sessions(&mut self, sessions: &mut SessionSlots) -> Result<()> {
+        let mut first_err = None;
 
-    pub(super) fn clear_policy_session(&mut self) {
-        for idx in 0..self.sessions.len() {
-            if let Some(handle) = self.sessions[idx] {
-                if (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&handle.raw()) {
-                    self.sessions[idx] = None;
+        for session in sessions {
+            let Some(handle) = *session else {
+                continue;
+            }; 
+
+            match self.flush_context(handle) {
+                Ok(()) => *session = None,
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                    debug!(?handle, "failed to flush TPM session");
                 }
             }
         }
+
+        first_err.map_or(Ok(()), Err)
     }
 
-    pub(super) fn flush_handle(&mut self, handle: TpmiDhObject) -> Result<()> {
-        if handle.is_transient() {
-            let handle = TpmiDhContext::try_from(handle)?;
-            if let Err(err) = self.flush_context(handle) {
+    pub(super) fn flush_handles(&mut self, handles: &mut Vec<TpmiDhObject>) -> Result<()> {
+        let mut first_err = None;
+        let mut remaining = Vec::new();
+
+        while let Some(object_handle) = handles.pop() {
+            let handle = TpmiDhContext::try_from(object_handle)
+                .expect("handle must be a transient object handle");
+
+            if let Err(e) = self.flush_context(handle) {
+                first_err.get_or_insert(e);
+                remaining.push(object_handle);
+
                 debug!(?handle, "failed to flush TPM handle");
-                return Err(err);
             }
         }
 
-        Ok(())
+        *handles = remaining;
+
+        first_err.map_or(Ok(()), Err)
     }
 
     fn flush_context(&mut self, handle: impl Into<TpmiDhContext>) -> Result<()> {
         let command =
             Command::new(TpmCc::FLUSH_CONTEXT).with_handles([TpmHandle::from(handle.into())]);
 
-        let response_body = self.submit(command).map_err(Error::session_flush)?;
+        let response_body = self.submit(command)?;
 
         if !response_body.is_empty() {
             reject_trailing_bytes!(response_body.len());

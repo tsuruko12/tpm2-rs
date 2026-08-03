@@ -36,6 +36,30 @@ pub(crate) fn parse_response_params_and_authorizations(
     Ok((params, authorizations))
 }
 
+pub(crate) struct GetRandomResponse {
+    pub(crate) parameters: Vec<u8>,
+    pub(crate) authorizations: Vec<TpmsAuthResponse>,
+}
+
+impl GetRandomResponse {
+    pub(crate) fn parse(mut bytes: &[u8], auth_count: usize) -> Result<Self> {
+        let (parameters, authorizations) =
+            parse_response_params_and_authorizations(&mut bytes, auth_count)?;
+
+        Ok(Self {
+            parameters,
+            authorizations,
+        })
+    }
+
+    pub(crate) fn into_parts(self) -> Result<Tpm2bDigest> {
+        let mut params = self.parameters.as_slice();
+        let random_bytes = Tpm2bDigest::try_from(read_tpm2b_exact(&mut params)?)?;
+
+        Ok(random_bytes)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct GetCapabilityResponse {
     pub(crate) more_data: bool,

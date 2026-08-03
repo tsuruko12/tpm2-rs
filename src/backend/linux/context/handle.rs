@@ -89,44 +89,61 @@ impl Context {
     }
 
     pub(super) fn flush_sessions(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
+        let mut first_err = None;
+
         for session in sessions {
             let Some(handle) = *session else {
                 continue;
             };
 
             if handle != AuthSession::Password {
-                if let Err(err) = self.flush_context(SessionHandle::from(handle)) {
-                    debug!(?handle, "failed to flush TPM session");
-                    return Err(err);
-                }                    
+                match self.flush_context(handle) {
+                    Ok(()) => *session = None,
+                    Err(e) => {
+                        first_err.get_or_insert(e);
+                        debug!(?handle, "failed to flush TPM session");
+                    }
+                }       
             }
-            
-            *session = None;
         }
 
-        Ok(())
+        first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
-        while let Some(&handle) = handles.last() {
-            if let Err(e) = self.flush_context(handle) {
-                debug!("failed to flush TPM handle");
-                return Err(e);
-            }
+        let mut first_err = None;
 
-            handles.pop();
+        while let Some(&handle) = handles.last() {
+            match self.flush_context(handle) {
+                Ok(()) => {
+                    handles.pop();
+                },
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                    debug!("failed to flush TPM handle");
+                }
+            }
         }
 
-        Ok(())
+        first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn close_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
+        let mut first_err = None;
+
         while let Some(handle) = handles.last_mut() {
-            self.close_handle(handle)?;
-            handles.pop();
+            match self.close_handle(handle) {
+                Ok(()) => {
+                    handles.pop();
+                },
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                    debug!("failed to flush TPM handle");
+                }
+            }
         }
 
-        Ok(())
+        first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn close_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {

@@ -24,8 +24,6 @@ impl Context {
         let resources = caller_resources.unwrap_or(&mut default_resources);
 
         let parent_handle = parent.handle();
-        let parent_authorization = parent.authorization();
-        let session_attrs = TpmaSession::decrypt().with_continue_session();
 
         let result = (|| {
             match session_salt_key {
@@ -33,8 +31,8 @@ impl Context {
                     self.prepare_sessions(
                         resources, 
                         parent_handle, 
-                        parent_authorization, 
-                        session_attrs, 
+                        parent.authorization(), 
+                        TpmaSession::decrypt().with_continue_session(), 
                         session_salt_key,
                     )?
                 },
@@ -48,6 +46,7 @@ impl Context {
                 })
                 .map_err(Error::from_tss_err)?;
             
+            resources.clear_policy_session();
             resources.add_transient_handle(handle);
 
             Ok((handle, self.read_object_name(handle)?))

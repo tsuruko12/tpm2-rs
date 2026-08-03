@@ -13,7 +13,16 @@ use super::super::{
 };
 use crate::{
     error::{Error, Result}, types::{
-        Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmKeyBits, TpmPt, TpmPtPcr, TpmaAlgorithm, TpmaCc, TpmaObject, TpmiAlgEccScheme, TpmiAlgHash, TpmiAlgKdf, TpmiAlgKeyedHashScheme, TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject, TpmiEccCurve, TpmiRsaKeyBits, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsEccParms, TpmsEmpty, TpmsKeyedHashParms, TpmsPcrSelection, TpmsRsaParms, TpmsSchemeEcdaa, TpmsSchemeHash, TpmsSchemeXor, TpmsSymCipherParms, TpmsTaggedPcrSelect, TpmsTaggedProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedHashScheme, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuEccScheme, TpmuKdfScheme, TpmuPublicId, TpmuPublicParms, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSymDetails,
+        Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmKeyBits, TpmPt, TpmPtPcr, 
+        TpmaAlgorithm, TpmaCc, TpmaObject, TpmiAlgEccScheme, TpmiAlgHash, TpmiAlgKdf, 
+        TpmiAlgKeyedHashScheme, TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject, 
+        TpmiEccCurve, TpmiRsaKeyBits, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, 
+        TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsAlgProperty, 
+        TpmsEccParms, TpmsEmpty, TpmsKeyedHashParms, TpmsPcrSelection, TpmsRsaParms, 
+        TpmsSchemeEcdaa, TpmsSchemeHash, TpmsSchemeXor, TpmsTaggedPcrSelect, TpmsTaggedProperty, 
+        TpmtEccScheme, TpmtKdfScheme, TpmtKeyedHashScheme, TpmtPublic, TpmtRsaScheme, 
+        TpmtSymDefObject, TpmuEccScheme, TpmuKdfScheme, TpmuPublicId, TpmuPublicParms, 
+        TpmuRsaScheme, TpmuSchemeKeyedHash
     },
 };
 
@@ -262,7 +271,6 @@ impl TpmMarshal for TpmtSymDefObject {
         if self.algorithm() != TpmiAlgSymObject::NULL {
             self.key_bits().raw().marshal(buf)?;
             self.mode().raw().marshal(buf)?;      
-            self.details().marshal(buf)?;
         }
 
         Ok(())
@@ -498,8 +506,8 @@ impl TpmUnmarshal for TpmtSymDefObject {
         if algorithm != TpmiAlgSymObject::NULL {
             let key_bits = TpmKeyBits::from(u16::unmarshal(input)?);
             let mode = TpmiAlgSymMode::try_from(u16::unmarshal(input)?)?;
-            
-            Self::new(algorithm, key_bits, mode)
+        
+            Ok(Self::new(algorithm, key_bits, mode))
         } else {
             Ok(Self::null())
         }

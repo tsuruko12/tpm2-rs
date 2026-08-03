@@ -41,7 +41,7 @@ impl Context {
 
         if let Some(hmac_session) = resources.find_hmac_session() {
             self.prepare_sessions_with_hmac(resources, hmac_session, session_attrs, policy, tpm_key)?;
-            return Ok(())
+            return Ok(());
         }
 
         if let Some(policy) = policy {
