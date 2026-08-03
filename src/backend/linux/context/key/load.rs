@@ -22,21 +22,25 @@ impl Context {
         let parent_handle = parent.handle();
         let parent_authorization = parent.authorization();
 
+        // memo: set continue_sessions to normarize from create_and_load
         let session_attrs = TpmaSession::decrypt();
-        let sessions = if let Some(hmac) = hmac_session {
-            self.prepare_sessions_with_hmac(
-                hmac,
-                session_attrs,
-                parent_authorization.policy(),
-                session_salt_key,
-            )?
-        } else {
-            self.prepare_sessions(
-                parent_handle,
-                parent_authorization,
-                session_attrs,
-                session_salt_key,
-            )?
+        let sessions = match hmac_session {
+            Some(hmac) => {
+                self.prepare_sessions_with_hmac(
+                    hmac,
+                    session_attrs,
+                    parent_authorization.policy(),
+                    session_salt_key,
+                )?
+            },
+            None => {
+                self.prepare_sessions(
+                    parent_handle,
+                    parent_authorization,
+                    session_attrs,
+                    session_salt_key,
+                )?
+            },
         };
 
         let result = self

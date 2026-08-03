@@ -264,7 +264,7 @@ pub(crate) struct TpmsSchemeEcdaa {
     pub(crate) count: u16,
 }
 
-newtype!(TpmiAlgSigScheme(TpmAlgId) => u16);
+newtype!(TpmiAlgSigScheme(TpmAlgId));
 
 impl TpmiAlgSigScheme {
     pub(crate) const RSA_SSA: Self = Self(TpmAlgId::RsaSsa);
@@ -307,16 +307,16 @@ impl TryFrom<TpmAlgId> for TpmiAlgSigScheme {
     }
 }
 
-newtype!(TpmiAlgEccScheme(TpmAlgId) => u16);
+newtype!(TpmiAlgEccScheme(TpmAlgId));
 
 impl TpmiAlgEccScheme {
-    const ECDSA: Self = Self(TpmAlgId::Ecdsa);
-    const ECDH: Self = Self(TpmAlgId::Ecdh);
-    const ECDAA: Self = Self(TpmAlgId::Ecdaa);
-    const SM2: Self = Self(TpmAlgId::Sm2);
-    const EC_SCHNORR: Self = Self(TpmAlgId::EcSchnorr);
-    const EC_MQV: Self = Self(TpmAlgId::EcMqv);
-    const NULL: Self = Self(TpmAlgId::Null);
+    pub(crate) const ECDSA: Self = Self(TpmAlgId::Ecdsa);
+    pub(crate) const ECDH: Self = Self(TpmAlgId::Ecdh);
+    pub(crate) const ECDAA: Self = Self(TpmAlgId::Ecdaa);
+    pub(crate) const SM2: Self = Self(TpmAlgId::Sm2);
+    pub(crate) const EC_SCHNORR: Self = Self(TpmAlgId::EcSchnorr);
+    pub(crate) const EC_MQV: Self = Self(TpmAlgId::EcMqv);
+    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
 }
 
 impl TryFrom<u16> for TpmiAlgEccScheme {

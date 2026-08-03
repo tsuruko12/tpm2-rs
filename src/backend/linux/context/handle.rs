@@ -12,6 +12,7 @@ use crate::{
 
 use super::Context;
 
+// memo: ensure sessions are fushed when proccessing fails
 impl Context {
     pub(crate) fn evict_control(
         &mut self,
@@ -72,11 +73,7 @@ impl Context {
         for idx in 0..self.sessions.len() {
             if let Some(handle) = self.sessions[idx] {
                 if let Err(err) = self.flush_context(SessionHandle::from(handle)) {
-                    debug!(
-                        ?err,
-                        handle = ?handle, 
-                        "failed to flush TPM session"
-                    );
+                    debug!(handle = ?handle, "failed to flush TPM session");
                     return Err(err);
                 }
                 self.sessions[idx] = None;
@@ -107,12 +104,12 @@ impl Context {
     ) -> Result<()> {
         if is_persistent {
             if let Err(err) = self.ctx.tr_close(&mut handle.into()) {
-                debug!(?err, "failed to close ESAPI handle");
+                debug!("failed to close ESAPI handle");
                 return Err(Error::from_tss_err(err));
             }
         } else {
             if let Err(err) = self.flush_context(handle) {
-                debug!(?err, "failed to flush TPM handle");
+                debug!("failed to flush TPM handle");
                 return Err(err);
             }
         }

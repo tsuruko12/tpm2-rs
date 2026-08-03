@@ -44,12 +44,12 @@ impl TpmtKeyedHashScheme {
     }
 }
 
-newtype!(TpmiAlgKeyedHashScheme(TpmAlgId) => u16);
+newtype!(TpmiAlgKeyedHashScheme(TpmAlgId));
 
 impl TpmiAlgKeyedHashScheme {
-    const HMAC: Self = Self(TpmAlgId::Hmac);
-    const XOR: Self = Self(TpmAlgId::Xor);
-    const NULL: Self = Self(TpmAlgId::Null);
+    pub(crate) const HMAC: Self = Self(TpmAlgId::Hmac);
+    pub(crate) const XOR: Self = Self(TpmAlgId::Xor);
+    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgKeyedHashScheme {

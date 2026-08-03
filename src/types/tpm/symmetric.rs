@@ -1,4 +1,4 @@
-use crate::{Error, Result, macros::newtype};
+use crate::{Error, Result, macros::newtype, types::TpmsEmpty};
 
 use super::TpmAlgId;
 
@@ -24,6 +24,7 @@ pub(crate) struct TpmtSymDefObject {
     algorithm: TpmiAlgSymObject,
     key_bits: TpmKeyBits,
     mode: TpmiAlgSymMode,
+    details: TpmuSymDetails,
 }
 
 impl TpmtSymDefObject {
@@ -31,12 +32,13 @@ impl TpmtSymDefObject {
         algorithm: TpmiAlgSymObject,
         key_bits: TpmKeyBits,
         mode: TpmiAlgSymMode,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             algorithm,
             key_bits,
             mode,
-        }
+            details: TpmuSymDetails::new(algorithm)?,
+        })
     }
 
     pub(crate) fn aes_128_cfb() -> Self {
@@ -45,6 +47,7 @@ impl TpmtSymDefObject {
             TpmKeyBits::AES_128,
             TpmiAlgSymMode::CFB,
         )
+        .unwrap()
     }
 
     pub(crate) fn null() -> Self {
@@ -53,6 +56,7 @@ impl TpmtSymDefObject {
             TpmKeyBits::NULL,
             TpmiAlgSymMode::NULL,
         )
+        .unwrap()
     }
 
     pub(crate) fn is_null(&self) -> bool {
@@ -72,9 +76,18 @@ impl TpmtSymDefObject {
     pub(crate) fn mode(&self) -> TpmiAlgSymMode {
         self.mode
     }
+
+    pub(crate) fn details(&self) -> TpmsEmpty {
+        match self.details {
+            TpmuSymDetails::Aes(details)
+            | TpmuSymDetails::Sm4(details)
+            | TpmuSymDetails::Camellia(details)
+            | TpmuSymDetails::Null(details) => details,
+        }
+    }
 }
 
-newtype!(TpmiAlgSymObject(TpmAlgId) => u16);
+newtype!(TpmiAlgSymObject(TpmAlgId));
 
 impl TpmiAlgSymObject {
     pub(crate) const AES: Self = Self(TpmAlgId::Aes);
@@ -119,7 +132,7 @@ impl From<u16> for TpmKeyBits {
     }
 }
 
-newtype!(TpmiAlgSymMode(TpmAlgId) => u16);
+newtype!(TpmiAlgSymMode(TpmAlgId));
 
 impl TpmiAlgSymMode {
     pub(crate) const CFB: Self = Self(TpmAlgId::Cfb);
@@ -151,6 +164,30 @@ impl TryFrom<TpmAlgId> for TpmiAlgSymMode {
             | TpmAlgId::Cmac
             | TpmAlgId::Null => Ok(Self(alg)),
             _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSymMode>(Some(&alg))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TpmuSymDetails {
+    Aes(TpmsEmpty),
+    Sm4(TpmsEmpty),
+    Camellia(TpmsEmpty),
+    Null(TpmsEmpty),
+}
+
+impl TpmuSymDetails {
+    pub(crate) fn new(alg: TpmiAlgSymObject) -> Result<Self> {
+        match alg {
+            TpmiAlgSymObject::AES => Ok(Self::Aes(TpmsEmpty)),
+            TpmiAlgSymObject::SM4 => Ok(Self::Sm4(TpmsEmpty)),
+            TpmiAlgSymObject::CAMELLIA => Ok(Self::Camellia(TpmsEmpty)),
+            TpmiAlgSymObject::NULL => Ok(Self::Null(TpmsEmpty)),
+            _ => {
+                Err(Error::invalid_state(
+                    format!("unexpected symmetric algorithm for TpmtSymDefObject: {alg:?}")
+                ))
+            },
         }
     }
 }

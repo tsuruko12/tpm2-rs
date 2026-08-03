@@ -24,15 +24,21 @@ type SessionSlots = (
     Option<AuthSession>,
 );
 
+// policy + no-attrs -> policy authorization
+// policy + attrs -> policy authorization + extra HMAC session for attrs
+// no-policy + attrs -> HMAC authorization
+// no-policy + auth + no-attrs -> HMAC authorization
+// no-policy + no-auth + no-attrs -> password authorization
+
 impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
         auth_handle: impl Into<ObjectHandle>,
         authorization: &Authorization,
         session_attrs: TpmaSession,
-        session_salt_key: Option<KeyHandle>,
+        tpm_key: Option<KeyHandle>,
     ) -> Result<SessionSlots> {
-        // session_salt_key is only None before the handle is created
+        // tpm_key is only None before the handle is created
         let auth_handle = auth_handle.into();
         let (auth, policy) = authorization.as_parts();
 
@@ -41,10 +47,10 @@ impl Context {
         let mut sessions = Vec::with_capacity(2);
 
         if let Some(policy) = policy {
-            sessions.push(self.prepare_policy_session(policy, session_salt_key)?);
+            sessions.push(self.prepare_policy_session(policy, tpm_key)?);
 
             if !session_attrs.is_empty() {
-                sessions.push(self.prepare_hmac_session(session_attrs, session_salt_key)?);
+                sessions.push(self.prepare_hmac_session(session_attrs, tpm_key)?);
             }
 
             return Ok(to_session_slots(sessions));
@@ -55,7 +61,7 @@ impl Context {
         {
             sessions.push(AuthSession::Password);
         } else {
-            sessions.push(self.prepare_hmac_session(session_attrs, session_salt_key)?);
+            sessions.push(self.prepare_hmac_session(session_attrs, tpm_key)?);
         }
 
         Ok(to_session_slots(sessions))
@@ -66,12 +72,12 @@ impl Context {
         hmac_session: AuthSession,
         session_attrs: TpmaSession,
         policy: Option<&PolicyData>,
-        session_salt_key: Option<KeyHandle>,
+        tpm_key: Option<KeyHandle>,
     ) -> Result<SessionSlots> {
         let mut sessions = Vec::with_capacity(2);
 
         if let Some(policy) = policy {
-            sessions.push(self.prepare_policy_session(policy, session_salt_key)?);
+            sessions.push(self.prepare_policy_session(policy, tpm_key)?);
         }
 
         self.set_session_attrs(hmac_session, session_attrs)?;
@@ -83,12 +89,12 @@ impl Context {
     fn prepare_policy_session(
         &mut self,
         policy: &PolicyData,
-        session_salt_key: Option<KeyHandle>,
+        tpm_key: Option<KeyHandle>,
     ) -> Result<AuthSession> {
         self.ensure_session_slot_available()?;
 
-        let policy_session = self.start_auth_session(session_salt_key, SessionType::Policy)?;
-        self.set_session_attrs(policy_session, TpmaSession::continue_session())?;
+        let policy_session = self.start_auth_session(tpm_key, SessionType::Policy)?;
+        self.set_session_attrs(policy_session, TpmaSession::empty())?;
 
         if let Err(e) = self.apply_policy(
             policy_session
@@ -100,19 +106,17 @@ impl Context {
             return Err(e);
         }
 
-        self.set_session_attrs(policy_session, TpmaSession::empty())?;
-
         Ok(policy_session)
     }
 
     fn prepare_hmac_session(
         &mut self,
         attrs: TpmaSession,
-        session_salt_key: Option<KeyHandle>,
+        tpm_key: Option<KeyHandle>,
     ) -> Result<AuthSession> {
         self.ensure_session_slot_available()?;
 
-        let hmac_session = self.start_auth_session(session_salt_key, SessionType::Hmac)?;
+        let hmac_session = self.start_auth_session(tpm_key, SessionType::Hmac)?;
         self.set_session_attrs(hmac_session, attrs)?;
 
         Ok(hmac_session)

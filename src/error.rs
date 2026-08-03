@@ -1,8 +1,5 @@
 use std::any::type_name;
 
-use tracing::debug;
-use tss_esapi::{WrapperErrorKind, constants::Tss2ResponseCodeKind};
-
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -153,18 +150,8 @@ impl Error {
         Self::Busy(source.into())
     }
 
-    pub(crate) fn internal_from_tss2_rc(err: Tss2ResponseCodeKind) -> Self {
-        debug!("{err:?}");
-        Self::Internal
-    }
-
-    pub(crate) fn internal_from_wrapper_err(err: WrapperErrorKind) -> Self {
-        debug!("{err}");
-        Self::Internal
-    }
-
     pub(crate) fn internal(source: InternalError) -> Self {
-        debug!("{source}");
+        tracing::debug!("{source}");
         Self::Internal
     }
 

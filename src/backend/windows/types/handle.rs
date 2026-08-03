@@ -4,13 +4,13 @@ use crate::{
     types::{TpmHandle, TpmiDhObject},
 };
 
-newtype!(TpmiDhEntity(TpmHandle) => u32);
+newtype!(TpmiDhEntity(TpmHandle));
 
 impl TpmiDhEntity {
     pub(crate) const RH_NULL: Self = Self(TpmHandle::RH_NULL);
 }
 
-newtype!(TpmiRhHierarchy(TpmHandle) => u32);
+newtype!(TpmiRhHierarchy(TpmHandle));
 
 impl TpmiRhHierarchy {
     pub(crate) const OWNER: Self = Self(TpmHandle::new(0x4000_0001));
@@ -53,13 +53,26 @@ impl TryFrom<TpmHandle> for TpmiRhHierarchy {
     }
 }
 
-newtype!(TpmiShAuthSession(TpmHandle) => u32);
+newtype!(TpmiShAuthSession(TpmHandle));
 
 impl TpmiShAuthSession {
     pub(crate) const RS_PW: Self = Self(TpmHandle::new(0x40000009));
 }
 
-newtype!(TpmiShPolicy(TpmHandle) => u32);
+impl TryFrom<u32> for TpmiShAuthSession {
+    type Error = Error;
+
+    fn try_from(value: u32) -> Result<Self> {
+        if (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&value) 
+        || (TpmiShHmac::FIRST..=TpmiShHmac::LAST).contains(&value) {
+            Ok(Self(value.into()))
+        } else {
+            Err(Error::conversion::<u32, TpmiShAuthSession>(None))
+        }
+    }
+}
+
+newtype!(TpmiShPolicy(TpmHandle));
 
 impl TpmiShPolicy {
     pub(crate) const FIRST: u32 = 0x0300_0000;
@@ -80,7 +93,7 @@ impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
     }
 }
 
-newtype!(TpmiShHmac(TpmHandle) => u32);
+newtype!(TpmiShHmac(TpmHandle));
 
 impl TpmiShHmac {
     pub(crate) const FIRST: u32 = 0x0200_0000;
@@ -101,7 +114,7 @@ impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
     }
 }
 
-newtype!(TpmiDhContext(TpmHandle) => u32);
+newtype!(TpmiDhContext(TpmHandle));
 
 impl From<TpmiShAuthSession> for TpmiDhContext {
     fn from(session: TpmiShAuthSession) -> Self {

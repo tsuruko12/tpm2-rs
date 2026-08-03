@@ -11,6 +11,7 @@ use crate::{
 
 use super::Context;
 
+// memo: adjust code for session_salt_key is None
 impl Context {
     pub(crate) fn create_and_load(
         &mut self,

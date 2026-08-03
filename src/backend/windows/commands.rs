@@ -3,10 +3,10 @@ mod response;
 
 use crate::{
     Error, Result,
-    macros::{newtype, unknown_tpm_data},
+    macros::newtype,
 };
 
-pub(super) use self::command::{Command, CommandHeader, TpmsAuthCommand};
+pub(super) use self::command::{Command, TpmsAuthCommand};
 pub(super) use self::response::{ResponseHeader, TpmsAuthResponse};
 
 pub(crate) const TPM_HEADER_SIZE: usize = 10;
@@ -59,7 +59,7 @@ impl TryFrom<u16> for TpmSt {
             | Self::HASHCHECK
             | Self::AUTH_SIGNED
             | Self::FU_MANIFEST => Ok(Self(value)),
-            _ => Err(Error::conversion::<u16, TpmSt>()),
+            _ => Err(Error::conversion::<u16, TpmSt>(None)),
         }
     }
 }
@@ -70,6 +70,10 @@ pub(crate) struct TpmiStCommandTag(TpmSt);
 impl TpmiStCommandTag {
     pub(crate) const NO_SESSIONS: Self = Self(TpmSt::NO_SESSIONS);
     pub(crate) const SESSIONS: Self = Self(TpmSt::SESSIONS);
+
+    pub(crate) fn raw(self) -> u16 {
+        self.0.raw()
+    }
 }
 
 impl TryFrom<u16> for TpmiStCommandTag {
@@ -78,7 +82,7 @@ impl TryFrom<u16> for TpmiStCommandTag {
     fn try_from(value: u16) -> Result<Self> {
         match TpmSt(value) {
             TpmSt::NO_SESSIONS | TpmSt::SESSIONS => Ok(Self(TpmSt(value))),
-            _ => Err(Error::conversion::<u16, TpmiStCommandTag>()),
+            _ => Err(Error::conversion::<u16, TpmiStCommandTag>(None)),
         }
     }
 }

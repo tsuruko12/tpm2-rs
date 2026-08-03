@@ -5,12 +5,12 @@ use crate::{
 };
 
 impl Context {
-    pub(super) fn read_rsa_public_unique(&mut self, handle: TpmiDhObject) -> Result<Vec<u8>> {
+    pub(crate) fn read_rsa_public_unique(&mut self, handle: TpmiDhObject) -> Result<Vec<u8>> {
         let response = self.read_object_public(handle)?;
         into_rsa_public_unique(response.out_public.unique())
     }
 
-    pub(super) fn read_object_name(&mut self, handle: TpmiDhObject) -> Result<Vec<u8>> {
+    pub(crate) fn read_object_name(&mut self, handle: TpmiDhObject) -> Result<Vec<u8>> {
         // return type should be Tpm2BName
         self.read_object_public(handle)
             .map(|response| response.name.into_bytes())
@@ -36,7 +36,7 @@ impl Context {
 fn into_rsa_public_unique(unique: &TpmuPublicId) -> Result<Vec<u8>> {
     match unique {
         TpmuPublicId::Rsa(public_key) => Ok(public_key.clone().into_bytes()),
-        TpmuPublicId::Ecc(_) => Err(Error::invalid_state("expected RSA public unique")),
+        _ => Err(Error::invalid_state("expected RSA public unique")),
     }
 }
 

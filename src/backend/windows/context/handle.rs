@@ -1,19 +1,20 @@
+use tracing::debug;
+
+use crate::{
+    Error, Result,
+    types::{Authorization, TpmCc, TpmHandle, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision},
+};
+use super::{
+    Context,
+    session::{
+        CpHashData, authorization_commands, response_auth_contexts, update_command_hmacs,
+    },
+};
 use super::super::{
     codec::parse_response_params_and_authorizations,
     commands::Command,
     macros::reject_trailing_bytes,
     types::{TpmRc, TpmaSession, TpmiDhContext, TpmiShPolicy},
-};
-use super::{
-    Context,
-    session::{
-        CpHashData, ResponseAuthContext, split_prepared_sessions, update_command_hmacs,
-        verify_response_hmac,
-    },
-};
-use crate::{
-    Error, Result,
-    types::{Authorization, TpmCc, TpmHandle, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision},
 };
 
 impl Context {
@@ -25,62 +26,74 @@ impl Context {
         session_salt_key_handle: Option<TpmiDhObject>,
         search_end: Option<TpmiDhPersistent>,
     ) -> Result<()> {
-        let mut sessions = self.prepare_sessions(
-            owner_authorization,
-            TpmaSession::CONTINUE_SESSION, // memo: should be empty attrs
-            session_salt_key_handle,
-            None,
-        )?;
-
         let command_code = TpmCc::EVICT_CONTROL;
         let owner_handle = TpmiRhProvision::OWNER;
         let handle_name = self.read_object_name(handle)?;
 
-        let (response_body, auth_contexts) = loop {
-            let request_parameter = persistent_handle.raw().to_be_bytes();
+        let mut sessions = self.prepare_sessions(
+            owner_authorization,
+            TpmaSession::empty(),
+            session_salt_key_handle,
+            None,
+        )?;
 
-            if session_salt_key_handle.is_some() {
+        let result = (|| {
+            loop {
+                let request_parameter = persistent_handle.raw().to_be_bytes();
+                let owner_name = owner_handle.raw().to_be_bytes();
+
                 let cp_hash_data = CpHashData {
                     command_code,
-                    handle_names: &[&owner_handle.raw().to_be_bytes(), &handle_name],
+                    handle_names: &[&owner_name, &handle_name],
                     parameters: &request_parameter,
                 };
+
                 update_command_hmacs(&mut sessions, &cp_hash_data)?;
-            }
 
-            let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
+                let authorizations = authorization_commands(&sessions);
 
-            let command = Command::new(command_code)
-                .with_handles(vec![owner_handle.into(), handle.into()])
-                .with_parameters(&request_parameter)
-                .with_authorizations(&authorizations);
+                let command = Command::new(command_code)
+                    .with_handles(vec![owner_handle.into(), handle.into()])
+                    .with_parameters(&request_parameter)
+                    .with_authorizations(&authorizations);
 
-            match self.submit(command) {
-                Ok(response_body) => break (response_body, auth_contexts),
-                Err(err) => {
-                    let raw_handle = persistent_handle.raw();
+                match self.submit(command) {
+                    Ok(response_body) => break Ok(response_body),
+                    Err(err) => {
+                        let raw_handle = persistent_handle.raw();
 
-                    if err.tpm_rc() == Some(TpmRc::NV_DEFINED) {
-                        if let Some(end) = search_end {
-                            let handle = raw_handle + 1;
+                        if err.tpm_rc() == Some(TpmRc::NV_DEFINED) {
+                            if let Some(end) = search_end {
+                                let handle = raw_handle + 1;
 
-                            if handle > end.raw() {
-                                return Err(Error::PersistentHandleInUse(raw_handle));
+                                if handle > end.raw() {
+                                    return Err(Error::PersistentHandleInUse(raw_handle));
+                                }
+
+                                *persistent_handle = TpmiDhPersistent::try_from(handle)?;
+                                continue;
                             }
-
-                            *persistent_handle = TpmiDhPersistent::try_from(handle)?;
-                            continue;
+                            return Err(Error::PersistentHandleInUse(raw_handle));
                         }
-                        return Err(Error::PersistentHandleInUse(raw_handle));
+                        return Err(err);
                     }
-                    return Err(err);
                 }
+            }
+        })();
+
+        let response_body = match result {
+            Ok(response_body) => {
+                self.clear_sessions();
+                response_body
+            },
+            Err(err) => {
+                let _ = self.flush_sessions();
+                return Err(err);
             }
         };
 
-        self.clear_policy_session();
-        self.flush_sessions()?;
-
+        let auth_contexts = response_auth_contexts(&sessions);
+        
         let (returned_params, auth_responses) = parse_response_params_and_authorizations(
             &mut response_body.as_slice(),
             auth_contexts.len(),
@@ -90,21 +103,13 @@ impl Context {
             reject_trailing_bytes!(returned_params.len());
         }
 
-        if session_salt_key_handle.is_some() {
-            for (auth_context, auth_response) in auth_contexts.iter().zip(auth_responses) {
-                let ResponseAuthContext::Hmac(context) = auth_context else {
-                    continue;
-                };
-
-                verify_response_hmac(
-                    context.session_value,
-                    command_code,
-                    &[],
-                    context.nonce_caller.as_bytes(),
-                    &auth_response,
-                )?;
-            }
-        }
+        auth_contexts
+            .iter()
+            .zip(auth_responses.iter())
+            .filter(|(auth_context, _)| auth_context.requires_hmac())
+            .try_for_each(|(auth_context, auth_response)| {
+                auth_context.verify_hmac(command_code, &returned_params, auth_response)
+            })?;
 
         Ok(())
     }
@@ -112,7 +117,10 @@ impl Context {
     pub(super) fn flush_sessions(&mut self) -> Result<()> {
         for idx in 0..self.sessions.len() {
             if let Some(handle) = self.sessions[idx] {
-                self.flush_context(handle)?;
+                if let Err(err) = self.flush_context(handle) {
+                    debug!(?handle, "failed to flush TPM handle");
+                    return Err(err);
+                }
                 self.sessions[idx] = None;
             }
         }
@@ -137,8 +145,10 @@ impl Context {
     pub(super) fn flush_handle(&mut self, handle: TpmiDhObject) -> Result<()> {
         if handle.is_transient() {
             let handle = TpmiDhContext::try_from(handle)?;
-            return self.flush_context(handle);
-            // memo: should clear session slots as well
+            if let Err(err) = self.flush_context(handle) {
+                debug!(?handle, "failed to flush TPM handle");
+                return Err(err);
+            }
         }
 
         Ok(())

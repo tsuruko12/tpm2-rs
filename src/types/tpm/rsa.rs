@@ -138,7 +138,7 @@ impl From<RsaScheme> for TpmtRsaScheme {
     }
 }
 
-newtype!(TpmiAlgRsaScheme(TpmAlgId) => u16);
+newtype!(TpmiAlgRsaScheme(TpmAlgId));
 
 impl TpmiAlgRsaScheme {
     pub(crate) const RSA_SSA: Self = Self(TpmAlgId::RsaSsa);

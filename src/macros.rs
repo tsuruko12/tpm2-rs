@@ -139,8 +139,14 @@ macro_rules! tpm_list_type {
 }
 
 macro_rules! newtype {
+    ($name:ident(TpmAlgId)) => {
+        newtype!($name(TpmAlgId) => u16);
+    };
+    ($name:ident(TpmHandle)) => {
+        newtype!($name(TpmHandle) => u32);
+    };
     ($name:ident($raw:ty)) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Clone, Copy, PartialEq, Eq)]
         pub(crate) struct $name($raw);
 
         impl $name {
@@ -148,14 +154,36 @@ macro_rules! newtype {
                 self.0
             }
         }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(
+                    f,
+                    "0x{:0width$X}",
+                    self.raw(),
+                    width = std::mem::size_of::<$raw>() * 2,
+                )
+            }
+        }
     };
     ($name:ident($inner:ty) => $raw:ty) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Clone, Copy, PartialEq, Eq)]
         pub(crate) struct $name($inner);
 
         impl $name {
             pub(crate) fn raw(&self) -> $raw {
                 self.0.raw()
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(
+                    f,
+                    "0x{:0width$X}",
+                    self.raw(),
+                    width = std::mem::size_of::<$raw>() * 2,
+                )
             }
         }
 

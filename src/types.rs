@@ -23,5 +23,6 @@ pub(crate) use self::tpm::{
     TpmsPcrSelection, TpmsRsaParms, TpmsSchemeEcdaa, TpmsSchemeHash, TpmsSchemeXor,
     TpmsTaggedPcrSelect, TpmsTaggedProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedHashScheme,
     TpmtPublic, TpmtRsaScheme, TpmtSigScheme, TpmtSymDefObject, TpmuEccScheme, TpmuKdfScheme,
-    TpmuPublicId, TpmuPublicParms, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSigScheme,
+    TpmuPublicId, TpmuPublicParms, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSigScheme, TpmsSymCipherParms,
+    TpmiAlgKeyedHashScheme, TpmuSymDetails
 };

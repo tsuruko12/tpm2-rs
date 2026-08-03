@@ -67,7 +67,7 @@ impl fmt::Display for TpmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ResponseCode(rc) => {
-                write!(f, "TPM returned response code {:#010X}", rc.raw())
+                write!(f, "TPM returned response code {rc:?}")
             }
         }
     }

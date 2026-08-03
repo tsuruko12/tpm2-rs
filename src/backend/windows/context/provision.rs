@@ -14,6 +14,9 @@ impl Context {
         owner_authorization: &Authorization,
     ) -> Result<Vec<InternalKeyMeta>> {
         let mut key_meta = Vec::with_capacity(3);
+        let mut persistent_handles = Vec::with_capacity(3);
+
+        let srk_handle = TpmiDhObject::from(TpmiDhPersistent::SRK_HANDLE);
         let srk_authorization = Authorization::default();
 
         let srk_meta = self.create_and_persist(
@@ -22,32 +25,44 @@ impl Context {
             None,
             None,
             |ctx| {
-                ctx.create_owner_primary(&TpmtPublic::storage_parent(), owner_authorization, None)
+                ctx.create_owner_primary(
+                    &TpmtPublic::storage_parent(), 
+                    owner_authorization, 
+                    None,
+                )
             },
         )?;
 
         let parent = LoadedParent::new(
-            srk_meta.handle.into(),
+            srk_handle,
             srk_meta.object_name.clone(),
             srk_authorization,
         );
+
         key_meta.push(srk_meta);
+        persistent_handles.push(srk_handle);
 
         let result = (|| {
+            let owner_available_first = TpmiDhPersistent::OWNER_AVAILABLE_FIRST;
             let rsa_public = TpmtPublic::rsa_decrypt();
 
-            let session_salt_key = self.create_and_persist(
-                TpmiDhPersistent::OWNER_AVAILABLE_FIRST,
+            let session_salt_key_meta = self.create_and_persist(
+                owner_available_first,
                 owner_authorization,
                 Some(TpmiDhPersistent::OWNER_AVAILABLE_LAST),
                 None,
                 |ctx| ctx.create_and_load(&rsa_public, Tpm2bAuth::default(), &parent, None),
             )?;
-            let session_salt_key_handle: TpmiDhObject = session_salt_key.handle.into();
-            key_meta.push(session_salt_key);
+            let session_salt_key_handle = TpmiDhObject::try_from(session_salt_key_meta.handle)
+                .expect("created persistent handle must be valid");
 
-            let shared_wrapping_key = self.create_and_persist(
-                TpmiDhPersistent::OWNER_AVAILABLE_FIRST, // memo: should be add 1
+            key_meta.push(session_salt_key_meta);
+            persistent_handles.push(session_salt_key_handle);
+
+            let shared_wrapping_key_meta = self.create_and_persist(
+                (owner_available_first.raw() + 1)
+                    .try_into()
+                    .expect("owner handle must be in the persistent range"),
                 owner_authorization,
                 Some(TpmiDhPersistent::OWNER_AVAILABLE_LAST),
                 Some(session_salt_key_handle),
@@ -60,23 +75,27 @@ impl Context {
                     )
                 },
             )?;
-            key_meta.push(shared_wrapping_key);
+            let shared_wrapping_key_handle = TpmiDhObject::try_from(shared_wrapping_key_meta.handle)
+                .expect("created persistent handle must be valid");
+
+            key_meta.push(shared_wrapping_key_meta);
+            persistent_handles.push(shared_wrapping_key_handle);
 
             Ok(())
         })();
 
-        // memo: maybe deleting SRK isn't necessary, left it
-        if let Err(e) = result {
-            for meta in key_meta.iter().rev() {
-                let mut handle = meta.handle;
-                let _ =
-                    self.evict_control(handle.into(), &mut handle, owner_authorization, None, None);
-            }
-
-            return Err(e);
+        match result {
+            Ok(()) => Ok(key_meta),
+            Err(e) => {
+                self.evict_persistent_handles(
+                    &key_meta, 
+                    Some(&persistent_handles), 
+                    owner_authorization,
+                );
+                
+                Err(e)
+            },
         }
-
-        Ok(key_meta)
     }
 
     fn create_and_persist<F>(
@@ -93,18 +112,63 @@ impl Context {
         let created = create(self)?;
 
         let result = self.evict_control(
-            created.handle.try_into()?,
+            created.handle,
             &mut persistent_handle,
             owner_authorization,
             session_salt_key_handle,
             serch_end,
         );
-
-        let _ = self.flush_handle(created.handle.try_into()?); // memo: don't flush session_salt_key sinced it's used
+        let _ = self.flush_handle(created.handle);
 
         result.map(|_| InternalKeyMeta {
-            handle: persistent_handle,
+            handle: persistent_handle.raw(),
             object_name: created.name.into_bytes(),
         })
+    }
+
+    pub(crate) fn evict_persistent_handles(
+        &mut self, 
+        key_meta: &[InternalKeyMeta], 
+        persistent_handles: Option<&[TpmiDhObject]>,
+        owner_authorization: &Authorization,
+    ) {
+        match persistent_handles {
+            Some(handles) => {
+                for (meta, &loaded_handle) in
+                    key_meta.iter().rev().zip(handles.iter().rev())
+                {
+                    let mut persistent_handle = TpmiDhPersistent::try_from(meta.handle)
+                            .expect("created persistent handle must be valid");
+
+                    if let Err(err) = self.evict_control(
+                        loaded_handle,
+                        &mut persistent_handle,
+                        owner_authorization,
+                        None,
+                        None,
+                    ) {
+                        tracing::debug!(?err, "rollback failed");
+                    }
+                }
+            }
+            None => {
+                for meta in key_meta.iter().rev() {
+                    let handle = TpmiDhObject::try_from(meta.handle)
+                        .expect("created persistent handle must be valid");
+                    let mut persistent_handle = TpmiDhPersistent::try_from(meta.handle)
+                            .expect("created persistent handle must be valid");
+
+                    if let Err(err) = self.evict_control(
+                        handle,
+                        &mut persistent_handle,
+                        owner_authorization,
+                        None,
+                        None,
+                    ) {
+                        tracing::debug!(?err, "rollback failed");
+                    }
+                }
+            }
+        }
     }
 }

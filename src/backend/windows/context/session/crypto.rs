@@ -189,7 +189,7 @@ pub(super) fn compute_hmac(
     Ok(Tpm2bAuth::from(mac.finalize().into_bytes().to_vec()))
 }
 
-pub(crate) fn verify_response_hmac(
+pub(super) fn verify_response_hmac(
     session_value: &[u8],
     command_code: TpmCc,
     parameters: &[u8],

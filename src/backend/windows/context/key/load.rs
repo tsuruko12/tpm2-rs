@@ -1,10 +1,10 @@
 use super::{
     Context,
     codec::{LoadResponse, TpmMarshal, marshal_tpm2b, tpm2b_payload_mut},
-    commands::Command,
+    commands::{Command, TpmsAuthCommand},
     session::{
         CpHashData, HmacSessionState, decrypt_response_parameter, encrypt_command_parameter,
-        split_prepared_sessions, update_command_hmacs,
+        authorization_commands, response_auth_contexts, update_command_hmacs,
     },
     types::{Tpm2bName, Tpm2bPrivate, TpmaSession},
 };
@@ -27,48 +27,72 @@ impl Context {
         public.marshal(&mut request_params)?;
 
         let command_code = TpmCc::LOAD;
-        let parent_name = self.read_object_name(parent.handle())?;
 
-        let mut sessions = self.prepare_sessions(
-            parent.authorization(),
-            TpmaSession::encrypt_decrypt(),
-            session_salt_key_handle.into(),
-            hmac_session_state,
-        )?;
+        match session_salt_key_handle {
+            Some(_) => {
+                let mut sessions = self.prepare_sessions(
+                    parent.authorization(),
+                    TpmaSession::encrypt_decrypt().with_continue_session(),
+                    session_salt_key_handle,
+                    hmac_session_state,
+                )?;
 
-        if session_salt_key_handle.is_some() {
-            let param = tpm2b_payload_mut(&mut request_params)?;
-            encrypt_command_parameter(&sessions, param)?;
+                let result = (|| {
+                    let parent_name = self.read_object_name(parent.handle())?;
 
-            let cp_hash_data = CpHashData {
-                command_code,
-                handle_names: &[&parent_name],
-                parameters: &request_params,
-            };
-            update_command_hmacs(&mut sessions, &cp_hash_data)?;
+                    let param = tpm2b_payload_mut(&mut request_params)?;
+                    encrypt_command_parameter(&sessions, param)?;
+
+                    let cp_hash_data = CpHashData {
+                        command_code,
+                        handle_names: &[&parent_name],
+                        parameters: &request_params,
+                    };
+                    update_command_hmacs(&mut sessions, &cp_hash_data)?;
+
+                    let authorizations = authorization_commands(&sessions);
+
+                    let command = Command::new(command_code)
+                        .with_handles(vec![parent.handle().into()])
+                        .with_parameters(&request_params)
+                        .with_authorizations(&authorizations);
+
+                    Ok(self.submit(command)?)
+                })();
+
+                let response_body = match result {
+                    Ok(response_body) => response_body,
+                    Err(e) => {
+                        let _ = self.flush_sessions();
+                        return Err(e);
+                    },
+                };
+
+                self.clear_policy_session();
+                self.flush_sessions()?;
+                
+                let auth_contexts: Vec<crate::backend::windows::context::session::ResponseAuthContext<'_>> = response_auth_contexts(&sessions);
+                let mut response = LoadResponse::parse(&response_body, auth_contexts.len())?;
+
+                decrypt_response_parameter(
+                    command_code,
+                    &mut response.parameters,
+                    &auth_contexts,
+                    &response.authorizations,
+                )?;
+
+                response.into_parts()
+            },
+            None => {
+                let authorizations = [&TpmsAuthCommand::password()];
+                let command = Command::new(command_code)
+                    .with_handles(vec![parent.handle().into()])
+                    .with_parameters(&request_params)
+                    .with_authorizations(&authorizations);
+
+                let response_body = self.submit(command)?;
+                LoadResponse::parse(&response_body, authorizations.len())?.into_parts()
+            },
         }
-
-        let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
-
-        let command = Command::new(TpmCc::LOAD)
-            .with_handles(vec![parent.handle().into()])
-            .with_parameters(&request_params)
-            .with_authorizations(&authorizations);
-
-        let response_body = self.submit(command)?;
-        self.clear_sessions();
-
-        let mut response = LoadResponse::parse(&response_body, auth_contexts.len())?;
-
-        if session_salt_key_handle.is_some() {
-            decrypt_response_parameter(
-                command_code,
-                &mut response.parameters,
-                &auth_contexts,
-                &response.authorizations,
-            )?;
-        }
-
-        response.into_parts()
     }
 }

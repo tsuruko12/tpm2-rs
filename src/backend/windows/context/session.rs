@@ -18,14 +18,13 @@ use crate::{
     },
 };
 
-pub(super) use self::crypto::{
-    decrypt_response_parameter, encrypt_command_parameter, verify_response_hmac,
+pub(super) use self::crypto::{decrypt_response_parameter, encrypt_command_parameter};
+use self::crypto::{
+    derive_session_key, generate_caller_nonce, generate_encrypted_salt, verify_response_hmac
 };
-use self::crypto::{derive_session_key, generate_caller_nonce, generate_encrypted_salt};
 use super::super::{codec, commands, types};
 
 const AUTH_HASH: TpmiAlgHash = TpmiAlgHash::SHA256;
-const BUF_LEN: usize = 32;
 const DEFAULT_EXPONENT: u32 = 65_537;
 
 pub(super) enum PreparedSession {
@@ -48,6 +47,30 @@ pub(super) enum PreparedSession {
 pub(super) enum ResponseAuthContext<'a> {
     None,
     Hmac(ResponseHmacContext<'a>),
+}
+
+impl ResponseAuthContext<'_> {
+    pub(super) fn requires_hmac(&self) -> bool {
+        matches!(self, Self::Hmac(_))
+    }
+
+    pub(super) fn verify_hmac(
+        &self,
+        command_code: TpmCc,
+        parameters: &[u8],
+        auth_response: &TpmsAuthResponse,
+    ) -> Result<()> {
+        match self {
+            Self::None => Ok(()),
+            Self::Hmac(context) => verify_response_hmac(
+                context.session_value,
+                command_code,
+                parameters,
+                context.nonce_caller.as_bytes(),
+                auth_response,
+            ),
+        }
+    }
 }
 
 pub(super) struct HmacSessionState {
@@ -158,16 +181,19 @@ impl PreparedSession {
     }
 }
 
-pub(super) fn split_prepared_sessions<'a>(
-    sessions: &'a [PreparedSession],
-) -> (Vec<&'a TpmsAuthCommand>, Vec<ResponseAuthContext<'a>>) {
-    let auth_commands = sessions.iter().map(PreparedSession::auth_command).collect();
-    let auth_contexts = sessions
+pub(super) fn authorization_commands(
+    sessions: &[PreparedSession],
+) -> Vec<&TpmsAuthCommand> {
+    sessions.iter().map(PreparedSession::auth_command).collect()
+}
+
+pub(super) fn response_auth_contexts(
+    sessions: &[PreparedSession],
+) -> Vec<ResponseAuthContext<'_>> {
+    sessions
         .iter()
         .map(PreparedSession::response_auth_context)
-        .collect();
-
-    (auth_commands, auth_contexts)
+        .collect()
 }
 
 pub(super) fn update_command_hmacs(
@@ -194,7 +220,7 @@ pub(super) struct CpHashData<'a> {
 }
 
 #[derive(Debug, Clone)]
-struct SessionSaltKey {
+struct SaltKey {
     handle: TpmiDhObject,
     public_key: RsaPublicKey,
 }
@@ -208,67 +234,74 @@ struct SessionSaltKey {
 impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
-        authorization: &Authorization,
+        authorization: &Authorization, 
         session_attrs: TpmaSession,
-        session_salt_key_handle: Option<TpmiDhObject>,
+        tpm_key: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
     ) -> Result<Vec<PreparedSession>> {
-        // memo: ３つまで固定にした方がいいかも
-        // session_salt_key_handle is only None before the handle is created
-        let session_salt_key_handle = if let Some(handle) = session_salt_key_handle {
-            handle
-        } else {
-            return Ok(vec![PreparedSession::Password {
-                auth_command: TpmsAuthCommand::password(),
-            }]);
-        };
+        let mut sessions = Vec::with_capacity(2);
 
-        let session_salt_key = SessionSaltKey {
-            handle: session_salt_key_handle,
-            public_key: self.build_rsa_public_key(session_salt_key_handle)?,
-        };
-        let (auth, policy) = authorization.as_parts();
+        let result = (|| {
+            // tpm_key is only None before the handle is created
+            let salt_key = match tpm_key {
+                Some(handle) => Some(SaltKey {
+                    handle,
+                    public_key: self.build_rsa_public_key(handle)?,
+                }),
+                None => None,
+            };
+            let (auth, policy) = authorization.as_parts();
 
-        let mut sessions = Vec::new();
+            if let Some(policy) = policy {
+                let required_auth = policy.auth_kind()?.map(|kind| (kind, auth));
 
-        if let Some(policy) = policy {
-            let required_auth = policy.auth_kind()?.map(|kind| (kind, auth));
+                sessions.push(self.prepare_policy_session(
+                    policy,
+                    salt_key.as_ref(),
+                    required_auth,
+                )?);
 
-            sessions.push(self.prepare_policy_session(policy, &session_salt_key, required_auth)?);
+                if !session_attrs.is_empty() {
+                    sessions.push(self.prepare_hmac_session(
+                        session_attrs,
+                        salt_key.as_ref(),
+                        None,
+                        hmac_session_state,
+                    )?);
+                }
 
-            if !session_attrs.is_empty() {
+                return Ok(sessions);
+            }
+
+            if (session_attrs.is_empty()
+                || session_attrs == TpmaSession::CONTINUE_SESSION)
+                && auth.is_empty()
+                && hmac_session_state.is_none()
+            {
+                sessions.push(PreparedSession::Password {
+                    auth_command: TpmsAuthCommand::password(),
+                });
+            } else {
                 sessions.push(self.prepare_hmac_session(
                     session_attrs,
-                    &session_salt_key,
-                    None,
+                    salt_key.as_ref(),
+                    Some(auth),
                     hmac_session_state,
                 )?);
             }
 
-            return Ok(sessions);
+            Ok(sessions)
+        })();
+
+        if result.is_err() {
+            let _ = self.flush_sessions();
         }
 
-        if (session_attrs.is_empty() || session_attrs == TpmaSession::CONTINUE_SESSION)
-            && auth.is_empty()
-            && hmac_session_state.is_none()
-        {
-            sessions.push(PreparedSession::Password {
-                auth_command: TpmsAuthCommand::password(),
-            });
-        } else {
-            sessions.push(self.prepare_hmac_session(
-                session_attrs,
-                &session_salt_key,
-                Some(auth),
-                hmac_session_state,
-            )?);
-        }
-
-        Ok(sessions)
+        result
     }
 
-    fn build_rsa_public_key(&mut self, session_salt_key: TpmiDhObject) -> Result<RsaPublicKey> {
-        let public_unique = self.read_rsa_public_unique(session_salt_key)?;
+    fn build_rsa_public_key(&mut self, salt_key: TpmiDhObject) -> Result<RsaPublicKey> {
+        let public_unique = self.read_rsa_public_unique(salt_key)?;
 
         RsaPublicKey::new(
             BigUint::from_bytes_be(&public_unique),
@@ -280,64 +313,52 @@ impl Context {
     fn prepare_policy_session(
         &mut self,
         policy: &PolicyData,
-        session_salt_key: &SessionSaltKey, // memo: thinking Option is better here
+        salt_key: Option<&SaltKey>,
         required_auth: Option<(PolicyAuthKind, &[u8])>,
     ) -> Result<PreparedSession> {
-        // memo: set continue_session attr because applying policy command flushes sessions after success
         self.ensure_session_slot_available()?;
 
+        let session_type = TpmSe::Policy;
         let session_attrs = TpmaSession::empty();
         let nonce_caller = generate_caller_nonce()?;
 
-        let (auth_command, nonce_tpm, session_value, requires_hmac) = if let Some(required_auth) =
-            required_auth
-        {
-            let (auth_kind, auth) = required_auth;
-            let (encrypted_salt, salt) = generate_encrypted_salt(&session_salt_key.public_key)?;
+        let (auth_command, nonce_tpm, session_value, requires_hmac) = match required_auth {
+            Some((auth_kind, auth)) => {
+                let (response, mut session_value) = match salt_key {
+                    Some(salt_key) => self.start_salted_session(salt_key, &nonce_caller, session_type)?,
+                    None => self.start_unsalted_session(&nonce_caller, session_type)?, 
+                };
 
-            let response = self.start_auth_session(
-                nonce_caller.as_bytes(),
-                &encrypted_salt,
-                TpmSe::Policy,
-                Some(session_salt_key.handle),
-            )?;
+                let (hmac, requires_hmac) = match auth_kind {
+                    PolicyAuthKind::AuthValue => {
+                        session_value.extend_from_slice(auth);
+                        (Tpm2bAuth::default(), true)
+                    },
+                    PolicyAuthKind::Password => (Tpm2bAuth::from(auth), false),
+                };
 
-            let mut session_value = derive_session_key(
-                salt.as_ref(),
-                response.nonce.as_bytes(),
-                nonce_caller.as_bytes(),
-            )?;
+                (
+                    TpmsAuthCommand::new(response.session_handle, nonce_caller, session_attrs, hmac),
+                    response.nonce,
+                    session_value,
+                    requires_hmac,
+                )
+            },
+            None => {
+                let (response, _) = self.start_unsalted_session(&nonce_caller, session_type)?;
 
-            let (hmac, requires_hmac) = match auth_kind {
-                PolicyAuthKind::AuthValue => {
-                    session_value.extend_from_slice(auth);
-
-                    (Tpm2bAuth::default(), true)
-                }
-                PolicyAuthKind::Password => (Tpm2bAuth::from(auth), false),
-            };
-
-            (
-                TpmsAuthCommand::new(response.session_handle, nonce_caller, session_attrs, hmac),
-                response.nonce,
-                session_value,
-                requires_hmac,
-            )
-        } else {
-            let response =
-                self.start_auth_session(nonce_caller.as_bytes(), &[], TpmSe::Policy, None)?;
-
-            (
-                TpmsAuthCommand::new(
-                    response.session_handle,
-                    Tpm2bNonce::default(),
-                    session_attrs,
-                    Tpm2bAuth::default(),
-                ),
-                response.nonce,
-                Zeroizing::new(Vec::new()),
-                false,
-            )
+                (
+                    TpmsAuthCommand::new(
+                        response.session_handle,
+                        Tpm2bNonce::default(),
+                        session_attrs,
+                        Tpm2bAuth::default(),
+                    ),
+                    response.nonce,
+                    Zeroizing::new(Vec::new()),
+                    false,
+                )
+            },
         };
 
         self.apply_policy(auth_command.session_handle().try_into()?, policy)?;
@@ -353,40 +374,37 @@ impl Context {
     fn prepare_hmac_session(
         &mut self,
         attrs: TpmaSession,
-        session_salt_key: &SessionSaltKey,
+        salt_key: Option<&SaltKey>,
         auth: Option<&[u8]>,
         hmac_session_state: Option<HmacSessionState>,
     ) -> Result<PreparedSession> {
         self.ensure_session_slot_available()?;
 
+        let session_type = TpmSe::Hmac;
         let nonce_caller = generate_caller_nonce()?;
 
-        let (session_handle, session_value, nonce_tpm) = if let Some(state) = hmac_session_state {
-            (state.session_handle, state.session_value, state.nonce_tpm)
-        } else {
-            let (encrypted_salt, salt) = generate_encrypted_salt(&session_salt_key.public_key)?;
+        let (session_handle, session_value, nonce_tpm) = match hmac_session_state {
+            Some(state) => (state.session_handle, state.session_value, state.nonce_tpm),
+            None => {
+                let (response, mut session_value) = match salt_key {
+                    Some(salt_key) => self.start_salted_session(salt_key, &nonce_caller, session_type)?,
+                    None => self.start_unsalted_session(&nonce_caller, session_type)?, 
+                };
 
-            let (session_handle, nonce_tpm) = self
-                .start_auth_session(
-                    nonce_caller.as_bytes(),
-                    &encrypted_salt,
-                    TpmSe::Hmac,
-                    Some(session_salt_key.handle),
-                )
-                .map(|response| (response.session_handle, response.nonce))?;
+                if let Some(auth) = auth {
+                    session_value.extend_from_slice(auth);
+                }
 
-            let mut session_value =
-                derive_session_key(salt.as_ref(), nonce_tpm.as_bytes(), nonce_caller.as_bytes())?;
-
-            if let Some(auth) = auth {
-                session_value.extend_from_slice(auth);
+                (response.session_handle, session_value, response.nonce)
             }
-
-            (session_handle, session_value, nonce_tpm)
         };
 
-        let auth_command =
-            TpmsAuthCommand::new(session_handle, nonce_caller, attrs, Tpm2bAuth::default());
+        let auth_command = TpmsAuthCommand::new(
+            session_handle, 
+            nonce_caller, 
+            attrs, 
+            Tpm2bAuth::default(),
+        );
 
         Ok(PreparedSession::Hmac {
             auth_command,
@@ -395,17 +413,54 @@ impl Context {
         })
     }
 
+    fn start_unsalted_session(
+        &mut self, 
+        nonce_caller: &Tpm2bNonce, 
+        session_type: TpmSe,
+    ) -> Result<(StartAuthSessionResponse, Zeroizing<Vec<u8>>)> {
+        let response = self.start_auth_session(
+            nonce_caller.as_bytes(),
+            &[],
+            session_type,
+            None,
+        )?;
+
+        Ok((response, Vec::new().into()))
+    }
+
+    fn start_salted_session(
+        &mut self,
+        salt_key: &SaltKey,
+        nonce_caller: &Tpm2bNonce,
+        session_type: TpmSe,
+    ) -> Result<(StartAuthSessionResponse, Zeroizing<Vec<u8>>)> {
+        let (encrypted_salt, salt) = generate_encrypted_salt(&salt_key.public_key)?;
+
+        let response = self.start_auth_session(
+            nonce_caller.as_bytes(),
+            &encrypted_salt,
+            session_type,
+            Some(salt_key.handle),
+        )?;
+        let session_key = derive_session_key(
+            salt.as_ref(), 
+            response.nonce.as_bytes(), 
+            nonce_caller.as_bytes(),
+        )?;
+
+        Ok((response, session_key))
+    }
+
     fn start_auth_session(
         &mut self,
         nonce_caller: &[u8],
         encrypted_salt: &[u8],
         session_type: TpmSe,
-        session_salt_key: Option<TpmiDhObject>,
+        salt_key: Option<TpmiDhObject>,
     ) -> Result<StartAuthSessionResponse> {
-        let command_handles = if let Some(handle) = session_salt_key {
-            vec![handle.into(), TpmHandle::RH_NULL]
-        } else {
-            vec![TpmHandle::RH_NULL, TpmHandle::RH_NULL]
+        let command_handles = match salt_key {
+            Some(handle) => vec![handle.into(), TpmHandle::RH_NULL],
+            None => vec![TpmHandle::RH_NULL, TpmHandle::RH_NULL],
         };
 
         let mut request_params = Vec::new();
@@ -441,11 +496,9 @@ impl Context {
             .sessions
             .iter_mut()
             .find(|slot| slot.is_none())
-            .expect("session slot availability was checked");
+            .expect("session slot must be available");
 
         *slot = Some(session);
-
-        Ok(())
     }
 }
 

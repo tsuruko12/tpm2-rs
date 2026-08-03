@@ -12,20 +12,10 @@ use super::super::{
     },
 };
 use crate::{
-    error::{Error, Result},
-    types::{
-        Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmKeyBits, TpmPt,
-        TpmPtPcr, TpmaAlgorithm, TpmaCc, TpmaObject, TpmiAlgEccScheme, TpmiAlgHash, TpmiAlgKdf,
-        TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject, TpmiEccCurve,
-        TpmiRsaKeyBits, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle,
-        TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsAlgProperty,
-        TpmsEccParms, TpmsPcrSelection, TpmsRsaParms, TpmsSchemeEcdaa, TpmsTaggedPcrSelect,
-        TpmsTaggedProperty, TpmtEccScheme, TpmtKdfScheme, TpmtPublic, TpmtRsaScheme,
-        TpmtSymDefObject, TpmuEccScheme, TpmuPublicId, TpmuPublicParms,
+    error::{Error, Result}, types::{
+        Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmKeyBits, TpmPt, TpmPtPcr, TpmaAlgorithm, TpmaCc, TpmaObject, TpmiAlgEccScheme, TpmiAlgHash, TpmiAlgKdf, TpmiAlgKeyedHashScheme, TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject, TpmiEccCurve, TpmiRsaKeyBits, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsAlgProperty, TpmsEccParms, TpmsEmpty, TpmsKeyedHashParms, TpmsPcrSelection, TpmsRsaParms, TpmsSchemeEcdaa, TpmsSchemeHash, TpmsSchemeXor, TpmsSymCipherParms, TpmsTaggedPcrSelect, TpmsTaggedProperty, TpmtEccScheme, TpmtKdfScheme, TpmtKeyedHashScheme, TpmtPublic, TpmtRsaScheme, TpmtSymDefObject, TpmuEccScheme, TpmuKdfScheme, TpmuPublicId, TpmuPublicParms, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSymDetails,
     },
 };
-
-// memo: implement both traits for TpmAlgId and TpmiAlgHash to clearn up code, (TpmsEmpty as well)
 
 pub(crate) trait TpmMarshal {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()>;
@@ -122,6 +112,24 @@ impl TpmMarshal for TpmsAuthCommand {
     }
 }
 
+impl TpmMarshal for TpmAlgId {
+    fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
+        self.raw().marshal(buf)
+    }
+}
+
+impl TpmMarshal for TpmiAlgHash {
+    fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
+        self.raw().marshal(buf)
+    }
+}
+
+impl TpmMarshal for TpmsEmpty {
+    fn marshal(&self, _buf: &mut Vec<u8>) -> Result<()> {
+        Ok(())
+    }
+}
+
 impl TpmMarshal for TpmsSensitiveCreate {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         let (auth, data) = self.as_parts();
@@ -149,26 +157,25 @@ impl TpmMarshal for TpmsCreationData {
 
 impl TpmMarshal for TpmtPublic {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
-        let alg_type = self.alg_type();
-        alg_type.raw().marshal(buf)?;
-
+        self.alg_type().raw().marshal(buf)?;
         self.name_alg().raw().marshal(buf)?;
         self.object_attributes().bits().marshal(buf)?;
         marshal_tpm2b(buf, self.auth_policy().as_bytes())?;
-
-        // memo: changed TpmuPublicParms varinants
-        match self.parameters() {
-            TpmuPublicParms::Ecc(params) => {
-                params.marshal(buf)?;
-            }
-            TpmuPublicParms::Rsa(params) => {
-                params.marshal(buf)?;
-            } // memo: add the rest branches
-        }
-
+        self.parameters().marshal(buf)?;
         self.unique().marshal(buf)?;
 
         Ok(())
+    }
+}
+
+impl TpmMarshal for TpmuPublicParms {
+    fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
+        match self {
+            Self::EccDetail(params) => params.marshal(buf),
+            Self::RsaDetail(params) => params.marshal(buf),
+            Self::SymDetail(params) => params.sym().marshal(buf),
+            Self::KeyedHashDetail(params) => params.marshal(buf),
+        }
     }
 }
 
@@ -176,9 +183,15 @@ impl TpmMarshal for TpmsRsaParms {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         self.symmetric().marshal(buf)?;
 
-        let (scheme, hash) = self.scheme().into_parts();
+        let (scheme, details) = self.scheme().into_parts();
         scheme.raw().marshal(buf)?;
-        hash.map(|alg| alg.raw().marshal(buf)).transpose()?;
+        
+        match details {
+            TpmuRsaScheme::Oaep(scheme_hash)
+            | TpmuRsaScheme::RsaPss(scheme_hash)
+            | TpmuRsaScheme::RsaSsa(scheme_hash) => scheme_hash.hash_alg.marshal(buf)?,
+            _ => {},
+        }
 
         self.key_bits().raw().marshal(buf)?;
         self.exponent().marshal(buf)?;
@@ -191,29 +204,51 @@ impl TpmMarshal for TpmsEccParms {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         self.symmetric().marshal(buf)?;
 
-        let (scheme, details) = self.scheme().into_parts();
-        scheme.raw().marshal(buf)?;
+        let (ecc_scheme, ecc_details) = self.scheme().into_parts();
+        ecc_scheme.raw().marshal(buf)?;
 
-        match details {
-            TpmuEccScheme::Ecdsa(hash)
-            | TpmuEccScheme::Ecdh(hash)
-            | TpmuEccScheme::Sm2(hash)
-            | TpmuEccScheme::EcSchnorr(hash)
-            | TpmuEccScheme::EcMqv(hash) => hash.hash_alg.raw().marshal(buf)?,
-            TpmuEccScheme::Ecdaa(details) => {
-                let (hash_alg, count) = details.into_parts();
-                hash_alg.raw().marshal(buf)?;
-                count.marshal(buf)?;
-            }
-            TpmuEccScheme::Null => {}
+        match ecc_details {
+            TpmuEccScheme::Ecdsa(scheme_hash)
+            | TpmuEccScheme::Ecdh(scheme_hash)
+            | TpmuEccScheme::Sm2(scheme_hash)
+            | TpmuEccScheme::EcSchnorr(scheme_hash)
+            | TpmuEccScheme::EcMqv(scheme_hash) => scheme_hash.hash_alg.marshal(buf)?,
+            TpmuEccScheme::Ecdaa(scheme_ecdaa) => {
+                scheme_ecdaa.hash_alg.marshal(buf)?;
+                scheme_ecdaa.count.marshal(buf)?;
+            },
+            _ => {},
         }
 
         self.curve_id().raw().marshal(buf)?;
 
-        let (kdf, hash_alg) = self.kdf().into_parts();
-        kdf.raw().marshal(buf)?;
-        if let Some(hash_alg) = hash_alg {
-            hash_alg.raw().marshal(buf)?;
+        let (kdf_scheme, kdf_details) = self.kdf().into_parts();
+        kdf_scheme.raw().marshal(buf)?;
+
+        match kdf_details {
+            TpmuKdfScheme::Kdf1Sp800_56a(scheme_hash)
+            | TpmuKdfScheme::Kdf1Sp800_108(scheme_hash)
+            | TpmuKdfScheme::Kdf2(scheme_hash)
+            | TpmuKdfScheme::Mgf1(scheme_hash) => scheme_hash.hash_alg.marshal(buf)?,
+            _ => {},
+        }
+
+        Ok(())
+    }
+}
+
+impl TpmMarshal for TpmsKeyedHashParms {
+    fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
+        let (scheme, details) = self.scheme.into_parts();
+        scheme.raw().marshal(buf)?;
+
+        match details {
+            TpmuSchemeKeyedHash::Hmac(scheme_hash) => scheme_hash.hash_alg.marshal(buf)?,
+            TpmuSchemeKeyedHash::Xor(scheme_xor) => {
+                scheme_xor.hash_alg.marshal(buf)?;
+                scheme_xor.kdf.raw().marshal(buf)?;
+            },
+            _ => {},
         }
 
         Ok(())
@@ -223,8 +258,12 @@ impl TpmMarshal for TpmsEccParms {
 impl TpmMarshal for TpmtSymDefObject {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         self.algorithm().raw().marshal(buf)?;
-        self.key_bits().raw().marshal(buf)?;
-        self.mode().raw().marshal(buf)?;
+
+        if self.algorithm() != TpmiAlgSymObject::NULL {
+            self.key_bits().raw().marshal(buf)?;
+            self.mode().raw().marshal(buf)?;      
+            self.details().marshal(buf)?;
+        }
 
         Ok(())
     }
@@ -239,6 +278,8 @@ impl TpmMarshal for TpmuPublicId {
                 marshal_tpm2b(buf, y.as_bytes())?;
             }
             Self::Rsa(public_key) => marshal_tpm2b(buf, public_key.as_bytes())?,
+            Self::Sym(digest) 
+            | Self::KeyedHash(digest) => marshal_tpm2b(buf, digest.as_bytes())?,
         }
 
         Ok(())
@@ -248,12 +289,11 @@ impl TpmMarshal for TpmuPublicId {
 impl TpmMarshal for TpmlPcrSelection {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         marshal_list(buf, self.items(), |buf, selection| {
-            let hash = selection.hash();
             let pcr_select = selection.pcr_select();
             let size_of_select = u8::try_from(pcr_select.len())
                 .map_err(|_| Error::invalid_state("PCR select size exceeds u8"))?;
 
-            hash.raw().marshal(buf)?;
+            selection.hash().marshal(buf)?;
             size_of_select.marshal(buf)?;
             pcr_select.marshal(buf)?;
 
@@ -286,9 +326,33 @@ impl TpmUnmarshal for u32 {
     }
 }
 
+impl TpmUnmarshal for TpmAlgId {
+    fn unmarshal(input: &mut &[u8]) -> Result<Self> {
+        u16::unmarshal(input)?.try_into()
+    }
+}
+
+impl TpmUnmarshal for TpmiAlgHash {
+    fn unmarshal(input: &mut &[u8]) -> Result<Self> {
+        TpmAlgId::unmarshal(input)?.try_into()
+    }
+}
+
+impl TpmUnmarshal for TpmEccCurve {
+    fn unmarshal(input: &mut &[u8]) -> Result<Self> {
+        u16::unmarshal(input)?.try_into()
+    }
+}
+
 impl TpmUnmarshal for TpmHandle {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
-        Ok(Self::from(u32::unmarshal(input)?))
+        Ok(u32::unmarshal(input)?.into())
+    }
+}
+
+impl TpmUnmarshal for TpmsSchemeHash {
+    fn unmarshal(input: &mut &[u8]) -> Result<Self> {
+        Ok(Self { hash_alg: TpmiAlgHash::unmarshal(input)? })
     }
 }
 
@@ -299,9 +363,9 @@ impl TpmUnmarshal for ResponseHeader {
         let response_code = TpmRc::from(u32::unmarshal(input)?);
 
         debug!(
-            tag = format_args!("{tag:?}"),
+            ?tag,
             response_size,
-            response_code = format_args!("{:#010X}", response_code.raw()),
+            ?response_code,
             "unmarshaled TPM response header"
         );
 
@@ -325,41 +389,58 @@ impl TpmUnmarshal for Tpm2bPublic {
         let public_area = read_tpm2b(input)?;
         let mut remaining = public_area.as_slice();
 
-        let alg_type = TpmiAlgPublic::try_from(u16::unmarshal(&mut remaining)?)?;
-        let name_alg = TpmiAlgHash::try_from(u16::unmarshal(&mut remaining)?)?;
+        let alg_public = TpmiAlgPublic::try_from(TpmAlgId::unmarshal(&mut remaining)?)?;
+        let name_alg = TpmiAlgHash::unmarshal(&mut remaining)?;
 
         let raw = u32::unmarshal(&mut remaining)?;
         let object_attributes = TpmaObject::from_bits(raw).ok_or_else(|| {
             error!(
-                value = format_args!("{raw:#010x}"),
+                value = ?raw,
                 "invalid object attributes"
             );
             Error::InvalidData
         })?;
 
         let auth_policy = Tpm2bDigest::try_from(read_tpm2b(&mut remaining)?)?;
-        // memo: Changed TpmuPublicParms variants
-        let (parameters, unique) = match alg_type {
+
+        let (parameters, unique) = match alg_public {
             TpmiAlgPublic::RSA => {
-                let parameters = TpmuPublicParms::Rsa(TpmsRsaParms::unmarshal(&mut remaining)?);
+                let parameters = TpmuPublicParms::RsaDetail(TpmsRsaParms::unmarshal(&mut remaining)?);
                 let unique = TpmuPublicId::rsa(read_tpm2b(&mut remaining)?);
+
                 (parameters, unique)
-            }
+            },
             TpmiAlgPublic::ECC => {
-                let parameters = TpmuPublicParms::Ecc(TpmsEccParms::unmarshal(&mut remaining)?);
+                let parameters = TpmuPublicParms::EccDetail(TpmsEccParms::unmarshal(&mut remaining)?);
                 let x = read_tpm2b(&mut remaining)?;
                 let y = read_tpm2b(&mut remaining)?;
                 let unique = TpmuPublicId::ecc(x, y);
+
                 (parameters, unique)
-            }
-            alg_type => {
-                error!(?alg_type, "unsupported TPM public algorithm");
+            },
+            TpmiAlgPublic::SYM_CIPHER => {
+                let sym = TpmtSymDefObject::unmarshal(&mut remaining)?;
+                let parameteres = TpmuPublicParms::SymDetail(sym.into());
+                let unique = TpmuPublicId::sym(read_tpm2b(&mut remaining)?.try_into()?);
+
+                (parameteres, unique)
+            },
+            TpmiAlgPublic::KEYED_HASH => {
+                let parameters = TpmuPublicParms::KeyedHashDetail(
+                    TpmsKeyedHashParms::unmarshal(&mut remaining)?
+                );
+                let unique = TpmuPublicId::keyed_hash(read_tpm2b(&mut remaining)?.try_into()?);
+
+                (parameters, unique)
+            },
+            _ => {
+                error!(?alg_public, "unsupported TPM public algorithm");
                 return Err(Error::InvalidData);
-            }
+            },
         };
 
         Ok(Self::from(TpmtPublic::new(
-            alg_type,
+            alg_public,
             name_alg,
             object_attributes,
             auth_policy,
@@ -413,92 +494,138 @@ impl TpmUnmarshal for TpmsCreationData {
 impl TpmUnmarshal for TpmtSymDefObject {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let algorithm = TpmiAlgSymObject::try_from(u16::unmarshal(input)?)?;
-        let key_bits = TpmKeyBits::from(u16::unmarshal(input)?);
-        let mode = TpmiAlgSymMode::try_from(u16::unmarshal(input)?)?;
 
-        Ok(Self::new(algorithm, key_bits, mode))
+        if algorithm != TpmiAlgSymObject::NULL {
+            let key_bits = TpmKeyBits::from(u16::unmarshal(input)?);
+            let mode = TpmiAlgSymMode::try_from(u16::unmarshal(input)?)?;
+            
+            Self::new(algorithm, key_bits, mode)
+        } else {
+            Ok(Self::null())
+        }
     }
 }
 
 impl TpmUnmarshal for TpmsRsaParms {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let symmetric = TpmtSymDefObject::unmarshal(input)?;
-        let scheme = TpmiAlgRsaScheme::try_from(u16::unmarshal(input)?)?;
+        let scheme = TpmiAlgRsaScheme::try_from(TpmAlgId::unmarshal(input)?)?;
 
-        // memo: changed TpmtRsaScheme so refactor this
-        let scheme = match scheme {
-            TpmiAlgRsaScheme::RSA_SSA => {
-                TpmtRsaScheme::RsaSsa(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
-            TpmiAlgRsaScheme::RSA_ES => TpmtRsaScheme::RsaEs,
-            TpmiAlgRsaScheme::RSA_PSS => {
-                TpmtRsaScheme::RsaPss(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
+        let rsa_scheme = match scheme {
             TpmiAlgRsaScheme::OAEP => {
-                TpmtRsaScheme::Oaep(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
-            TpmiAlgRsaScheme::NULL => TpmtRsaScheme::Null,
-            _ => unreachable!("TpmiAlgRsaScheme only contains RSA schemes"),
+                TpmtRsaScheme::oaep(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgRsaScheme::RSA_SSA => {
+                TpmtRsaScheme::rsa_ssa(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgRsaScheme::RSA_PSS => {
+                TpmtRsaScheme::rsa_pss(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgRsaScheme::RSA_ES => TpmtRsaScheme::rsa_es(),
+            TpmiAlgRsaScheme::NULL => TpmtRsaScheme::null(),
+            _  => {
+                error!(?scheme, "unsupported TPM RSA scheme");
+                return Err(Error::InvalidData)
+            },
         };
 
         let key_bits = TpmiRsaKeyBits::from(u16::unmarshal(input)?);
         let exponent = u32::unmarshal(input)?;
 
-        Ok(Self::new(symmetric, scheme, key_bits, exponent))
+        Ok(Self::new(symmetric, rsa_scheme, key_bits, exponent))
     }
 }
 
 impl TpmUnmarshal for TpmsEccParms {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let symmetric = TpmtSymDefObject::unmarshal(input)?;
-        let scheme = match TpmiAlgEccScheme::try_from(u16::unmarshal(input)?)? {
+        let scheme = TpmiAlgEccScheme::try_from(TpmAlgId::unmarshal(input)?)?;
+
+        let ecc_scheme = match scheme {
             TpmiAlgEccScheme::ECDSA => {
-                TpmtEccScheme::ecdsa(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
+                TpmtEccScheme::ecdsa(TpmsSchemeHash::unmarshal(input)?)
+            },
             TpmiAlgEccScheme::ECDH => {
-                TpmtEccScheme::ecdh(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
-            TpmiAlgEccScheme::ECDAA => {
-                let hash_alg = TpmiAlgHash::try_from(u16::unmarshal(input)?)?;
-                let count = u16::unmarshal(input)?;
-                TpmtEccScheme::ecdaa(TpmsSchemeEcdaa::new(hash_alg, count))
-            }
+                TpmtEccScheme::ecdh(TpmsSchemeHash::unmarshal(input)?)
+            },
             TpmiAlgEccScheme::SM2 => {
-                TpmtEccScheme::sm2(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
+                TpmtEccScheme::sm2(TpmsSchemeHash::unmarshal(input)?)
+            },
             TpmiAlgEccScheme::EC_SCHNORR => {
-                TpmtEccScheme::ec_schnorr(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
+                TpmtEccScheme::ec_schnorr(TpmsSchemeHash::unmarshal(input)?)
+            },
             TpmiAlgEccScheme::EC_MQV => {
-                TpmtEccScheme::ec_mqv(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-            }
+                TpmtEccScheme::ec_mqv(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgEccScheme::ECDAA => {
+                TpmtEccScheme::ecdaa(TpmsSchemeEcdaa { 
+                    hash_alg: TpmiAlgHash::unmarshal(input)?, 
+                    count: u16::unmarshal(input)? 
+                })
+            },
             TpmiAlgEccScheme::NULL => TpmtEccScheme::null(),
-            scheme => {
+            _ => {
                 error!(?scheme, "unsupported TPM ECC scheme");
                 return Err(Error::InvalidData);
-            }
+            },
         };
 
-        let curve_id = TpmiEccCurve::try_from(u16::unmarshal(input)?)?;
-        let kdf_scheme = TpmiAlgKdf::try_from(u16::unmarshal(input)?)?;
-        let kdf_hash_alg = if kdf_scheme == TpmiAlgKdf::NULL {
-            None
-        } else {
-            Some(TpmiAlgHash::try_from(u16::unmarshal(input)?)?)
-        };
-        let kdf = TpmtKdfScheme::from_parts(kdf_scheme, kdf_hash_alg)?;
+        let curve_id = TpmiEccCurve::try_from(TpmEccCurve::unmarshal(input)?)?;
 
-        Ok(Self::with_kdf(symmetric, scheme, curve_id, kdf))
+        let scheme = TpmiAlgKdf::try_from(TpmAlgId::unmarshal(input)?)?;
+        let kdf_scheme = match scheme {
+            TpmiAlgKdf::KDF1_SP800_56A => {
+                TpmtKdfScheme::kdf1_sp800_56a(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgKdf::KDF1_SP800_108 => {
+                TpmtKdfScheme::kdf1_sp800_108(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgKdf::KDF2 => {
+                TpmtKdfScheme::kdf2(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgKdf::MGF1 => {
+                TpmtKdfScheme::mgf1(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgKdf::NULL => TpmtKdfScheme::null(),
+            _ => {
+                error!(?scheme, "unsupported TPM KDF scheme");
+                return Err(Error::InvalidData);
+            },
+        };
+
+        Ok(Self::new(symmetric, ecc_scheme, curve_id, kdf_scheme))
+    }
+}
+
+impl TpmUnmarshal for TpmsKeyedHashParms {
+    fn unmarshal(input: &mut &[u8]) -> Result<Self> {
+        let scheme = TpmiAlgKeyedHashScheme::try_from(TpmAlgId::unmarshal(input)?)?;
+
+        let keyed_hash_scheme = match scheme {
+            TpmiAlgKeyedHashScheme::HMAC => {
+                TpmtKeyedHashScheme::hmac(TpmsSchemeHash::unmarshal(input)?)
+            },
+            TpmiAlgKeyedHashScheme::XOR => {
+                TpmtKeyedHashScheme::xor(TpmsSchemeXor {
+                    hash_alg: TpmiAlgHash::unmarshal(input)?,
+                    kdf: TpmiAlgKdf::try_from(TpmAlgId::unmarshal(input)?)?,
+                })
+            },
+            TpmiAlgKeyedHashScheme::NULL => TpmtKeyedHashScheme::null(),
+            _ => {
+                error!(?scheme, "unsupported TPM keyed-hash scheme");
+                return Err(Error::InvalidData);      
+            },
+        };
+
+        Ok(Self { scheme: keyed_hash_scheme })
     }
 }
 
 impl TpmUnmarshal for TpmtTkCreation {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let tag = TpmSt::try_from(u16::unmarshal(input)?)?;
-
-        let handle = TpmHandle::unmarshal(input)?;
-        let hierarchy = TpmiRhHierarchy::try_from(handle)?;
-
+        let hierarchy = TpmiRhHierarchy::try_from(TpmHandle::unmarshal(input)?)?;
         let digest = Tpm2bDigest::try_from(read_tpm2b(input)?)?;
 
         Ok(TpmtTkCreation::new(tag, hierarchy, digest))
@@ -508,8 +635,8 @@ impl TpmUnmarshal for TpmtTkCreation {
 impl TpmUnmarshal for TpmlAlgProperty {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let items = unmarshal_list(input, 6, None, |input| {
-            let alg_id = TpmAlgId::try_from(read_u16(input)?)?;
-            let alg_properties = TpmaAlgorithm::from(read_u32(input)?);
+            let alg_id = TpmAlgId::unmarshal(input)?;
+            let alg_properties = TpmaAlgorithm::from(u32::unmarshal(input)?);
 
             Ok(TpmsAlgProperty::new(alg_id, alg_properties))
         })?;
@@ -521,23 +648,20 @@ impl TpmUnmarshal for TpmlAlgProperty {
 impl TpmUnmarshal for TpmlHandle {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let items = unmarshal_list(input, 4, None, |input| TpmHandle::unmarshal(input))?;
-
         Ok(items.into())
     }
 }
 
 impl TpmUnmarshal for TpmlCca {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
-        let items = unmarshal_list(input, 4, None, |input| TpmaCc::try_from(read_u32(input)?))?;
-
+        let items = unmarshal_list(input, 4, None, |input| TpmaCc::try_from(u32::unmarshal(input)?))?;
         Ok(items.into())
     }
 }
 
 impl TpmUnmarshal for TpmlCc {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
-        let items = unmarshal_list(input, 4, None, |input| TpmCc::try_from(read_u32(input)?))?;
-
+        let items = unmarshal_list(input, 4, None, |input| TpmCc::try_from(u32::unmarshal(input)?))?;
         Ok(items.into())
     }
 }
@@ -545,7 +669,7 @@ impl TpmUnmarshal for TpmlCc {
 impl TpmUnmarshal for TpmlPcrSelection {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let items = unmarshal_list(input, 3, None, |input| {
-            let hash = TpmiAlgHash::try_from(read_u16(input)?)?;
+            let hash = TpmiAlgHash::unmarshal(input)?;
             let size_of_select = read_u8(input)? as usize;
             let pcr_select = read_vec(input, size_of_select)?;
 
@@ -559,8 +683,8 @@ impl TpmUnmarshal for TpmlPcrSelection {
 impl TpmUnmarshal for TpmlTaggedTpmProperty {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let items = unmarshal_list(input, 8, None, |input| {
-            let property = TpmPt::try_from(read_u32(input)?)?;
-            let value = read_u32(input)?;
+            let property = TpmPt::try_from(u32::unmarshal(input)?)?;
+            let value = u32::unmarshal(input)?;
 
             Ok(TpmsTaggedProperty::new(property, value))
         })?;
@@ -572,7 +696,7 @@ impl TpmUnmarshal for TpmlTaggedTpmProperty {
 impl TpmUnmarshal for TpmlTaggedPcrProperty {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let items = unmarshal_list(input, 5, None, |input| {
-            let tag = TpmPtPcr::try_from(read_u32(input)?)?;
+            let tag = TpmPtPcr::try_from(u32::unmarshal(input)?)?;
             let size_of_select = read_u8(input)? as usize;
             let pcr_select = read_vec(input, size_of_select)?;
 
@@ -586,7 +710,7 @@ impl TpmUnmarshal for TpmlTaggedPcrProperty {
 impl TpmUnmarshal for TpmlEccCurve {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let items = unmarshal_list(input, 2, None, |input| {
-            TpmEccCurve::try_from(read_u16(input)?)
+            TpmEccCurve::unmarshal(input)
         })?;
 
         Ok(items.into())
@@ -776,28 +900,4 @@ fn require_len(bytes: &[u8], required: usize) -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::tpm2b_payload_mut;
-
-    #[test]
-    fn tpm2b_payload_excludes_its_size_and_following_bytes() {
-        let mut bytes = [0, 3, 1, 2, 3, 4];
-
-        {
-            let payload = tpm2b_payload_mut(&mut bytes).unwrap();
-            payload.copy_from_slice(&[9, 8, 7]);
-        }
-
-        assert_eq!(bytes, [0, 3, 9, 8, 7, 4]);
-    }
-
-    #[test]
-    fn tpm2b_payload_rejects_a_truncated_value() {
-        let mut bytes = [0, 3, 1, 2];
-
-        assert!(tpm2b_payload_mut(&mut bytes).is_err());
-    }
 }

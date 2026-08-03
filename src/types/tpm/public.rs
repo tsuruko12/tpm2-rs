@@ -105,7 +105,7 @@ pub(crate) enum TpmuPublicParms {
     EccDetail(TpmsEccParms),
 }
 
-newtype!(TpmiAlgPublic(TpmAlgId) => u16);
+newtype!(TpmiAlgPublic(TpmAlgId));
 
 impl TpmiAlgPublic {
     pub(crate) const RSA: Self = Self(TpmAlgId::Rsa);

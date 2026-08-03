@@ -28,7 +28,7 @@ pub(crate) use self::ecc::{
 };
 pub(crate) use self::handle::*;
 pub(crate) use self::keyed_hash::{
-    TpmsKeyedHashParms, TpmsSchemeXor, TpmtKeyedHashScheme, TpmuSchemeKeyedHash,
+    TpmiAlgKeyedHashScheme, TpmsKeyedHashParms, TpmsSchemeXor, TpmtKeyedHashScheme, TpmuSchemeKeyedHash
 };
 pub(crate) use self::policy::{TpmlPcrSelection, TpmsPcrSelection};
 pub(crate) use self::public::{
@@ -37,7 +37,9 @@ pub(crate) use self::public::{
 pub(crate) use self::rsa::{
     TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme,
 };
-pub(crate) use self::symmetric::{TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmtSymDefObject};
+pub(crate) use self::symmetric::{
+    TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmtSymDefObject, TpmsSymCipherParms, TpmuSymDetails
+};
 pub(crate) use self::tag::{
     TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,
     TpmsTaggedProperty,

@@ -1,8 +1,19 @@
-use tss_esapi::{Error as EsapiError, constants::Tss2ResponseCodeKind};
+use tracing::debug;
+use tss_esapi::{Error as EsapiError, WrapperErrorKind, constants::Tss2ResponseCodeKind};
 
 use crate::error::Error;
 
 impl Error {
+    pub(crate) fn internal_from_tss2_rc(err: Tss2ResponseCodeKind) -> Self {
+        debug!("{err:?}");
+        Self::Internal
+    }
+
+    pub(crate) fn internal_from_wrapper_err(err: WrapperErrorKind) -> Self {
+        debug!("{err}");
+        Self::Internal
+    }
+
     pub(crate) fn from_tss_err(err: tss_esapi::Error) -> Self {
         match err {
             EsapiError::Tss2Error(code) => {

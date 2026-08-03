@@ -148,7 +148,7 @@ impl TryFrom<u16> for TpmAlgId {
     }
 }
 
-newtype!(TpmiAlgHash(TpmAlgId) => u16);
+newtype!(TpmiAlgHash(TpmAlgId));
 
 impl TpmiAlgHash {
     pub(crate) const SHA1: Self = Self(TpmAlgId::Sha1);
@@ -222,7 +222,7 @@ impl From<TpmiAlgHash> for TpmsSchemeHash {
     }
 }
 
-newtype!(TpmiAlgKdf(TpmAlgId) => u16);
+newtype!(TpmiAlgKdf(TpmAlgId));
 
 impl TpmiAlgKdf {
     pub(crate) const MGF1: Self = Self(TpmAlgId::Mgf1);
@@ -261,7 +261,7 @@ pub(crate) struct TpmsSchemeHash {
     pub(crate) hash_alg: TpmiAlgHash,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmsEmpty;
 
 #[derive(Debug, Clone, Copy)]

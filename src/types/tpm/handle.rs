@@ -23,7 +23,7 @@ impl From<u32> for TpmHandle {
     }
 }
 
-newtype!(TpmiDhObject(TpmHandle) => u32);
+newtype!(TpmiDhObject(TpmHandle));
 
 impl TpmiDhObject {
     const TRANSIENT_FIRST: u32 = 0x8000_0000;
@@ -61,13 +61,13 @@ impl TryFrom<u32> for TpmiDhObject {
     }
 }
 
-newtype!(TpmiRhProvision(TpmHandle) => u32);
+newtype!(TpmiRhProvision(TpmHandle));
 
 impl TpmiRhProvision {
     pub(crate) const OWNER: Self = Self(TpmHandle::RH_OWNER);
 }
 
-newtype!(TpmiDhPersistent(TpmHandle) => u32);
+newtype!(TpmiDhPersistent(TpmHandle));
 
 impl TpmiDhPersistent {
     const PERSISTENT_FIRST: u32 = 0x8100_0000;
