@@ -207,10 +207,18 @@ pub(super) fn response_auth_contexts(
 
 pub(super) fn update_command_hmacs(
     sessions: &mut [PreparedSession],
-    cp_hash_data: &CpHashData<'_>,
+    command_code: TpmCc,
+    handle_names: &[&[u8]],
+    parameters: &[u8],
 ) -> Result<()> {
+    let cp_hash_data = CpHashData {
+        command_code,
+        handle_names,
+        parameters,
+    };
+
     for session in sessions {
-        session.update_hmac(cp_hash_data)?;
+        session.update_hmac(&cp_hash_data)?;
     }
 
     Ok(())
@@ -222,10 +230,10 @@ pub(super) struct ResponseHmacContext<'a> {
     pub(super) command_attrs: TpmaSession,
 }
 
-pub(super) struct CpHashData<'a> {
-    pub(super) command_code: TpmCc,
-    pub(super) handle_names: &'a [&'a [u8]],
-    pub(super) parameters: &'a [u8],
+struct CpHashData<'a> {
+    command_code: TpmCc,
+    handle_names: &'a [&'a [u8]],
+    parameters: &'a [u8],
 }
 
 #[derive(Debug, Clone)]
@@ -244,8 +252,8 @@ impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
         resources: &mut CommandResources,
-        authorization: &Authorization, 
         session_attrs: TpmaSession,
+        authorization: Option<&Authorization>, 
         tpm_key: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
     ) -> Result<Vec<PreparedSession>> {
@@ -257,21 +265,51 @@ impl Context {
             }),
             None => None,
         };
-        let (auth, policy) = authorization.as_parts();
 
         let mut sessions = Vec::with_capacity(2);
 
-        if let Some(policy) = policy {
-            let required_auth = policy.auth_kind()?.map(|kind| (kind, auth));
+        match authorization {
+            Some(authorization) => {
+                let (auth, policy) = authorization.as_parts();
 
-            sessions.push(self.prepare_policy_session(
-                resources,
-                policy,
-                salt_key.as_ref(),
-                required_auth,
-            )?);
+                if let Some(policy) = policy {
+                    let required_auth = policy.auth_kind()?.map(|kind| (kind, auth));
 
-            if !session_attrs.is_empty() {
+                    sessions.push(self.prepare_policy_session(
+                        resources,
+                        policy,
+                        salt_key.as_ref(),
+                        required_auth,
+                    )?);
+
+                    if !session_attrs.is_empty() {
+                        sessions.push(self.prepare_hmac_session(
+                            resources,
+                            session_attrs,
+                            salt_key.as_ref(),
+                            None,
+                            hmac_session_state,
+                        )?);
+                    }
+                } else if (session_attrs.is_empty()
+                    || session_attrs == TpmaSession::CONTINUE_SESSION)
+                    && auth.is_empty()
+                    && hmac_session_state.is_none()
+                {
+                    sessions.push(PreparedSession::Password {
+                        auth_command: TpmsAuthCommand::password(),
+                    });
+                } else {
+                    sessions.push(self.prepare_hmac_session(
+                        resources,
+                        session_attrs,
+                        salt_key.as_ref(),
+                        Some(auth),
+                        hmac_session_state,
+                    )?);
+                }                
+            },
+            None => {
                 sessions.push(self.prepare_hmac_session(
                     resources,
                     session_attrs,
@@ -280,26 +318,6 @@ impl Context {
                     hmac_session_state,
                 )?);
             }
-
-            return Ok(sessions);
-        }
-
-        if (session_attrs.is_empty()
-            || session_attrs == TpmaSession::CONTINUE_SESSION)
-            && auth.is_empty()
-            && hmac_session_state.is_none()
-        {
-            sessions.push(PreparedSession::Password {
-                auth_command: TpmsAuthCommand::password(),
-            });
-        } else {
-            sessions.push(self.prepare_hmac_session(
-                resources,
-                session_attrs,
-                salt_key.as_ref(),
-                Some(auth),
-                hmac_session_state,
-            )?);
         }
 
         Ok(sessions)

@@ -1,15 +1,55 @@
-use crate::{error::Result, types::TpmCc};
-
-use super::super::{codec::read_tpm2b_exact, commands::Command};
-use super::Context;
+use crate::{error::Result, types::{TpmCc, TpmaSession, TpmiDhObject}};
+use super::{
+    Context, CommandResources, 
+    session::{
+        decrypt_response_parameter, split_prepared_sessions, update_command_hmacs
+    }
+};
+use super::super::{codec::GetRandomResponse, commands::Command};
 
 impl Context {
-    pub(crate) fn get_random(&mut self, num_bytes: u16) -> Result<Vec<u8>> {
-        let request_param = num_bytes.to_be_bytes();
-        let command = Command::new(TpmCc::GET_RANDOM).with_parameters(&request_param);
+    pub(crate) fn get_random(
+        &mut self, 
+        bytes_requested: u16,  
+        session_salt_key: TpmiDhObject,
+    ) -> Result<Vec<u8>> {
+        let request_params = bytes_requested.to_be_bytes();
 
-        let response_body = self.submit(command)?;
+        let mut resources = CommandResources::default();
+        let command_code = TpmCc::GET_RANDOM;
 
-        read_tpm2b_exact(&response_body)
+        let result = (|| {
+            let mut sessions = self.prepare_sessions(
+                &mut resources, 
+                TpmaSession::encrypt(), 
+                None, 
+                Some(session_salt_key), 
+                None,
+            )?;
+
+            update_command_hmacs(&mut sessions, command_code, &[], &request_params)?;
+
+            let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
+
+            let command = Command::new(command_code)
+                .with_authorizations(&authorizations)
+                .with_parameters(&request_params);
+
+            let response_body = self.submit(command)?;
+            resources.clear_sessions();
+
+            let mut response = GetRandomResponse::parse(&response_body, auth_contexts.len())?;
+
+            decrypt_response_parameter(
+                command_code,
+                &mut response.parameters,
+                &auth_contexts,
+                &response.authorizations,
+            )?;
+
+            Ok(response.into_parts()?.into_bytes())
+        })();
+
+        self.finish_command(result, &mut resources)
     }
 }

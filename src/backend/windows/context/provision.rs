@@ -128,21 +128,21 @@ impl Context {
         mut persistent_handle: TpmiDhPersistent,
         owner_authorization: &Authorization,
         serch_end: Option<TpmiDhPersistent>,
-        session_salt_key_handle: Option<TpmiDhObject>,
+        session_salt_key: Option<TpmiDhObject>,
         create: F,
     ) -> Result<InternalKeyMeta>
     where
         F: FnOnce(&mut Self) -> Result<CreatedObject>,
     {
         let created = create(self)?;
-        resources.add_transient_handle(created.handle);
+        resources.add_transient_handle(created.obj_handle);
 
         self.evict_control(
             resources,
-            created.handle,
+            created.obj_handle,
             &mut persistent_handle,
             owner_authorization,
-            session_salt_key_handle,
+            session_salt_key,
             serch_end,
         )?;
 

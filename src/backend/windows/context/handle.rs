@@ -7,7 +7,7 @@ use crate::{
 use super::{
     Context, CommandResources, SessionSlots,
     session::{
-        CpHashData, authorization_commands, response_auth_contexts, update_command_hmacs,
+        authorization_commands, response_auth_contexts, update_command_hmacs,
     },
 };
 use super::super::{
@@ -24,7 +24,7 @@ impl Context {
         handle: TpmiDhObject,
         persistent_handle: &mut TpmiDhPersistent,
         owner_authorization: &Authorization,
-        session_salt_key_handle: Option<TpmiDhObject>,
+        session_salt_key: Option<TpmiDhObject>,
         search_end: Option<TpmiDhPersistent>,
     ) -> Result<()> {
         let command_code = TpmCc::EVICT_CONTROL;
@@ -34,9 +34,9 @@ impl Context {
         let result = (|| {
             let mut sessions = self.prepare_sessions(
                 resources,
-                owner_authorization,
                 TpmaSession::empty(),
-                session_salt_key_handle,
+                Some(owner_authorization),
+                session_salt_key,
                 None,
             )?;
 
@@ -44,13 +44,12 @@ impl Context {
                 let request_parameter = persistent_handle.raw().to_be_bytes();
                 let owner_name = owner_handle.raw().to_be_bytes();
 
-                let cp_hash_data = CpHashData {
+                update_command_hmacs(
+                    &mut sessions,
                     command_code,
-                    handle_names: &[&owner_name, &handle_name],
-                    parameters: &request_parameter,
-                };
-
-                update_command_hmacs(&mut sessions, &cp_hash_data)?;
+                    &[&owner_name, &handle_name],
+                    &request_parameter,
+                )?;
 
                 let authorizations = authorization_commands(&sessions);
 

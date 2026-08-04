@@ -6,8 +6,20 @@ pub(crate) struct Tpm2bDigest(Vec<u8>);
 impl Tpm2bDigest {
     const MAX_SIZE: usize = 64;
 
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

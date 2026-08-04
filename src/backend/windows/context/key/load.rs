@@ -3,7 +3,7 @@ use super::{
     codec::{LoadResponse, TpmMarshal, marshal_tpm2b, tpm2b_payload_mut},
     commands::{Command, TpmsAuthCommand},
     session::{
-        CpHashData, HmacSessionState, decrypt_response_parameter, encrypt_command_parameter,
+        HmacSessionState, decrypt_response_parameter, encrypt_command_parameter,
         split_prepared_sessions, update_command_hmacs,
     },
     types::{Tpm2bName, Tpm2bPrivate, TpmaSession},
@@ -16,16 +16,16 @@ use crate::{
 impl Context {
     pub(super) fn load_handle(
         &mut self,
-        private: &Tpm2bPrivate,
-        public: &TpmtPublic,
+        in_private: &Tpm2bPrivate,
+        in_public: &TpmtPublic,
         parent: &LoadedParent,
-        session_salt_key_handle: Option<TpmiDhObject>,
+        session_salt_key: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
         caller_resources: Option<&mut CommandResources>,
     ) -> Result<(TpmHandle, Tpm2bName)> {
         let mut request_params = Vec::new();
-        marshal_tpm2b(&mut request_params, private.as_bytes())?;
-        public.marshal(&mut request_params)?;
+        marshal_tpm2b(&mut request_params, in_private.as_bytes())?;
+        in_public.marshal(&mut request_params)?;
 
         let mut default_resources = CommandResources::default();
         let resources = caller_resources.unwrap_or(&mut default_resources);
@@ -34,13 +34,13 @@ impl Context {
         let command_code = TpmCc::LOAD;
 
         let result = (|| {
-            match session_salt_key_handle {
+            match session_salt_key {
                 Some(_) => {
                     let mut sessions = self.prepare_sessions(
                         resources,
-                        parent.authorization(),
                         TpmaSession::encrypt_decrypt().with_continue_session(),
-                        session_salt_key_handle,
+                        Some(parent.authorization()),
+                        session_salt_key,
                         hmac_session_state,
                     )?;
 
@@ -49,12 +49,12 @@ impl Context {
                     let param = tpm2b_payload_mut(&mut request_params)?;
                     encrypt_command_parameter(&sessions, param)?;
 
-                    let cp_hash_data = CpHashData {
+                    update_command_hmacs(
+                        &mut sessions,
                         command_code,
-                        handle_names: &[&parent_name],
-                        parameters: &request_params,
-                    };
-                    update_command_hmacs(&mut sessions, &cp_hash_data)?;
+                        &[&parent_name],
+                        &request_params,
+                    )?;
 
                     let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
 

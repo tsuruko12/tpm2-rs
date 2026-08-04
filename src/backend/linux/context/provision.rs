@@ -130,7 +130,7 @@ impl Context {
         mut persistent_handle: PersistentTpmHandle,
         owner_authorization: &Authorization,
         serch_end: Option<PersistentTpmHandle>,
-        session_salt_key_handle: Option<KeyHandle>,
+        session_salt_key: Option<KeyHandle>,
         create: F,
     ) -> Result<(InternalKeyMeta, ObjectHandle)>
     where
@@ -144,7 +144,7 @@ impl Context {
             created.obj_handle.into(),
             &mut persistent_handle,
             owner_authorization,
-            session_salt_key_handle,
+            session_salt_key,
             serch_end,
         )?;
 

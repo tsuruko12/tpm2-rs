@@ -2,7 +2,7 @@ mod parse;
 mod wire;
 
 pub(super) use self::parse::{
-    CreatePrimaryResponse, CreateResponse, GetCapabilityResponse, LoadResponse, PcrReadResponse,
+    CreatePrimaryResponse, CreateResponse, GetCapabilityResponse, GetRandomResponse, LoadResponse, PcrReadResponse,
     ReadPublicResponse, StartAuthSessionResponse, parse_response_params_and_authorizations,
 };
 pub(super) use self::wire::{
