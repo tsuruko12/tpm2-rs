@@ -1,5 +1,6 @@
+use tracing::debug;
 use tss_esapi::{
-    handles::{KeyHandle, ObjectHandle, TpmHandle as EsapiTpmHandle},
+    handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, TpmHandle as EsapiTpmHandle},
     interface_types::session_handles::AuthSession,
     structures::{Name, Private, Public},
 };
@@ -14,8 +15,8 @@ use super::super::CommandResources;
 impl Context {
     pub(super) fn load_handle(
         &mut self,
-        private: &Private,
-        public: &Public,
+        in_private: &Private,
+        in_public: &Public,
         parent: &LoadedParent,
         session_salt_key: Option<KeyHandle>,
         caller_resources: Option<&mut CommandResources>,
@@ -30,8 +31,7 @@ impl Context {
                 Some(_) => {
                     self.prepare_sessions(
                         resources, 
-                        parent_handle, 
-                        parent.authorization(), 
+                        Some((parent_handle.into(), parent.authorization())),
                         TpmaSession::decrypt().with_continue_session(), 
                         session_salt_key,
                     )?
@@ -39,23 +39,23 @@ impl Context {
                 None => resources.add_session(AuthSession::Password)?,
             }
 
-            let handle = self
+            let obj_handle = self
                 .ctx
                 .execute_with_sessions(resources.session_slots(), |ctx| {
-                    ctx.load(parent_handle, private.clone(), public.clone())
+                    ctx.load(parent_handle, in_private.clone(), in_public.clone())
                 })
                 .map_err(Error::from_tss_err)?;
             
             resources.clear_policy_session();
-            resources.add_transient_handle(handle);
+            resources.add_transient_handle(obj_handle);
 
-            Ok((handle, self.read_object_name(handle)?))
+            Ok((obj_handle, self.read_object_name(obj_handle)?))
         })();
 
         self.finish_command(result, resources)
     }
 
-    pub(crate) fn load_tpm_handle(
+    pub(crate) fn load_persistent_handle(
         &mut self,
         tpm_handle: impl Into<EsapiTpmHandle>,
     ) -> Result<ObjectHandle> {

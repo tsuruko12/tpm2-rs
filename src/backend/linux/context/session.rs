@@ -28,38 +28,42 @@ impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
         resources: &mut CommandResources,
-        auth_handle: impl Into<ObjectHandle>,
-        authorization: &Authorization,
+        authorization: Option<(ObjectHandle, &Authorization)>,
         session_attrs: TpmaSession,
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
         // tpm_key is only None before the handle is created
-        let auth_handle = auth_handle.into();
-        let (auth, policy) = authorization.as_parts();
+        match authorization {
+            Some((obj_handle, authorization)) => {
+                let (auth, policy) = authorization.as_parts();
+                self.set_auth(obj_handle, auth)?;
 
-        self.set_auth(auth_handle, auth)?;
+                if let Some(hmac_session) = resources.find_hmac_session() {
+                    self.prepare_sessions_with_hmac(
+                        resources, 
+                        hmac_session, 
+                        session_attrs, 
+                        policy, 
+                        tpm_key,
+                    )?;
+                } else if let Some(policy) = policy {
+                    self.prepare_policy_session(resources, policy, tpm_key)?;
 
-        if let Some(hmac_session) = resources.find_hmac_session() {
-            self.prepare_sessions_with_hmac(resources, hmac_session, session_attrs, policy, tpm_key)?;
-            return Ok(());
-        }
-
-        if let Some(policy) = policy {
-            self.prepare_policy_session(resources, policy, tpm_key)?;
-
-            if !session_attrs.is_empty() {
+                    if !session_attrs.is_empty() {
+                        self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
+                    }
+                } else if (session_attrs.is_empty() 
+                    || session_attrs == TpmaSession::CONTINUE_SESSION)
+                    && auth.is_empty()
+                {
+                    resources.add_session(AuthSession::Password)?;
+                } else {
+                    self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
+                }                       
+            },
+            None => {
                 self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
             }
-
-            return Ok(());
-        }
-
-        if (session_attrs.is_empty() || session_attrs == TpmaSession::CONTINUE_SESSION)
-            && auth.is_empty()
-        {
-            resources.add_session(AuthSession::Password)?;
-        } else {
-            self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
         }
 
         Ok(())
@@ -103,20 +107,20 @@ impl Context {
     fn prepare_hmac_session(
         &mut self,
         resources: &mut CommandResources,
-        attrs: TpmaSession,
+        session_attrs: TpmaSession,
         tpm_key: Option<KeyHandle>,
     ) -> Result<AuthSession> {
         let hmac_session = self.start_auth_session(tpm_key, SessionType::Hmac)?;
         resources.add_session(hmac_session)?;
-        self.set_session_attrs(hmac_session, attrs)?;
+        self.set_session_attrs(hmac_session, session_attrs)?;
 
         Ok(hmac_session)
     }
 
-    fn set_session_attrs(&mut self, session: AuthSession, attrs: TpmaSession) -> Result<()> {
+    fn set_session_attrs(&mut self, session: AuthSession, session_attrs: TpmaSession) -> Result<()> {
         self.ctx.tr_sess_set_attributes(
             session,
-            attrs.into(),
+            session_attrs.into(),
             TpmaSession::all().bits().into(),
         )
         .map_err(Error::esapi)

@@ -1,4 +1,6 @@
-use tracing::error;
+use tracing::{debug, error};
+#[cfg(target_os = "linux")]
+use tss_esapi::handles::{KeyHandle, PersistentTpmHandle};
 
 use crate::{
     backend::BackendContext,
@@ -50,6 +52,8 @@ impl Context {
     }
 
     pub fn get_random(&mut self, num_bytes: usize) -> Result<Vec<u8>> {
+        let sesssion_salt_key = self.load_session_salt_key()?;
+
         let mut buf = Vec::new();
 
         buf.try_reserve_exact(num_bytes)
@@ -59,7 +63,7 @@ impl Context {
             let remaining = num_bytes - buf.len();
             let chunk_size = remaining.min(u16::MAX as usize) as u16;
 
-            let chunk = self.backend.get_random(chunk_size)?;
+            let chunk = self.backend.get_random(chunk_size, sesssion_salt_key)?;
 
             if chunk.is_empty() {
                 error!("TPM returned no random bytes");
@@ -77,5 +81,45 @@ impl Context {
         buf.truncate(num_bytes);
 
         Ok(buf)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn load_session_salt_key(&mut self) -> Result<KeyHandle> {
+        let key_meta = self.store.load_session_salt_key()?;
+
+        let persistent_handle = PersistentTpmHandle::new(key_meta.handle)
+            .map_err(|_| {
+                debug!(
+                    handle = format_args!("{:#010x}", key_meta.handle), 
+                    "stored TPM persistent handle is invalid"
+                );
+                Error::corrupted_store()
+            })?;
+        let loaded_handle = self.backend.load_persistent_handle(persistent_handle)?;
+
+        self.backend.validate_object_name(loaded_handle, &key_meta.object_name)?;
+
+        Ok(loaded_handle.into())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn load_session_salt_key(&mut self) -> Result<TpmiDhObject> {
+        let key_meta = self.store.load_session_salt_key()?;
+
+    let handle = TpmiDhObject::try_from(key_meta.handle)
+        .ok()
+        .filter(|handle| handle.is_persistent())
+        .ok_or_else(|| {
+            debug!(
+                handle = format_args!("{:#010x}", key_meta.handle),
+                "stored TPM persistent handle is invalid"
+            );
+            Error::corrupted_store()
+        })?;
+
+        self.backend
+            .validate_object_name(handle, &key_meta.object_name)?;
+
+        Ok(handle)
     }
 }

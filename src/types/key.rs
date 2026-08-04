@@ -17,7 +17,7 @@ pub(crate) type LoadedObjectHandle = TpmiDhObject;
 
 #[derive(Debug)]
 pub(crate) struct CreatedObject {
-    pub(crate) handle: LoadedObjectHandle,
+    pub(crate) obj_handle: LoadedObjectHandle,
     pub(crate) public: TpmtPublic,
     pub(crate) private: Option<Tpm2bPrivate>,
     pub(crate) name: Tpm2bName,

@@ -1,3 +1,5 @@
+use tracing::debug;
+
 use super::{Context, codec::ReadPublicResponse, commands::Command};
 use crate::{
     Error, Result,
@@ -16,7 +18,7 @@ impl Context {
             .map(|response| response.name.into_bytes())
     }
 
-    pub(super) fn validate_object_name(
+    pub(crate) fn validate_object_name(
         &mut self,
         handle: TpmiDhObject,
         expected_name: &[u8],
@@ -42,6 +44,7 @@ fn into_rsa_public_unique(unique: &TpmuPublicId) -> Result<Vec<u8>> {
 
 fn validate_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
     if name != expected_name {
+        debug!("stored TPM object name doesn't match");
         return Err(Error::corrupted_store());
     }
 

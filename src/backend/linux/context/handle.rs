@@ -12,7 +12,7 @@ impl Context {
     pub(super) fn evict_control(
         &mut self,
         resources: &mut CommandResources,
-        handle: ObjectHandle,
+        obj_handle: ObjectHandle,
         persistent_handle: &mut PersistentTpmHandle,
         owner_authorization: &Authorization,
         session_salt_key: Option<KeyHandle>,
@@ -21,15 +21,14 @@ impl Context {
         let result = (|| {
             self.prepare_sessions(
                 resources,
-                ObjectHandle::Owner,
-                owner_authorization,
+                Some((ObjectHandle::Owner, owner_authorization)),
                 TpmaSession::empty(),
                 session_salt_key,
             )?;
 
             loop {
                 match self.ctx.execute_with_sessions(resources.session_slots(), |ctx| {
-                    ctx.evict_control(Provision::Owner, handle, (*persistent_handle).into())
+                    ctx.evict_control(Provision::Owner, obj_handle, (*persistent_handle).into())
                 }) {
                     Ok(handle) => {
                         resources.clear_sessions();
@@ -97,14 +96,15 @@ impl Context {
             };
 
             if handle != AuthSession::Password {
-                match self.flush_context(handle) {
-                    Ok(()) => *session = None,
-                    Err(e) => {
-                        first_err.get_or_insert(e);
-                        debug!(?handle, "failed to flush TPM session");
-                    }
+                if let Err(e) = self.flush_context(SessionHandle::from(handle)) {
+                    first_err.get_or_insert(e);
+                    debug!(?handle, "failed to flush TPM session");
+
+                    continue;
                 }       
             }
+
+            *session = None;
         }
 
         first_err.map_or(Ok(()), Err)
@@ -112,36 +112,36 @@ impl Context {
 
     pub(super) fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
         let mut first_err = None;
+        let mut remaining = Vec::new();
 
-        while let Some(&handle) = handles.last() {
-            match self.flush_context(handle) {
-                Ok(()) => {
-                    handles.pop();
-                },
-                Err(e) => {
-                    first_err.get_or_insert(e);
-                    debug!("failed to flush TPM handle");
-                }
+        while let Some(handle) = handles.pop() {
+            if let Err(e) = self.flush_context(handle) {
+                first_err.get_or_insert(e);
+                remaining.push(handle);
+
+                debug!("failed to flush TPM handle");
             }
         }
+
+        *handles = remaining;
 
         first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn close_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
         let mut first_err = None;
+        let mut remaining = Vec::new();
 
-        while let Some(handle) = handles.last_mut() {
-            match self.close_handle(handle) {
-                Ok(()) => {
-                    handles.pop();
-                },
-                Err(e) => {
-                    first_err.get_or_insert(e);
-                    debug!("failed to flush TPM handle");
-                }
+        while let Some(mut handle) = handles.pop() {
+            if let Err(e) = self.close_handle(&mut handle) {
+                first_err.get_or_insert(e);
+                remaining.push(handle);
+
+                debug!("failed to close ESAPI handle");
             }
         }
+
+        *handles = remaining;
 
         first_err.map_or(Ok(()), Err)
     }
@@ -155,8 +155,8 @@ impl Context {
         Ok(())
     }
 
-    fn flush_context(&mut self, handle: impl Into<ObjectHandle>) -> Result<()> {
-        self.ctx.flush_context(handle.into()).map_err(Error::from_tss_err)
+    fn flush_context(&mut self, flush_handle: impl Into<ObjectHandle>) -> Result<()> {
+        self.ctx.flush_context(flush_handle.into()).map_err(Error::from_tss_err)
     }
 }
 

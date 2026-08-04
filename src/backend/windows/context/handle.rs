@@ -143,13 +143,13 @@ impl Context {
         let mut first_err = None;
         let mut remaining = Vec::new();
 
-        while let Some(object_handle) = handles.pop() {
-            let handle = TpmiDhContext::try_from(object_handle)
+        while let Some(obj_handle) = handles.pop() {
+            let handle = TpmiDhContext::try_from(obj_handle)
                 .expect("handle must be a transient object handle");
 
             if let Err(e) = self.flush_context(handle) {
                 first_err.get_or_insert(e);
-                remaining.push(object_handle);
+                remaining.push(obj_handle);
 
                 debug!(?handle, "failed to flush TPM handle");
             }

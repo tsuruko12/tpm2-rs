@@ -28,8 +28,7 @@ impl Context {
                 Some(_) => {
                     self.prepare_sessions(
                         &mut resources,
-                        parent_handle,
-                        parent.authorization(),
+                        Some((parent_handle.into(), parent.authorization())),
                         TpmaSession::encrypt_decrypt().with_continue_session(),
                         session_salt_key,
                     )?; 
@@ -57,7 +56,7 @@ impl Context {
                 None => resources.clear_password_session(),
             }
 
-            let (handle, name) = self.load_handle(
+            let (obj_handle, name) = self.load_handle(
                 &out_private,
                 &out_public,
                 parent,
@@ -66,7 +65,7 @@ impl Context {
             )?;
 
             Ok(CreatedObject {
-                handle,
+                obj_handle,
                 public: out_public.try_into()?,
                 private: Some(out_private.value().into()),
                 name: name.value().into(),
@@ -78,13 +77,13 @@ impl Context {
 
     pub(crate) fn create_owner_primary(
         &mut self,
-        public: &Public,
+        in_public: &Public,
         owner_authorization: &Authorization,
         session_salt_key: Option<KeyHandle>,
     ) -> Result<CreatedObject> {
         let mut resources = CommandResources::default();
         
-        let owner_handle = Hierarchy::Owner;
+        let primary_handle = Hierarchy::Owner;
         let session_attrs = match session_salt_key {
             Some(_) => TpmaSession::encrypt_decrypt(),
             None => TpmaSession::empty(),
@@ -93,27 +92,26 @@ impl Context {
         let result = (|| {
             self.prepare_sessions(
                 &mut resources,
-                owner_handle,
-                owner_authorization,
+                Some((primary_handle.into(), owner_authorization)),
                 session_attrs,
                 session_salt_key,
             )?;
 
-            let (handle, out_public) = self
+            let (obj_handle, out_public) = self
                 .ctx
                 .execute_with_sessions(resources.session_slots(), |ctx| {
-                    ctx.create_primary(owner_handle, public.clone(), None, None, None, None)
+                    ctx.create_primary(primary_handle, in_public.clone(), None, None, None, None)
                 })
                 .map(|created| (created.key_handle, created.out_public))
                 .map_err(Error::from_tss_err)?;
             
-            resources.add_transient_handle(handle);
+            resources.add_transient_handle(obj_handle);
             resources.clear_sessions();
 
-            let name = self.ctx.tr_get_name(handle.into()).map_err(Error::esapi)?;
+            let name = self.ctx.tr_get_name(obj_handle.into()).map_err(Error::esapi)?;
 
             Ok(CreatedObject {
-                handle,
+                obj_handle,
                 public: out_public.try_into()?,
                 private: None,
                 name: name.value().into(),

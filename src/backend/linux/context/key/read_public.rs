@@ -1,3 +1,4 @@
+use tracing::debug;
 use tss_esapi::{
     handles::{KeyHandle, ObjectHandle},
     structures::{Name, Public},
@@ -8,7 +9,7 @@ use crate::{Error, Result};
 use super::Context;
 
 impl Context {
-    pub(super) fn validate_object_name(
+    pub(crate) fn validate_object_name(
         &mut self,
         handle: ObjectHandle,
         expected_name: &[u8],
@@ -28,6 +29,7 @@ impl Context {
 
 fn validate_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
     if name != expected_name {
+        debug!("stored TPM object name doesn't match");
         return Err(Error::corrupted_store());
     }
 

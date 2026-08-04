@@ -95,14 +95,11 @@ impl Context {
 
         match result {
             Ok(()) => {
-                let result = (|| {
-                    self.release_resources(&mut resources)?;
-                    self.close_handles(&mut persistent_handles)?;
-                    Ok(())
-                })();
-
-                match result {
-                    Ok(()) => Ok(key_meta),
+                match self.release_resources(&mut resources) {
+                    Ok(()) => {
+                        let _ = self.close_handles(&mut persistent_handles);
+                        Ok(key_meta)
+                    },
                     Err(e) => {
                         self.evict_persistent_handles(
                             owner_authorization,
@@ -140,11 +137,11 @@ impl Context {
         F: FnOnce(&mut Self) -> Result<CreatedObject>,
     {
         let created = create(self)?;
-        resources.add_transient_handle(created.handle);
+        resources.add_transient_handle(created.obj_handle);
 
         let handle = self.evict_control(
             resources,
-            created.handle.into(),
+            created.obj_handle.into(),
             &mut persistent_handle,
             owner_authorization,
             session_salt_key_handle,
@@ -198,7 +195,7 @@ impl Context {
                         PersistentTpmHandle::new(meta.handle)
                             .expect("created persistent handle must be valid");
                     let Ok(mut handle) =
-                        self.load_tpm_handle(persistent_handle)
+                        self.load_persistent_handle(persistent_handle)
                     else {
                         continue;
                     };
