@@ -11,7 +11,7 @@ macro_rules! unknown_tpm_data {
 
 macro_rules! tpm2b_bytes_type {
     ($name:ident) => {
-        #[derive(Default, Clone)]
+        #[derive(Debug, Default, Clone)]
         pub(crate) struct $name(Vec<u8>);
 
         impl $name {
@@ -26,9 +26,21 @@ macro_rules! tpm2b_bytes_type {
         #[derive(Clone)]
         pub(crate) struct $name($inner);
 
+        impl $name {
+            pub(crate) fn as_inner(&self) -> &$inner {
+                &self.0
+            }
+        }
+
         impl From<$inner> for $name {
             fn from(value: $inner) -> Self {
                 Self(value)
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Debug::fmt(&self.0, f)
             }
         }
 
@@ -40,6 +52,14 @@ macro_rules! tpm2b_secret_type {
     ($name:ident) => {
         #[derive(Default, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
         pub(crate) struct $name(Vec<u8>);
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!($name))
+                    .field("len", &self.0.len())
+                    .finish()
+            }
+        }
 
         $crate::macros::impl_tpm2b_common!($name);
     };
@@ -80,14 +100,6 @@ macro_rules! impl_tpm2b_common {
         impl From<&[u8]> for $name {
             fn from(value: &[u8]) -> Self {
                 Self(value.to_vec())
-            }
-        }
-
-        impl std::fmt::Debug for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_struct(stringify!($name))
-                    .field("len", &self.0.len())
-                    .finish()
             }
         }
     };
