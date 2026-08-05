@@ -33,7 +33,7 @@ impl TestStore {
         }
     }
 
-    fn database_path(&self) -> PathBuf {
+    fn db_path(&self) -> PathBuf {
         self._temp_dir.path().join("store.db")
     }
 }
@@ -47,8 +47,8 @@ impl Drop for TestStore {
     }
 }
 
-fn print_internal_persistent_objects(database_path: &Path) {
-    let connection = Connection::open(database_path).expect("failed to open TPM store database");
+fn print_internal_persistent_objects(db_path: &Path) {
+    let connection = Connection::open(db_path).expect("failed to open TPM store database");
     let mut statement = connection
         .prepare(
             "\
@@ -94,5 +94,5 @@ fn provision_creates_internal_keys() {
     ctx.provision().expect("failed to provision the TPM");
     drop(ctx);
 
-    print_internal_persistent_objects(&store.database_path());
+    print_internal_persistent_objects(&store.db_path());
 }

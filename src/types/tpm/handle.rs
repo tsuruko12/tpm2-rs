@@ -27,7 +27,7 @@ newtype!(TpmiDhObject(TpmHandle));
 
 impl TpmiDhObject {
     const TRANSIENT_FIRST: u32 = 0x8000_0000;
-    const TRANSIENT_LAST: u32 = 0x80FF_FFFE;
+    const TRANSIENT_LAST: u32 = 0x80FF_FFFF;
 
     const PERSISTENT_FIRST: u32 = 0x8100_0000;
     const PERSISTENT_LAST: u32 = 0x81FF_FFFF;
@@ -48,7 +48,7 @@ impl TryFrom<TpmHandle> for TpmiDhObject {
         match handle.raw() {
             Self::TRANSIENT_FIRST..=Self::TRANSIENT_LAST
             | Self::PERSISTENT_FIRST..=Self::PERSISTENT_LAST => Ok(Self(handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiDhObject>(None)),
+            _ => Err(Error::conversion::<TpmHandle, TpmiDhObject>(Some(&handle))),
         }
     }
 }
@@ -93,5 +93,15 @@ impl TryFrom<u32> for TpmiDhPersistent {
 impl From<TpmiDhPersistent> for TpmiDhObject {
     fn from(handle: TpmiDhPersistent) -> Self {
         Self(handle.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_last_transient_object_handle() {
+        assert!(TpmiDhObject::try_from(TpmHandle::new(0x80FF_FFFF)).is_ok());
     }
 }

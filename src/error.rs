@@ -176,9 +176,8 @@ impl Error {
         let from = match value {
             Some(v) => {
                 let ty = type_name::<From>().rsplit("::").next().unwrap();
-
                 format!("{ty} ({v:?})")
-            }
+            },
             None => type_name::<From>().rsplit("::").next().unwrap().to_string(),
         };
 
