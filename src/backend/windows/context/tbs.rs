@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr};
 
-use tracing::error;
+use tracing::{debug, error};
 use windows_sys::Win32::System::TpmBaseServices::{
     TBS_COMMAND_LOCALITY_ZERO, TBS_COMMAND_PRIORITY_NORMAL, TBS_CONTEXT_PARAMS,
     TBS_CONTEXT_PARAMS2, TBS_CONTEXT_PARAMS2_0, TBS_SUCCESS, TPM_VERSION_20, Tbsi_Context_Create,
@@ -46,7 +46,11 @@ impl Context {
     }
 
     pub(super) fn submit(&mut self, command: Command<'_>) -> Result<Vec<u8>> {
-        let expected_tag = command.header().tag();
+        let header = command.header();
+        let expected_tag = header.tag();
+        let command_code = header.command_code();
+
+        debug!(?command_code, ?expected_tag, "submitting TPM command");
 
         let mut command_bytes = Vec::new();
         command.marshal(&mut command_bytes)?;
