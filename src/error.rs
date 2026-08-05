@@ -184,7 +184,7 @@ impl Error {
 
         Self::internal(InternalError::Conversion {
             from,
-            to: type_name::<To>(),
+            to: type_name::<To>().rsplit("::").next().unwrap(),
         })
     }
 
