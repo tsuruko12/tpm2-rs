@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr};
 
-use tracing::{debug, error};
+use tracing::debug;
 use windows_sys::Win32::System::TpmBaseServices::{
     TBS_COMMAND_LOCALITY_ZERO, TBS_COMMAND_PRIORITY_NORMAL, TBS_CONTEXT_PARAMS,
     TBS_CONTEXT_PARAMS2, TBS_CONTEXT_PARAMS2_0, TBS_SUCCESS, TPM_VERSION_20, Tbsi_Context_Create,
@@ -96,7 +96,7 @@ fn get_response_body(response: &[u8], expected_tag: TpmiStCommandTag) -> Result<
     let response_len = response.len();
 
     if response_len < TPM_HEADER_SIZE {
-        error!(actual_size = response.len(), "response header is too short");
+        debug!(actual_size = response.len(), "response header is too short");
         return Err(Error::InvalidData);
     }
 
@@ -104,7 +104,7 @@ fn get_response_body(response: &[u8], expected_tag: TpmiStCommandTag) -> Result<
     let header = ResponseHeader::unmarshal(&mut remaining)?;
 
     if header.response_size() as usize != response_len {
-        error!(
+        debug!(
             declared_size = header.response_size(),
             remaining_size = response_len,
             "response size mismatch"
@@ -115,7 +115,7 @@ fn get_response_body(response: &[u8], expected_tag: TpmiStCommandTag) -> Result<
     ensure_success(header.response_code())?;
 
     if expected_tag != header.tag() {
-        error!(
+        debug!(
             expected_tag = ?expected_tag,
             returned_tag = ?header.tag(),
             "unexpected TPM response tag"
