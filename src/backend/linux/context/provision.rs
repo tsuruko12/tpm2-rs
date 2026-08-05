@@ -19,7 +19,7 @@ impl Context {
         let mut key_meta = Vec::with_capacity(3);
         let mut persistent_handles = Vec::with_capacity(3);
 
-        let srk_handle = PersistentTpmHandle::new(TpmiDhPersistent::SRK_HANDLE.raw())
+        let srk_handle = PersistentTpmHandle::new(TpmiDhPersistent::SRK_HANDLE.raw()) // memo: change the const
             .expect("SRK handle must be a valid persistent handle");
         let srk_authorization = Authorization::default();
 
