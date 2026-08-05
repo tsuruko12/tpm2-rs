@@ -73,7 +73,8 @@ impl TpmiDhPersistent {
     const PERSISTENT_FIRST: u32 = 0x8100_0000;
     const PERSISTENT_LAST: u32 = 0x81FF_FFFF;
 
-    pub(crate) const SRK_HANDLE: Self = Self(TpmHandle::new(0x8100_0001));
+    pub(crate) const SRK_SEARCH_START: Self = Self(TpmHandle::new(0x8100_0001));
+    pub(crate) const SRK_SEARCH_END: Self = Self(TpmHandle::new(0x8100_00FF));
     pub(crate) const OWNER_AVAILABLE_FIRST: Self = Self(TpmHandle::new(0x8100_8000));
     pub(crate) const OWNER_AVAILABLE_LAST: Self = Self(TpmHandle::new(0x8100_FFFF));
 }

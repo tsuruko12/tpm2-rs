@@ -17,15 +17,14 @@ impl Context {
         let mut key_meta = Vec::with_capacity(3);
         let mut persistent_handles = Vec::with_capacity(3);
 
-        let srk_handle = TpmiDhObject::from(TpmiDhPersistent::SRK_HANDLE);
         let srk_authorization = Authorization::default();
 
         let result = (|| {
             let srk_meta = self.create_and_persist(
                 &mut resources,
-                TpmiDhPersistent::SRK_HANDLE,
+                TpmiDhPersistent::SRK_SEARCH_START,
                 owner_authorization,
-                None,
+                Some(TpmiDhPersistent::SRK_SEARCH_END),
                 None,
                 |ctx| {
                     ctx.create_owner_primary(
@@ -36,6 +35,8 @@ impl Context {
                 },
             )?;
 
+            let srk_handle = TpmiDhObject::try_from(srk_meta.handle)
+                .expect("created persistent handle must be valid");
             let parent = LoadedParent::new(
                 srk_handle,
                 srk_meta.object_name.clone(),
