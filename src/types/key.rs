@@ -1,8 +1,7 @@
 #[cfg(target_os = "windows")]
 use crate::types::TpmiDhObject;
 use crate::{
-    macros::{tpm2b_bytes_type, tpm2b_secret_type},
-    types::{Authorization, TpmtPublic},
+    macros::{tpm2b_bytes_type, tpm2b_secret_type}, types::{Authorization, Tpm2bPublic},
 };
 #[cfg(target_os = "linux")]
 use tss_esapi::handles::KeyHandle;
@@ -18,7 +17,7 @@ pub(crate) type LoadedObjectHandle = TpmiDhObject;
 #[derive(Debug)]
 pub(crate) struct CreatedObject {
     pub(crate) obj_handle: LoadedObjectHandle,
-    pub(crate) public: TpmtPublic,
+    pub(crate) public: Tpm2bPublic,
     pub(crate) private: Option<Tpm2bPrivate>,
     pub(crate) name: Tpm2bName,
 }

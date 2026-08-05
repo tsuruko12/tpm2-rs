@@ -32,7 +32,7 @@ pub(crate) use self::keyed_hash::{
 };
 pub(crate) use self::policy::{TpmlPcrSelection, TpmsPcrSelection};
 pub(crate) use self::public::{
-    TpmaObject, TpmiAlgPublic, TpmtPublic, TpmuPublicId, TpmuPublicParms,
+    TpmaObject, TpmiAlgPublic, TpmtPublic, TpmuPublicId, TpmuPublicParms, Tpm2bPublic
 };
 pub(crate) use self::rsa::{
     TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme,

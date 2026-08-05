@@ -6,13 +6,14 @@ use super::super::{
         TpmsAuthResponse,
     },
     types::{
-        Tpm2bCreationData, Tpm2bData, Tpm2bName, Tpm2bNonce, Tpm2bPublic, TpmRc, TpmaLocality,
+        Tpm2bCreationData, Tpm2bData, Tpm2bName, Tpm2bNonce, TpmRc, TpmaLocality,
         TpmaSession, TpmiRhHierarchy, TpmlDigest, TpmsCreationData, TpmsSensitiveCreate,
         TpmtTkCreation,
     },
 };
 use crate::{
-    error::{Error, Result}, types::{
+    error::{Error, Result}, 
+    types::{
         Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmCc, TpmEccCurve, TpmHandle, TpmKeyBits, TpmPt, TpmPtPcr, 
         TpmaAlgorithm, TpmaCc, TpmaObject, TpmiAlgEccScheme, TpmiAlgHash, TpmiAlgKdf, 
         TpmiAlgKeyedHashScheme, TpmiAlgPublic, TpmiAlgRsaScheme, TpmiAlgSymMode, TpmiAlgSymObject, 
@@ -22,7 +23,7 @@ use crate::{
         TpmsSchemeEcdaa, TpmsSchemeHash, TpmsSchemeXor, TpmsTaggedPcrSelect, TpmsTaggedProperty, 
         TpmtEccScheme, TpmtKdfScheme, TpmtKeyedHashScheme, TpmtPublic, TpmtRsaScheme, 
         TpmtSymDefObject, TpmuEccScheme, TpmuKdfScheme, TpmuPublicId, TpmuPublicParms, 
-        TpmuRsaScheme, TpmuSchemeKeyedHash
+        TpmuRsaScheme, TpmuSchemeKeyedHash, Tpm2bPublic, 
     },
 };
 

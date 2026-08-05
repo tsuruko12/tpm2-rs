@@ -4,7 +4,7 @@ use super::super::{
     codec::read_tpm2b_exact,
     commands::TpmsAuthResponse,
     types::{
-        Tpm2bCreationData, Tpm2bName, Tpm2bNonce, Tpm2bPrivate, Tpm2bPublic, TpmiShAuthSession,
+        Tpm2bCreationData, Tpm2bName, Tpm2bNonce, Tpm2bPrivate, TpmiShAuthSession,
         TpmlDigest, TpmtTkCreation,
     },
 };
@@ -14,7 +14,7 @@ use crate::{
     types::{
         CapabilityData, Tpm2bDigest, TpmCap, TpmHandle, TpmlAlgProperty, TpmlCc, TpmlCca,
         TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
-        TpmtPublic,
+        TpmtPublic, Tpm2bPublic, 
     },
 };
 
@@ -229,7 +229,7 @@ impl CreateResponse {
         })
     }
 
-    pub(crate) fn into_parts(self) -> Result<(Tpm2bPrivate, TpmtPublic, Vec<TpmsAuthResponse>)> {
+    pub(crate) fn into_parts(self) -> Result<(Tpm2bPrivate, Tpm2bPublic, Vec<TpmsAuthResponse>)> {
         let mut params = self.parameters.as_slice();
 
         let out_private = Tpm2bPrivate::from(read_tpm2b(&mut params)?);
@@ -240,7 +240,7 @@ impl CreateResponse {
 
         ensure_consumed(params)?;
 
-        Ok((out_private, out_public.into(), self.authorizations))
+        Ok((out_private, out_public, self.authorizations))
     }
 }
 

@@ -1,9 +1,7 @@
 use bitflags::bitflags;
 
 use crate::{
-    Error, Result,
-    macros::newtype,
-    types::{
+    Error, Result, macros::{newtype, tpm2b_bytes_type}, types::{
         TpmiRsaKeyBits, TpmtRsaScheme,
         tpm::{keyed_hash::TpmsKeyedHashParms, symmetric::TpmsSymCipherParms},
     },
@@ -15,6 +13,14 @@ use super::{
     ecc::{TpmsEccParms, TpmsEccPoint},
     rsa::{Tpm2bPublicKeyRsa, TpmsRsaParms},
 };
+
+tpm2b_bytes_type!(Tpm2bPublic(TpmtPublic));
+
+impl Tpm2bPublic {
+    pub(crate) fn unique(&self) -> &TpmuPublicId {
+        self.0.unique()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct TpmtPublic {
