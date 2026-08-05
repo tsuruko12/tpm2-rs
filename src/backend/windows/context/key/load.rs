@@ -9,15 +9,14 @@ use super::{
     types::{Tpm2bName, Tpm2bPrivate, TpmaSession},
 };
 use crate::{
-    Result,
-    types::{LoadedParent, TpmCc, TpmHandle, TpmiDhObject, TpmtPublic},
+    Result, types::{LoadedParent, Tpm2bPublic, TpmCc, TpmHandle, TpmiDhObject},
 };
 
 impl Context {
     pub(super) fn load_handle(
         &mut self,
         in_private: &Tpm2bPrivate,
-        in_public: &TpmtPublic,
+        in_public: &Tpm2bPublic,
         parent: &LoadedParent,
         session_salt_key: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
@@ -25,7 +24,7 @@ impl Context {
     ) -> Result<(TpmHandle, Tpm2bName)> {
         let mut request_params = Vec::new();
         marshal_tpm2b(&mut request_params, in_private.as_bytes())?;
-        in_public.marshal(&mut request_params)?;
+        marshal_tpm2b(&mut request_params, in_public.as_inner())?;
 
         let mut default_resources = CommandResources::default();
         let resources = caller_resources.unwrap_or(&mut default_resources);

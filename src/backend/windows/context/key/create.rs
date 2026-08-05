@@ -114,7 +114,7 @@ impl Context {
 
             Ok(CreatedObject {
                 obj_handle: obj_handle.try_into()?,
-                public: out_public.into(),
+                public: out_public,
                 private: Some(out_private),
                 name,
             })               
