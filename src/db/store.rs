@@ -208,7 +208,7 @@ impl MetadataStore {
 
     pub(crate) fn init(&mut self) -> Result<()> {
         let meta = fs::metadata(&self.db_path)?;
-        if meta.len() == 0 {
+        if meta.len() != 0 {
             return Err(Error::StoreAlreadyExists);
         }
 
