@@ -1,4 +1,4 @@
-use tracing::error;
+use tracing::debug;
 
 use super::super::{
     codec::read_tpm2b_exact,
@@ -72,14 +72,14 @@ impl GetCapabilityResponse {
             0 => false,
             1 => true,
             value => {
-                error!(value, "invalid TPMI_YES_NO value in capability response");
+                debug!(value, "invalid TPMI_YES_NO value in capability response");
                 return Err(Error::InvalidData);
             }
         };
         let returned_capability = TpmCap::try_from(read_u32(&mut bytes)?)?;
 
         if capability != returned_capability {
-            error!(
+            debug!(
                 requested = ?capability,
                 returned = ?returned_capability,
                 "unexpected capability type"
@@ -266,9 +266,7 @@ impl LoadResponse {
     pub(crate) fn into_parts(self) -> Result<(TpmHandle, Tpm2bName)> {
         let mut params = self.parameters.as_slice();
         let name = Tpm2bName::from(read_tpm2b_exact(&mut params)?);
-
-        ensure_consumed(params)?;
-
+        
         Ok((self.object_handle, name))
     }
 }

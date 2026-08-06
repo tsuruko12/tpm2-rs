@@ -143,7 +143,7 @@ impl Context {
             )
             .map_err(Error::from_tss_err)?
             .ok_or_else(|| {
-                tracing::error!("TPM returns no session");
+                tracing::debug!("TPM returns no session");
                 Error::InvalidData
             })?;
 
@@ -270,7 +270,7 @@ impl Context {
                 .sum::<usize>();
 
             if selected_count == 0 || digest_list.len() != selected_count {
-                error!("PCR read did not return the requested values");
+                debug!("PCR read did not return the requested values");
                 return Err(Error::InvalidData);
             }
 

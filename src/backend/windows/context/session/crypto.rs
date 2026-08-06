@@ -6,7 +6,7 @@ use hmac::{Hmac, Mac, digest::Output};
 use rand::{RngCore, rngs::OsRng};
 use rsa::{Oaep, RsaPublicKey};
 use sha2::{Digest, Sha256};
-use tracing::error;
+use tracing::debug;
 use zeroize::Zeroizing;
 
 use super::{
@@ -92,7 +92,7 @@ pub(crate) fn decrypt_response_parameter(
     }
 
     let (hmac_context, nonce_tpm) = response_decrypt_context.ok_or_else(|| {
-        error!("command session attribute mismatch");
+        debug!("command session attribute mismatch");
         Error::InvalidData
     })?;
     let parameter = tpm2b_payload_mut(parameters)?;
@@ -156,7 +156,7 @@ fn ensure_matching_auth_count(
     auth_responses: &[TpmsAuthResponse],
 ) -> Result<()> {
     if auth_contexts.len() != auth_responses.len() {
-        error!(
+        debug!(
             expected = auth_contexts.len(),
             returned = auth_responses.len(),
             "response authorization count mismatch"
@@ -209,7 +209,7 @@ pub(super) fn verify_response_hmac(
     mac.update(&[session_attrs.bits()]);
 
     mac.verify_slice(response_hmac.as_bytes()).map_err(|e| {
-        error!(err = ?e, "response HMAC verification failed");
+        debug!(err = ?e, "response HMAC verification failed");
         Error::InvalidData
     })
 }

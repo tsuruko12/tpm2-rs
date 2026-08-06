@@ -1,6 +1,6 @@
 macro_rules! reject_trailing_bytes {
     ($len:expr) => {{
-        tracing::error!(
+        tracing::debug!(
             remaining = $len,
             "unexpected trailing bytes in TPM response",
         );

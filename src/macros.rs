@@ -1,6 +1,6 @@
 macro_rules! unknown_tpm_data {
     ($value:expr, $what:literal) => {{
-        tracing::error!(
+        tracing::debug!(
             value = ?$value,
             concat!("unknown TPM ", $what)
         );

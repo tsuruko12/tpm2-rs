@@ -1,12 +1,11 @@
 use sha2::{Digest, Sha256};
-use tracing::error;
+use tracing::debug;
 
 use super::super::super::{
     codec::{PcrReadResponse, TpmMarshal, marshal_tpm2b},
     commands::Command,
-    error::TpmError,
     macros::reject_trailing_bytes,
-    types::{TpmRc, TpmiShPolicy, TpmlDigest},
+    types::{TpmiShPolicy, TpmlDigest},
 };
 use super::super::Context;
 use crate::{
@@ -162,12 +161,12 @@ impl Context {
             }
 
             if selection != returned_selection {
-                error!("PCR selection does not match requested PCR selection");
+                debug!("PCR selection does not match requested PCR selection");
                 return Err(Error::InvalidData);
             }
 
             if digest_list.len() != slots.len() {
-                error!("PCR value count does not match requested slots");
+                debug!("PCR value count does not match requested slots");
                 return Err(Error::InvalidData);
             }
 

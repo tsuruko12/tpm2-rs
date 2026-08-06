@@ -1,4 +1,4 @@
-use tracing::{debug, error};
+use tracing::debug;
 
 use super::super::{
     commands::{
@@ -403,7 +403,7 @@ impl TpmUnmarshal for Tpm2bPublic {
 
         let raw = u32::unmarshal(&mut remaining)?;
         let object_attributes = TpmaObject::from_bits(raw).ok_or_else(|| {
-            error!(
+            debug!(
                 value = ?raw,
                 "invalid object attributes"
             );
@@ -443,7 +443,7 @@ impl TpmUnmarshal for Tpm2bPublic {
                 (parameters, unique)
             },
             _ => {
-                error!(?alg_public, "unsupported TPM public algorithm");
+                debug!(?alg_public, "unsupported TPM public algorithm");
                 return Err(Error::InvalidData);
             },
         };
@@ -477,7 +477,7 @@ impl TpmUnmarshal for TpmsCreationData {
         let pcr_digest = Tpm2bDigest::try_from(read_tpm2b(input)?)?;
         let locality_raw = read_u8(input)?;
         let locality = TpmaLocality::from_bits(locality_raw).ok_or_else(|| {
-            error!(
+            debug!(
                 value = format_args!("{locality_raw:#04x}"),
                 "invalid locality attributes"
             );
@@ -533,7 +533,7 @@ impl TpmUnmarshal for TpmsRsaParms {
             TpmiAlgRsaScheme::RSA_ES => TpmtRsaScheme::rsa_es(),
             TpmiAlgRsaScheme::NULL => TpmtRsaScheme::null(),
             _  => {
-                error!(?scheme, "unsupported TPM RSA scheme");
+                debug!(?scheme, "unsupported TPM RSA scheme");
                 return Err(Error::InvalidData)
             },
         };
@@ -574,7 +574,7 @@ impl TpmUnmarshal for TpmsEccParms {
             },
             TpmiAlgEccScheme::NULL => TpmtEccScheme::null(),
             _ => {
-                error!(?scheme, "unsupported TPM ECC scheme");
+                debug!(?scheme, "unsupported TPM ECC scheme");
                 return Err(Error::InvalidData);
             },
         };
@@ -597,7 +597,7 @@ impl TpmUnmarshal for TpmsEccParms {
             },
             TpmiAlgKdf::NULL => TpmtKdfScheme::null(),
             _ => {
-                error!(?scheme, "unsupported TPM KDF scheme");
+                debug!(?scheme, "unsupported TPM KDF scheme");
                 return Err(Error::InvalidData);
             },
         };
@@ -622,7 +622,7 @@ impl TpmUnmarshal for TpmsKeyedHashParms {
             },
             TpmiAlgKeyedHashScheme::NULL => TpmtKeyedHashScheme::null(),
             _ => {
-                error!(?scheme, "unsupported TPM keyed-hash scheme");
+                debug!(?scheme, "unsupported TPM keyed-hash scheme");
                 return Err(Error::InvalidData);      
             },
         };
@@ -777,7 +777,7 @@ fn validate_count(
     max_count: Option<usize>,
 ) -> Result<()> {
     let min_size = count.checked_mul(min_item_size).ok_or_else(|| {
-        error!(
+        debug!(
             count,
             min_item_size, "TPM list item count overflow while calculating required size"
         );
@@ -785,7 +785,7 @@ fn validate_count(
     })?;
 
     if bytes_len < min_size {
-        error!(
+        debug!(
             count,
             required_size = min_size,
             actual_size = bytes_len,
@@ -796,7 +796,7 @@ fn validate_count(
 
     if let Some(max_count) = max_count {
         if count > max_count {
-            error!(
+            debug!(
                 item_count = count,
                 max_count, "TPM list item count exceeds the maximum"
             );
@@ -852,7 +852,7 @@ fn read_bytes_for_size(input: &mut &[u8]) -> Result<Vec<u8>> {
 
 pub(crate) fn ensure_consumed(input: &[u8]) -> Result<()> {
     if !input.is_empty() {
-        error!(remaining_size = input.len(), "trailing bytes remain");
+        debug!(remaining_size = input.len(), "trailing bytes remain");
         return Err(Error::InvalidData);
     }
 
@@ -900,7 +900,7 @@ pub(crate) fn read_vec(input: &mut &[u8], len: usize) -> Result<Vec<u8>> {
 
 fn require_len(bytes: &[u8], required: usize) -> Result<()> {
     if bytes.len() < required {
-        error!(
+        debug!(
             required_size = required,
             actual_size = bytes.len(),
             "parameter buffer too short"

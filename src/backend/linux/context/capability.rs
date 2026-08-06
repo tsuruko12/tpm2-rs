@@ -24,7 +24,7 @@ impl Context {
         let (data, _) = self.get_capability_once(CapabilityType::AssignedPcr, 0, 0)?;
 
         let CapabilityData::AssignedPcr(selection_list) = data else {
-            tracing::error!("unexpected capability data for AssignedPcr");
+            tracing::debug!("unexpected capability data for AssignedPcr");
             return Err(Error::InvalidData);
         };
 

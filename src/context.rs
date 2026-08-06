@@ -1,4 +1,4 @@
-use tracing::{debug, error};
+use tracing::debug;
 #[cfg(target_os = "linux")]
 use tss_esapi::handles::{KeyHandle, PersistentTpmHandle};
 
@@ -68,12 +68,12 @@ impl Context {
             let chunk = self.backend.get_random(chunk_size, sesssion_salt_key)?;
 
             if chunk.is_empty() {
-                error!("TPM returned no random bytes");
+                debug!("TPM returned no random bytes");
                 return Err(Error::InvalidData);
             }
 
             if chunk.len() > chunk_size as usize {
-                error!("TPM returned more random bytes than requested");
+                debug!("TPM returned more random bytes than requested");
                 return Err(Error::InvalidData);
             }
 
