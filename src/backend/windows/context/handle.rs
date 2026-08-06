@@ -21,15 +21,16 @@ impl Context {
     pub(super) fn evict_control(
         &mut self,
         resources: &mut CommandResources,
-        handle: TpmiDhObject,
+        obj_handle: TpmiDhObject,
         persistent_handle: &mut TpmiDhPersistent,
         owner_authorization: &Authorization,
         session_salt_key: Option<TpmiDhObject>,
         search_end: Option<TpmiDhPersistent>,
     ) -> Result<()> {
+        assert_eq!(obj_handle.is_transient(), true);
         let command_code = TpmCc::EVICT_CONTROL;
         let owner_handle = TpmiRhProvision::OWNER;
-        let handle_name = self.read_object_name(handle)?;
+        let handle_name = self.read_object_name(obj_handle)?;
 
         let result = (|| {
             let mut sessions = self.prepare_sessions(
@@ -54,7 +55,7 @@ impl Context {
                 let authorizations = authorization_commands(&sessions);
 
                 let command = Command::new(command_code)
-                    .with_handles(vec![owner_handle.into(), handle.into()])
+                    .with_handles(vec![owner_handle.into(), obj_handle.into()])
                     .with_parameters(&request_parameter)
                     .with_authorizations(&authorizations);
 
