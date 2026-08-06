@@ -1,6 +1,6 @@
 use super::{
     Context, CommandResources,
-    codec::{LoadResponse, TpmMarshal, marshal_tpm2b, tpm2b_payload_mut},
+    codec::{LoadResponse, marshal_tpm2b, tpm2b_payload_mut},
     commands::{Command, TpmsAuthCommand},
     session::{
         HmacSessionState, decrypt_response_parameter, encrypt_command_parameter,
@@ -45,8 +45,8 @@ impl Context {
 
                     let parent_name = self.read_object_name(parent_handle)?;
 
-                    let param = tpm2b_payload_mut(&mut request_params)?;
-                    encrypt_command_parameter(&sessions, param)?;
+                    let first_param = tpm2b_payload_mut(&mut request_params)?;
+                    encrypt_command_parameter(&sessions, first_param)?;
 
                     update_command_hmacs(
                         &mut sessions,
