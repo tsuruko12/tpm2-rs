@@ -4,9 +4,9 @@ newtype!(TpmRc(u32));
 
 impl TpmRc {
     const VER1: u32 = 0x100;
-    const FMT1: u32 = 0x080;
+    pub(crate) const FMT1: u32 = 0x080;
+    pub(crate) const WARN: u32 = 0x900;
     const FMT1_ERROR_MASK: u32 = 0x3F;
-    const WARN: u32 = 0x900;
 
     pub(crate) const SUCCESS: Self = Self(0x000);
     pub(crate) const BAD_TAG: Self = Self(0x01E);
@@ -47,7 +47,6 @@ impl TpmRc {
     pub(crate) const NO_RESULT: Self = Self(Self::VER1 + 0x054);
     pub(crate) const SENSITIVE: Self = Self(Self::VER1 + 0x055);
     pub(crate) const READ_ONLY: Self = Self(Self::VER1 + 0x056);
-    pub(crate) const MAX_FM0: Self = Self(Self::VER1 + 0x07F);
 
     // Format One
     pub(crate) const ASYMMETRIC: Self = Self(Self::FMT1 + 0x001);
@@ -125,24 +124,9 @@ impl TpmRc {
 
     // Format One handle, parameter, session, and index modifiers
     const H: u32 = 0x000;
-    const P: u32 = 0x040;
+    pub(crate) const P: u32 = 0x040;
     const S: u32 = 0x800;
-    const INDEX_1: u32 = 0x100;
-    const INDEX_2: u32 = 0x200;
-    const INDEX_3: u32 = 0x300;
-    const INDEX_4: u32 = 0x400;
-    const INDEX_5: u32 = 0x500;
-    const INDEX_6: u32 = 0x600;
-    const INDEX_7: u32 = 0x700;
-    const INDEX_8: u32 = 0x800;
-    const INDEX_9: u32 = 0x900;
-    const INDEX_A: u32 = 0xA00;
-    const INDEX_B: u32 = 0xB00;
-    const INDEX_C: u32 = 0xC00;
-    const INDEX_D: u32 = 0xD00;
-    const INDEX_E: u32 = 0xE00;
-    const INDEX_F: u32 = 0xF00;
-    const N_MASK: u32 = 0xF00;
+    pub(crate) const N_MASK: u32 = 0xF00;
 
     pub(crate) fn base(self) -> Self {
         let raw = self.raw();
