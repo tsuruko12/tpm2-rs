@@ -27,7 +27,7 @@ impl Context {
         session_salt_key: Option<TpmiDhObject>,
         search_end: Option<TpmiDhPersistent>,
     ) -> Result<()> {
-        assert_eq!(obj_handle.is_transient(), true);
+        println!("evict handle: {}", obj_handle.raw());
         let command_code = TpmCc::EVICT_CONTROL;
         let owner_handle = TpmiRhProvision::OWNER;
         let handle_name = self.read_object_name(obj_handle)?;
