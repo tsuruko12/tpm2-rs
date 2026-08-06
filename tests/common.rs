@@ -8,26 +8,18 @@ static INIT: Once = Once::new();
 #[cfg(target_os = "linux")]
 pub(crate) fn connect_tpm() -> Context {
     init_tracing();
-    let mut ctx = Context::connect_from_env().expect("failed to connect to swtpm");
-
-    if let Err(e) = ctx.provision() {
-        assert!(matches!(e, Error::StoreAlreadyExists));
-    }
-
-    ctx
+    Context::connect_from_env().expect("failed to connect to swtpm")
 }
 
 #[cfg(target_os = "windows")]
 pub(crate) fn connect_tpm() -> Context {
     init_tracing();
-    let mut ctx = Context::connect().expect("failed to connect to the TPM");
+    Context::connect().expect("failed to connect to the TPM")
+}
 
-    match ctx.provision() {
-        Ok(_) | Err(Error::StoreAlreadyExists) => {}
-        Err(e) => panic!("unexpected error: {e:?}"),
-    }
-
-    ctx
+fn provision() {
+    let mut ctx = connect_tpm();
+    ctx.provision().expect("failed to provision");
 }
 
 fn init_tracing() {
