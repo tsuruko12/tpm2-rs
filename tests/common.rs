@@ -17,6 +17,7 @@ pub(crate) fn connect_tpm() -> Context {
     Context::connect().expect("failed to connect to the TPM")
 }
 
+#[test]
 fn provision() {
     let mut ctx = connect_tpm();
     ctx.provision().expect("failed to provision");
