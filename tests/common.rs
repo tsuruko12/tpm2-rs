@@ -22,8 +22,9 @@ pub(crate) fn connect_tpm() -> Context {
     init_tracing();
     let mut ctx = Context::connect().expect("failed to connect to the TPM");
 
-    if let Err(e) = ctx.provision() {
-        assert!(matches!(e, Error::StoreAlreadyExists));
+    match ctx.provision() {
+        Ok(_) | Err(Error::StoreAlreadyExists) => {}
+        Err(e) => panic!("unexpected error: {e:?}"),
     }
 
     ctx
