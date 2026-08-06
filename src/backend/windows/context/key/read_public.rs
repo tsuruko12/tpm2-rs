@@ -7,28 +7,28 @@ use crate::{
 };
 
 impl Context {
-    pub(crate) fn read_rsa_public_unique(&mut self, handle: TpmiDhObject) -> Result<Vec<u8>> {
-        let response = self.read_object_public(handle)?;
+    pub(crate) fn read_rsa_public_unique(&mut self, obj_handle: TpmiDhObject) -> Result<Vec<u8>> {
+        let response = self.read_object_public(obj_handle)?;
         into_rsa_public_unique(response.out_public.unique())
     }
 
-    pub(crate) fn read_object_name(&mut self, handle: TpmiDhObject) -> Result<Vec<u8>> {
-        // return type should be Tpm2BName
-        self.read_object_public(handle)
+    pub(crate) fn read_object_name(&mut self, obj_handle: TpmiDhObject) -> Result<Vec<u8>> {
+        self.read_object_public(obj_handle)
             .map(|response| response.name.into_bytes())
     }
 
     pub(crate) fn validate_object_name(
         &mut self,
-        handle: TpmiDhObject,
+        obj_handle: TpmiDhObject,
         expected_name: &[u8],
     ) -> Result<()> {
-        let name = self.read_object_name(handle)?;
+        let name = self.read_object_name(obj_handle)?;
         validate_name(&name, expected_name)
     }
 
-    fn read_object_public(&mut self, handle: TpmiDhObject) -> Result<ReadPublicResponse> {
-        let command = Command::new(TpmCc::READ_PUBLIC).with_handles(vec![handle.into()]);
+    fn read_object_public(&mut self, obj_handle: TpmiDhObject) -> Result<ReadPublicResponse> {
+        let command = Command::new(TpmCc::READ_PUBLIC)
+            .with_handles(vec![obj_handle.into()]);
         let response_body = self.submit(command)?;
 
         ReadPublicResponse::parse(&response_body)
