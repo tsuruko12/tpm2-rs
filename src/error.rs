@@ -52,8 +52,6 @@ pub enum Error {
     Store(#[from] rusqlite::Error),
     #[error("store already exists")]
     StoreAlreadyExists,
-    #[error("failed to provision")]
-    ProvisionFailed,
     #[error("provisioning is required")]
     NotProvisioned,
     #[error("{context}")]
