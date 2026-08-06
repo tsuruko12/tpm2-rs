@@ -143,7 +143,6 @@ mod persistent_key_cleanup {
     }
 
     #[test]
-    #[ignore = "destructive: removes explicitly listed persistent TPM keys"]
     fn delete_created_persistent_keys() {
         let context = create_tbs_context();
 
