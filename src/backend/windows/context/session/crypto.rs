@@ -142,7 +142,7 @@ pub(super) fn generate_encrypted_salt(
         .try_fill_bytes(&mut *salt)
         .map_err(Error::random_generation)?;
 
-    let padding = Oaep::new_with_label::<Sha256, _>("SECRET");
+    let padding = Oaep::new_with_label::<Sha256, _>("SECRET\0");
 
     let encrypted_salt = public_key
         .encrypt(&mut OsRng, padding, salt.as_ref())
