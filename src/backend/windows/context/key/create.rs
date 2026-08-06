@@ -46,8 +46,8 @@ impl Context {
                         None,
                     )?;   
                     
-                    let param = tpm2b_payload_mut(&mut request_params)?;
-                    encrypt_command_parameter(&sessions, param)?;
+                    let first_param = tpm2b_payload_mut(&mut request_params)?;
+                    encrypt_command_parameter(&sessions, first_param)?;
 
                     update_command_hmacs(
                         &mut sessions,
@@ -158,8 +158,8 @@ impl Context {
             )?;
 
             if session_salt_key.is_some() {
-                let param = tpm2b_payload_mut(&mut request_params)?;
-                encrypt_command_parameter(&sessions, param)?;
+                let first_param = tpm2b_payload_mut(&mut request_params)?;
+                encrypt_command_parameter(&sessions, first_param)?;
             }
 
             update_command_hmacs(
