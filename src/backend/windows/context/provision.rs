@@ -48,14 +48,14 @@ impl Context {
 
             self.flush_handles(&mut resources.transient_handles)?;
 
-            let owner_available_first = TpmiDhPersistent::OWNER_AVAILABLE_FIRST;
+            let storage_available_first = TpmiDhPersistent::STORAGE_AVAILABLE_FIRST;
             let rsa_public = TpmtPublic::rsa_decrypt();
 
             let session_salt_key_meta = self.create_and_persist(
                 &mut resources,
-                owner_available_first,
+                storage_available_first,
                 owner_authorization,
-                Some(TpmiDhPersistent::OWNER_AVAILABLE_LAST),
+                Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
                 None,
                 |ctx| ctx.create_and_load(&rsa_public, Tpm2bAuth::default(), &parent, None),
             )?;
@@ -69,11 +69,11 @@ impl Context {
 
             let shared_wrapping_key_meta = self.create_and_persist(
                 &mut &mut resources,
-                (owner_available_first.raw() + 1)
+                (storage_available_first.raw() + 1) // memo: use key_meta's next persistent handle
                     .try_into()
-                    .expect("owner handle must be in the persistent range"),
+                    .expect("storage handle must be in the persistent range"),
                 owner_authorization,
-                Some(TpmiDhPersistent::OWNER_AVAILABLE_LAST),
+                Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
                 Some(session_salt_key_handle),
                 |ctx| {
                     ctx.create_and_load(

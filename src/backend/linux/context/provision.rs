@@ -4,9 +4,9 @@ use tss_esapi::{
 };
 
 use crate::{
-    Result,
-    db::InternalKeyMeta,
-    types::{Authorization, CreatedObject, LoadedParent, TpmiDhPersistent, TpmtPublic},
+    Error, Result, 
+    db::InternalKeyMeta, 
+    types::{Authorization, CreatedObject, LoadedParent, TpmiDhPersistent, TpmtPublic}
 };
 use super::{Context, CommandResources};
 
@@ -19,16 +19,18 @@ impl Context {
         let mut key_meta = Vec::with_capacity(3);
         let mut persistent_handles = Vec::with_capacity(3);
 
-        let srk_handle = PersistentTpmHandle::new(TpmiDhPersistent::SRK_HANDLE.raw()) // memo: change the const
-            .expect("SRK handle must be a valid persistent handle");
+        let srk_search_start = PersistentTpmHandle::new(TpmiDhPersistent::SRK_SEARCH_START.raw())
+            .expect("SRK_SEARCH_START must be in the persistent range");
+        let srk_search_end = PersistentTpmHandle::new(TpmiDhPersistent::SRK_SEARCH_END.raw())
+            .expect("SRK_SEARCH_END must be in the persistent range");
         let srk_authorization = Authorization::default();
 
         let result = (|| {
             let (srk_meta, srk_handle) = self.create_and_persist(
                 &mut resources,
-                srk_handle, 
+                srk_search_start, 
                 owner_authorization, 
-                None, 
+                Some(srk_search_end), 
                 None, 
                 |ctx| {
                     ctx.create_owner_primary(
@@ -49,20 +51,27 @@ impl Context {
 
             self.flush_handles(&mut resources.transient_handles)?;
 
-            let owner_available_first_raw = TpmiDhPersistent::OWNER_AVAILABLE_FIRST.raw();
-            let serch_end = PersistentTpmHandle::new(TpmiDhPersistent::OWNER_AVAILABLE_LAST.raw())
-                .expect("owner handle must be in the persistent range");
+            let storage_first = PersistentTpmHandle::new(
+                TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.raw()
+            )
+            .expect("STORAGE_AVAILABLE_FIRST must be in the persistent range");
+            let storage_last = PersistentTpmHandle::new(
+                TpmiDhPersistent::STORAGE_AVAILABLE_LAST.raw()
+            )
+            .expect("STORAGE_AVAILABLE_LAST must be in the persistent range");
             let rsa_public = TpmtPublic::rsa_decrypt().try_into()?;
 
             let (session_salt_key_meta, session_salt_key_handle) = self.create_and_persist(
                 &mut resources,
-                PersistentTpmHandle::new(owner_available_first_raw)
-                    .expect("owner handle must be in the persistent range"),
+                storage_first,
                 owner_authorization,
-                Some(serch_end),
+                Some(storage_last),
                 None,
                 |ctx| ctx.create_and_load(&rsa_public, Auth::default(), &parent, None),
             )?;
+
+            let next_handle = PersistentTpmHandle::new(session_salt_key_meta.handle + 1)
+                .map_err(|_| Error::resource_exhausted("no persistent handle is available"))?;
 
             key_meta.push(session_salt_key_meta);
             persistent_handles.push(session_salt_key_handle);
@@ -71,9 +80,9 @@ impl Context {
 
             let (shared_wrapping_key_meta, shared_wrapping_key_handle) = self.create_and_persist(
                 &mut resources,
-                PersistentTpmHandle::new(owner_available_first_raw + 1).unwrap(),
+                next_handle,
                 owner_authorization,
-                Some(serch_end),
+                Some(storage_last),
                 Some(session_salt_key_handle.into()),
                 |ctx| {
                     ctx.create_and_load(
