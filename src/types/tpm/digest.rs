@@ -4,7 +4,7 @@ use crate::{Error, Result};
 pub(crate) struct Tpm2bDigest(Vec<u8>);
 
 impl Tpm2bDigest {
-    const MAX_SIZE: usize = 64;
+    pub(crate) const MAX_SIZE: usize = 64;
 
     pub(crate) fn into_bytes(self) -> Vec<u8> {
         self.0
@@ -43,6 +43,6 @@ impl TryFrom<&[u8]> for Tpm2bDigest {
             return Err(Error::invalid_state("digest length exceeds 64 bytes"));
         }
 
-        Ok(Self(value.to_vec()))
+        Ok(Self(value.into()))
     }
 }
