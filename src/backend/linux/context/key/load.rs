@@ -1,8 +1,7 @@
-use tracing::debug;
 use tss_esapi::{
-    handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, TpmHandle as EsapiTpmHandle},
+    handles::{KeyHandle, ObjectHandle, TpmHandle as EsapiTpmHandle},
     interface_types::session_handles::AuthSession,
-    structures::{Name, Private, Public},
+    structures::{Private, Public},
 };
 
 use crate::{
@@ -20,7 +19,7 @@ impl Context {
         parent: &LoadedParent,
         session_salt_key: Option<KeyHandle>,
         caller_resources: Option<&mut CommandResources>,
-    ) -> Result<(KeyHandle, Name)> {
+    ) -> Result<(KeyHandle, Vec<u8>)> {
         let mut default_resources = CommandResources::default();
         let resources = caller_resources.unwrap_or(&mut default_resources);
 

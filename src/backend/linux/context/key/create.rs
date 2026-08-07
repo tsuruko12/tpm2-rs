@@ -5,7 +5,7 @@ use tss_esapi::{
 };
 
 use crate::{
-    Error, Result, types::{Authorization, CreatedObject, LoadedParent, TpmaSession}
+    Error, Result, types::{Authorization, CreatedObject, LoadedParent, TpmaSession, TpmtPublic}
 };
 
 use super::Context;
@@ -66,9 +66,9 @@ impl Context {
 
             Ok(CreatedObject {
                 obj_handle,
-                public: out_public.try_into()?,
+                public: TpmtPublic::try_from(out_public)?.into(),
                 private: Some(out_private.value().into()),
-                name: name.value().into(),
+                name: name.try_into()?,
             })   
         })();
 
@@ -108,13 +108,13 @@ impl Context {
             resources.add_transient_handle(obj_handle);
             resources.clear_sessions();
 
-            let name = self.ctx.tr_get_name(obj_handle.into()).map_err(Error::esapi)?;
+            let name = self.read_object_name(obj_handle)?;
 
             Ok(CreatedObject {
                 obj_handle,
-                public: out_public.try_into()?,
+                public: TpmtPublic::try_from(out_public)?.into(),
                 private: None,
-                name: name.value().into(),
+                name: name.try_into()?,
             })
         })();
 

@@ -1,5 +1,5 @@
 use tss_esapi::{
-    attributes::{ObjectAttributes, SessionAttributes, SessionAttributesMask},
+    attributes::{ObjectAttributes, SessionAttributes},
     structures::CommandCodeAttributesList,
 };
 

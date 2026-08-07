@@ -1,5 +1,5 @@
 use sha2::{Digest as _, Sha256};
-use tracing::error;
+use tracing::debug;
 use tss_esapi::{
     constants::SessionType,
     handles::{KeyHandle, ObjectHandle},

@@ -13,15 +13,18 @@ impl Context {
         obj_handle: ObjectHandle,
         expected_name: &[u8],
     ) -> Result<()> {
-        let name = self.ctx.tr_get_name(obj_handle).map_err(Error::esapi)?;
-        validate_name(name.value(), expected_name)
+        let name = self.read_object_name(obj_handle)?;
+        validate_name(&name, expected_name)
     }
 
     pub(super) fn read_object_name(
         &mut self, 
         obj_handle: impl Into<ObjectHandle>,
-    ) -> Result<Name> { // memo: Vec<u8> is fine
-        self.ctx.tr_get_name(obj_handle.into()).map_err(Error::esapi)
+    ) -> Result<Vec<u8>> {
+        self.ctx
+            .tr_get_name(obj_handle.into())
+            .map(|name| name.value().to_vec())
+            .map_err(Error::esapi)
     }
 
     fn read_object_public(&mut self, handle: KeyHandle) -> Result<(Public, Name, Name)> {

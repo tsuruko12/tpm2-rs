@@ -22,8 +22,6 @@ use zeroize::Zeroizing;
 
 use symmetric::SymmetricKeyBits;
 
-// kdfだけ中途半端な設計
-
 const SYMMETRIC_BLOCK_SIZE: usize = 16;
 
 fn generate_random_bytes(length: usize) -> Result<Vec<u8>> {
