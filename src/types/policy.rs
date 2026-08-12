@@ -1,5 +1,7 @@
-use super::algorithm::HashAlgorithm;
-use crate::{Error, Result, types::Tpm2bDigest};
+use tracing::debug;
+
+use crate::{Error, Result};
+use super::{algorithm::HashAlgorithm, tpm::TpmlDigest};
 
 const MAX_POLICY_OR_BRANCHES: usize = 8;
 
@@ -54,6 +56,25 @@ pub enum PolicyCommand {
     Unseal,
 }
 
+impl PolicyCommand {
+    pub(crate) fn from_db(command: &str) -> Result<Self> {
+        match command {
+            "create_primary" => Ok(PolicyCommand::CreatePrimary),
+            "create" => Ok(PolicyCommand::Create),
+            "load" => Ok(PolicyCommand::Load),
+            "import" => Ok(PolicyCommand::Import),
+            "duplicate" => Ok(PolicyCommand::Duplicate),
+            "sign" => Ok(PolicyCommand::Sign),
+            "decrypt" => Ok(PolicyCommand::Decrypt),
+            "unseal" => Ok(PolicyCommand::Unseal),
+            _ => {
+                debug!(%command, "invalid stored policy command");
+                Err(Error::corrupted_store())
+            }
+        }
+    }
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PcrSlot {
@@ -81,6 +102,11 @@ pub enum PcrSlot {
     Slot21 = 21,
     Slot22 = 22,
     Slot23 = 23,
+}
+
+impl PcrSlot {
+    pub(crate) const MAX: u8 = Self::Slot23 as u8;
+    pub(crate) const MASK: u32 = 0x00ff_ffff;
 }
 
 impl TryFrom<u8> for PcrSlot {
@@ -155,7 +181,7 @@ pub(crate) enum PolicyData {
     Password,
     Or {
         branches: Vec<PolicyData>,
-        branch_digests: Option<Vec<Tpm2bDigest>>,
+        branch_digests: Vec<TpmlDigest>,
         selected_branch: Option<usize>,
     },
     Sequence(Vec<PolicyData>),
@@ -189,25 +215,44 @@ impl PolicyData {
         }
     }
 
-    pub(crate) fn selected_or_branch(&self) -> Result<(&[Tpm2bDigest], &Self)> {
+    pub(crate) fn selected_or_branch(&self) -> Result<(&TpmlDigest, &Self)> {
         let Self::Or {
             branches,
             branch_digests,
             selected_branch,
         } = self
         else {
-            return Err(Error::invalid_state("expected PolicyOr"));
+            return Err(Error::invalid_state("expected PolicyOR"));
         };
 
         let idx =
             (*selected_branch).ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
-        let digests = branch_digests.as_deref().ok_or(Error::invalid_state(
-            "digests should be set when a branch is selected",
-        ))?;
+        let digest_list = branch_digests
+            .get(idx)
+            .ok_or(Error::invalid_state(
+                "policy branch digest count does not match branch count",
+            ))?;
         let branch = branches.get(idx).ok_or(Error::invalid_state(
             "selected branch index should be in range",
         ))?;
 
-        Ok((digests, branch))
+        Ok((digest_list, branch))
+    }
+}
+
+impl From<Policy> for PolicyData {
+    fn from(policy: Policy) -> Self {
+        match policy {
+            Policy::AuthValue => Self::AuthValue,
+            Policy::Password => Self::Password,
+            Policy::Command(command) => Self::Command(command),
+            Policy::Pcr(selection) => Self::Pcr(selection),
+            Policy::Or(branches) => Self::Or {
+                branches: branches.into_iter().map(Into::into).collect(),
+                branch_digests: Vec::new(),
+                selected_branch: None,
+            },
+            Policy::Sequence(steps) => Self::Sequence(steps.into_iter().map(Into::into).collect()),
+        }
     }
 }

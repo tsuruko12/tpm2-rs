@@ -4,26 +4,32 @@ use tss_esapi::{
     structures::{Name, Public},
 };
 
-use crate::{Error, Result};
+use crate::{Error, Result, types::Tpm2bName};
 use super::Context;
 
 impl Context {
-    pub(crate) fn validate_object_name(
+    pub(crate) fn validate_obj_name(
         &mut self,
         obj_handle: ObjectHandle,
-        expected_name: &[u8],
+        expected_name: &Tpm2bName,
+        name: Option<&Tpm2bName>,
     ) -> Result<()> {
-        let name = self.read_object_name(obj_handle)?;
-        validate_name(&name, expected_name)
+        match name {
+            Some(name) => validate_name(name.as_bytes(), expected_name.as_bytes()),
+            None => {
+                let name = self.read_obj_name(obj_handle)?;
+                validate_name(name.as_bytes(), expected_name.as_bytes())
+            }
+        }
     }
 
-    pub(super) fn read_object_name(
+    pub(super) fn read_obj_name(
         &mut self, 
-        obj_handle: impl Into<ObjectHandle>,
-    ) -> Result<Vec<u8>> {
+        obj_handle: ObjectHandle,
+    ) -> Result<Tpm2bName> {
         self.ctx
-            .tr_get_name(obj_handle.into())
-            .map(|name| name.value().to_vec())
+            .tr_get_name(obj_handle)
+            .map(Into::into)
             .map_err(Error::esapi)
     }
 
@@ -34,7 +40,7 @@ impl Context {
 
 fn validate_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
     if name != expected_name {
-        debug!("stored TPM object name doesn't match");
+        debug!("stored TPM object name does not match");
         return Err(Error::corrupted_store());
     }
 

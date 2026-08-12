@@ -2,6 +2,7 @@ use tss_esapi::{
     constants::AlgorithmIdentifier,
     interface_types::algorithm::HashingAlgorithm,
     structures::{AlgorithmPropertyList, HashScheme, KeyDerivationFunctionScheme},
+    tss2_esys::{TPMS_SCHEME_HASH, TPMT_KDF_SCHEME, TPMU_KDF_SCHEME},
 };
 
 use crate::{
@@ -9,23 +10,23 @@ use crate::{
     algorithm::HashAlgorithm,
     types::{
         TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmsAlgProperty, TpmsSchemeHash,
-        TpmtKdfScheme,
+        TpmtKdfScheme, TpmuKdfScheme,
     },
 };
 
 impl TryFrom<TpmiAlgHash> for HashingAlgorithm {
     type Error = Error;
 
-    fn try_from(hash: TpmiAlgHash) -> Result<Self> {
-        hash.raw()
+    fn try_from(hash_alg: TpmiAlgHash) -> Result<Self> {
+        hash_alg.raw()
             .try_into()
-            .map_err(|_| Error::conversion::<TpmiAlgHash, HashingAlgorithm>(Some(&hash)))
+            .map_err(|_| Error::conversion::<TpmiAlgHash, HashingAlgorithm>(Some(&hash_alg)))
     }
 }
 
 impl From<HashingAlgorithm> for TpmiAlgHash {
-    fn from(hash: HashingAlgorithm) -> Self {
-        match hash {
+    fn from(hash_alg: HashingAlgorithm) -> Self {
+        match hash_alg {
             HashingAlgorithm::Sha1 => Self::SHA1,
             HashingAlgorithm::Sha256 => Self::SHA256,
             HashingAlgorithm::Sha384 => Self::SHA384,
@@ -40,8 +41,8 @@ impl From<HashingAlgorithm> for TpmiAlgHash {
 }
 
 impl From<HashAlgorithm> for HashingAlgorithm {
-    fn from(hash: HashAlgorithm) -> Self {
-        match hash {
+    fn from(hash_alg: HashAlgorithm) -> Self {
+        match hash_alg {
             HashAlgorithm::Sha1 => Self::Sha1,
             HashAlgorithm::Sha256 => Self::Sha256,
             HashAlgorithm::Sha384 => Self::Sha384,
@@ -67,9 +68,9 @@ impl TryFrom<TpmsSchemeHash> for HashScheme {
 }
 
 impl From<HashingAlgorithm> for TpmsSchemeHash {
-    fn from(hash: HashingAlgorithm) -> Self {
+    fn from(hash_alg: HashingAlgorithm) -> Self {
         Self {
-            hash_alg: hash.into(),
+            hash_alg: hash_alg.into(),
         }
     }
 }
@@ -113,11 +114,84 @@ impl TryFrom<AlgorithmPropertyList> for TpmlAlgProperty {
 impl From<KeyDerivationFunctionScheme> for TpmtKdfScheme {
     fn from(kdf_scheme: KeyDerivationFunctionScheme) -> Self {
         match kdf_scheme {
-            KeyDerivationFunctionScheme::Kdf1Sp800_108(hash) => Self::kdf1_sp800_108(hash.into()),
-            KeyDerivationFunctionScheme::Kdf1Sp800_56a(hash) => Self::kdf1_sp800_56a(hash.into()),
-            KeyDerivationFunctionScheme::Kdf2(hash) => Self::kdf2(hash.into()),
-            KeyDerivationFunctionScheme::Mgf1(hash) => Self::mgf1(hash.into()),
+            KeyDerivationFunctionScheme::Kdf1Sp800_108(hash_scheme) => Self::kdf1_sp800_108(
+                hash_scheme.into()
+            ),
+            KeyDerivationFunctionScheme::Kdf1Sp800_56a(hash_scheme) => Self::kdf1_sp800_56a(
+                hash_scheme.into()
+            ),
+            KeyDerivationFunctionScheme::Kdf2(hash_scheme) => Self::kdf2(hash_scheme.into()),
+            KeyDerivationFunctionScheme::Mgf1(hash_scheme) => Self::mgf1(hash_scheme.into()),
             KeyDerivationFunctionScheme::Null => Self::null(),
         }
+    }
+}
+
+impl TryFrom<TPMS_SCHEME_HASH> for TpmsSchemeHash {
+    type Error = Error;
+
+    fn try_from(scheme_hash: TPMS_SCHEME_HASH) -> Result<Self> {
+        Ok(Self {
+            hash_alg: scheme_hash.hashAlg.try_into()?,
+        })
+    }
+}
+
+impl From<TpmsSchemeHash> for TPMS_SCHEME_HASH {
+    fn from(scheme_hash: TpmsSchemeHash) -> Self {
+        Self {
+            hashAlg: scheme_hash.hash_alg.raw(),
+        }
+    }
+}
+
+impl TryFrom<TPMT_KDF_SCHEME> for TpmtKdfScheme {
+    type Error = Error;
+
+    fn try_from(kdf_scheme: TPMT_KDF_SCHEME) -> Result<Self> {
+        let scheme = TpmAlgId::try_from(kdf_scheme.scheme)?;
+
+        match scheme {
+            TpmAlgId::Mgf1 => Ok(Self::mgf1(unsafe { kdf_scheme.details.mgf1 }.try_into()?)),
+            TpmAlgId::Kdf1Sp80056a => Ok(Self::kdf1_sp800_56a(
+                unsafe { kdf_scheme.details.kdf1_sp800_56a }.try_into()?,
+            )),
+            TpmAlgId::Kdf2 => Ok(Self::kdf2(unsafe { kdf_scheme.details.kdf2 }.try_into()?)),
+            TpmAlgId::Kdf1Sp800108 => Ok(Self::kdf1_sp800_108(
+                unsafe { kdf_scheme.details.kdf1_sp800_108 }.try_into()?,
+            )),
+            TpmAlgId::Null => Ok(Self::null()),
+            _ => Err(Error::conversion::<TpmAlgId, TpmtKdfScheme>(Some(&scheme))),
+        }
+    }
+}
+
+impl TryFrom<TpmtKdfScheme> for TPMT_KDF_SCHEME {
+    type Error = Error;
+
+    fn try_from(kdf_scheme: TpmtKdfScheme) -> Result<Self> {
+        let (scheme, details) = kdf_scheme.into_parts();
+        let raw_scheme = scheme.raw();
+        let details = match (TpmAlgId::try_from(raw_scheme)?, details) {
+            (TpmAlgId::Mgf1, TpmuKdfScheme::Mgf1(scheme_hash)) => TPMU_KDF_SCHEME { 
+                mgf1: scheme_hash.into() 
+            },
+            (TpmAlgId::Kdf1Sp80056a, TpmuKdfScheme::Kdf1Sp800_56a(scheme_hash)) => TPMU_KDF_SCHEME { 
+                kdf1_sp800_56a: scheme_hash.into() 
+            },
+            (TpmAlgId::Kdf2, TpmuKdfScheme::Kdf2(scheme_hash)) => TPMU_KDF_SCHEME { 
+                kdf2: scheme_hash.into() 
+            },
+            (TpmAlgId::Kdf1Sp800108, TpmuKdfScheme::Kdf1Sp800_108(scheme_hash)) => TPMU_KDF_SCHEME { 
+                kdf1_sp800_108: scheme_hash.into() 
+            },
+            (TpmAlgId::Null, TpmuKdfScheme::Null) => TPMU_KDF_SCHEME::default(),
+            _ => return Err(Error::invalid_state("KDF scheme and details are inconsistent")),
+        };
+
+        Ok(Self {
+            scheme: raw_scheme,
+            details,
+        })
     }
 }

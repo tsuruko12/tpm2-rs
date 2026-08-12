@@ -14,13 +14,13 @@ mod types;
 pub use crate::{
     context::Context,
     error::{Error, Result},
-    types::{algorithm, ecc, hierarchy, policy, public, rsa, symmetric},
+    types::{algorithm, hierarchy, policy, public},
 };
 
 use rand::{RngCore, rngs::OsRng};
 use zeroize::Zeroizing;
 
-use symmetric::SymmetricKeyBits;
+use types::SymmetricKeyBits;
 
 const SYMMETRIC_BLOCK_SIZE: usize = 16;
 

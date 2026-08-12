@@ -81,11 +81,11 @@ fn convert_pcr_selection(
 
 impl From<EsapiPcrSelection> for TpmsPcrSelection {
     fn from(pcr_selection: EsapiPcrSelection) -> Self {
-        let hash = TpmiAlgHash::from(pcr_selection.hashing_algorithm());
+        let hash_alg = TpmiAlgHash::from(pcr_selection.hashing_algorithm());
         let pcr_select =
             pcr_slots_to_select(&pcr_selection.selected(), pcr_selection.size_of_select());
 
-        Self::new(hash, pcr_select)
+        Self::new(hash_alg, pcr_select)
     }
 }
 

@@ -94,13 +94,13 @@ impl Context {
                 reject_trailing_bytes!(returned_params.len());
             }
 
-            Ok(auth_contexts
+            auth_contexts
                 .iter()
                 .zip(auth_responses.iter())
                 .filter(|(auth_context, _)| auth_context.requires_hmac())
                 .try_for_each(|(auth_context, auth_response)| {
                     auth_context.verify_hmac(command_code, &returned_params, auth_response)
-                })?)
+                })
         })();
 
         self.finish_command(result, resources)
@@ -138,6 +138,7 @@ impl Context {
         first_err.map_or(Ok(()), Err)
     }
 
+    // memo: assign NULL for flushed handles
     pub(super) fn flush_handles(&mut self, handles: &mut Vec<TpmiDhObject>) -> Result<()> {
         let mut first_err = None;
         let mut remaining = Vec::new();

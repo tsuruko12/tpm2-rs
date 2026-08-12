@@ -9,7 +9,7 @@ mod tcti;
 use tss_esapi::{
     Context as EsapiContext,
     handles::ObjectHandle,
-    interface_types::session_handles::{AuthSession, PolicySession},
+    interface_types::session_handles::AuthSession,
     structures::Auth,
 };
 
@@ -56,12 +56,20 @@ impl CommandResources {
         Ok(())
     }
 
-    fn add_transient_handle(&mut self, handle: impl Into<ObjectHandle>) {
-        self.transient_handles.push(handle.into());
+    fn add_handle(&mut self, handle: ObjectHandle, is_persistent: bool) {
+        if is_persistent {
+            self.add_persistent_handle(handle);
+        } else {
+            self.add_transient_handle(handle);
+        }
     }
 
-    fn add_persistent_handle(&mut self, handle: impl Into<ObjectHandle>) {
-        self.persistent_handles.push(handle.into());
+    fn add_transient_handle(&mut self, handle: ObjectHandle) {
+        self.transient_handles.push(handle);
+    }
+
+    fn add_persistent_handle(&mut self, handle: ObjectHandle) {
+        self.persistent_handles.push(handle);
     }
 
     fn find_hmac_session(&self) -> Option<AuthSession> {
@@ -70,17 +78,6 @@ impl CommandResources {
             .flatten()
             .copied()
             .find(|session| matches!(session, AuthSession::HmacSession(_)))
-    }
-
-    fn clear_policy_session(&mut self) {
-        for session in self.sessions.iter_mut() {
-            if let Some(handle) = session {
-                if PolicySession::try_from(*handle).is_ok() {
-                    *session = None;
-                    return;
-                }
-            }
-        }
     }
 
     fn clear_password_session(&mut self) {
@@ -93,10 +90,6 @@ impl CommandResources {
             }
         }
     }
-
-    fn clear_sessions(&mut self) {
-        self.sessions.fill(None);
-    }
 }
 
 impl Context {
@@ -107,11 +100,11 @@ impl Context {
     ) -> Result<T> {
         match result {
             Ok(value) => {
-                self.flush_sessions(&mut resources.sessions)?;
+                resources.flush_sessions(self)?;
                 Ok(value)
             },
             Err(e) => {
-                let _ = self.cleanup_resources(resources);
+                let _ = resources.cleanup(self);
                 Err(e)
             }
         }

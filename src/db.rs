@@ -1,3 +1,5 @@
 mod store;
 
-pub(crate) use self::store::{InternalKeyMeta, MetadataStore, generate_id};
+pub(crate) use self::store::{
+    InternalKeyKind, InternalKeyMeta, KeyMeta, MetadataStore, TpmKeyMeta, generate_id
+};

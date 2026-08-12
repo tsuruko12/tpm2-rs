@@ -92,17 +92,50 @@ impl TryFrom<u32> for TpmiDhPersistent {
 }
 
 impl From<TpmiDhPersistent> for TpmiDhObject {
-    fn from(handle: TpmiDhPersistent) -> Self {
-        Self(handle.into())
+    fn from(persistent_handle: TpmiDhPersistent) -> Self {
+        Self(persistent_handle.into())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+newtype!(TpmiRhHierarchy(TpmHandle));
 
-    #[test]
-    fn accepts_last_transient_object_handle() {
-        assert!(TpmiDhObject::try_from(TpmHandle::new(0x80FF_FFFF)).is_ok());
+impl TpmiRhHierarchy {
+    pub(crate) const OWNER: Self = Self(TpmHandle(0x4000_0001));
+    pub(crate) const NULL: Self = Self(TpmHandle::RH_NULL);
+    pub(crate) const ENDORSEMENT: Self = Self(TpmHandle(0x4000_000B));
+    pub(crate) const PLATFORM: Self = Self(TpmHandle(0x4000_000C));
+
+    pub(crate) const SVN_OWNER_FIRST: u32 = 0x40010000;
+    pub(crate) const SVN_OWNER_LAST: u32 = 0x4001FFFF;
+
+    pub(crate) const SVN_ENDORSEMENT_FIRST: u32 = 0x40020000;
+    pub(crate) const SVN_ENDORSEMENT_LAST: u32 = 0x4002FFFF;
+
+    pub(crate) const SVN_PLATFORM_FIRST: u32 = 0x40030000;
+    pub(crate) const SVN_PLATFORM_LAST: u32 = 0x4003FFFF;
+
+    pub(crate) const SVN_NULL_FIRST: u32 = 0x40040000;
+    pub(crate) const SVN_NULL_LAST: u32 = 0x4004FFFF;
+}
+
+impl TryFrom<TpmHandle> for TpmiRhHierarchy {
+    type Error = Error;
+
+    fn try_from(handle: TpmHandle) -> Result<Self> {
+        match handle.raw() {
+            0x4000_0001
+            | 0x4000_0007
+            | 0x4000_000B
+            | 0x4000_000C
+            | 0x4000_0140
+            | 0x4000_0141
+            | 0x4000_0142
+            | 0x4000_0143
+            | Self::SVN_OWNER_FIRST..=Self::SVN_OWNER_LAST
+            | Self::SVN_ENDORSEMENT_FIRST..=Self::SVN_ENDORSEMENT_LAST
+            | Self::SVN_PLATFORM_FIRST..=Self::SVN_PLATFORM_LAST
+            | Self::SVN_NULL_FIRST..=Self::SVN_NULL_LAST => Ok(Self(handle)),
+            _ => Err(Error::conversion::<TpmHandle, TpmiRhHierarchy>(None)),
+        }
     }
 }

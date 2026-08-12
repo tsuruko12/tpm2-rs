@@ -1,9 +1,13 @@
-use super::{
-    algorithm::HashAlgorithm,
+pub mod ecc;
+pub mod rsa;
+pub mod symmetric;
+
+pub use self::{
     ecc::{EccCurve, EccScheme, EccTemplate},
-    rsa::{RsaKeyBits, RsaScheme, RsaTemplate},
-    symmetric::{SymmetricKeyBits, SymmetricTemplate},
+    rsa::{RsaKeyBits, RsaScheme, RsaSignatureScheme, RsaTemplate},
+    symmetric::{BlockCipher, CipherMode, SymmetricKeyBits, SymmetricTemplate},
 };
+use super::algorithm::HashAlgorithm;
 
 use crate::{Error, Result};
 
@@ -70,9 +74,9 @@ impl KeyTemplate {
 
                 template.set_exportable();
             }
-            Self::Symmetric(_) => {
-                return Err(Error::invalid_param("symmetric key must not be exportable"));
-            }
+            Self::Symmetric(_) => return Err(Error::invalid_param(
+                "symmetric key must not be exportable"
+            )),
         }
 
         Ok(self)

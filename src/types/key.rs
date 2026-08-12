@@ -1,71 +1,11 @@
-#[cfg(target_os = "windows")]
-use crate::types::TpmiDhObject;
-use crate::{
-    Error, Result, 
-    macros::tpm2b_secret_type, 
-    types::{Authorization, Tpm2bDigest, Tpm2bPublic, TpmAlgId, TpmHandle}
-};
 #[cfg(target_os = "linux")]
 use tss_esapi::handles::KeyHandle;
 
-tpm2b_secret_type!(Tpm2bPrivate);
+use crate::types::TpmiDhPersistent;
 
-#[derive(Debug, Default, Clone)]
-pub(crate) struct Tpm2bName(Vec<u8>);
-
-impl Tpm2bName {
-    const NO_NAME_SIZE: usize = 0;
-    const HANDLE_SIZE: usize = size_of::<TpmHandle>();
-    const MAX_SIZE: usize = size_of::<TpmAlgId>() + Tpm2bDigest::MAX_SIZE; // TPMT_HA
-
-    pub(crate) fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl TryFrom<Vec<u8>> for Tpm2bName {
-    type Error = Error;
-
-    fn try_from(value: Vec<u8>) -> Result<Self> {
-        let size = value.len();
-
-        if size == Self::NO_NAME_SIZE 
-            || size == Self::HANDLE_SIZE 
-            || size == Self::MAX_SIZE {
-            Ok(Self(value))
-        } else {
-            Err(Error::conversion::<Vec<u8>, Tpm2bName>(None))
-        }
-    }
-}
-
-impl TryFrom<&[u8]> for Tpm2bName {
-    type Error = Error;
-
-    fn try_from(value: &[u8]) -> Result<Self> {
-        let size = value.len();
-
-        if size == Self::NO_NAME_SIZE 
-            || size == Self::HANDLE_SIZE 
-            || size == Self::MAX_SIZE {
-            Ok(Self(value.into()))
-        } else {
-            Err(Error::conversion::<Vec<u8>, Tpm2bName>(None))
-        }
-    }
-}
+#[cfg(target_os = "windows")]
+use super::tpm::TpmiDhObject;
+use super::{Authorization, tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic}};
 
 #[cfg(target_os = "linux")]
 pub(crate) type LoadedObjectHandle = KeyHandle;
@@ -74,40 +14,167 @@ pub(crate) type LoadedObjectHandle = TpmiDhObject;
 
 #[derive(Debug)]
 pub(crate) struct CreatedObject {
-    pub(crate) obj_handle: LoadedObjectHandle,
+    pub(crate) handle: LoadedObjectHandle,
     pub(crate) public: Tpm2bPublic,
     pub(crate) private: Option<Tpm2bPrivate>,
     pub(crate) name: Tpm2bName,
 }
 
-pub(crate) struct LoadedParent {
-    handle: LoadedObjectHandle,
-    name: Vec<u8>,
+#[derive(Debug)]
+pub(crate) struct LoadedHandle {
+    handle: TpmObjectHandle,
+    name: Tpm2bName,
     authorization: Authorization,
 }
 
-impl LoadedParent {
-    pub(crate) fn new(
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TpmObjectHandle {
+    Transient(LoadedObjectHandle),
+    Persistent(LoadedObjectHandle),
+}
+
+impl TpmObjectHandle {
+    fn loaded_handle(&self) -> LoadedObjectHandle {
+        match self {
+            Self::Transient(handle) | Self::Persistent(handle) => *handle,
+        }
+    }
+
+    fn is_persistent(&self) -> bool {
+        matches!(self, Self::Persistent(_))
+    }
+}
+
+impl LoadedHandle {
+    pub(crate) fn transient(
         handle: LoadedObjectHandle,
-        name: impl Into<Vec<u8>>,
+        name: Tpm2bName,
         authorization: Authorization,
     ) -> Self {
         Self {
-            handle,
-            name: name.into(),
+            handle: TpmObjectHandle::Transient(handle),
+            name,
             authorization,
         }
     }
 
-    pub(crate) fn handle(&self) -> LoadedObjectHandle {
-        self.handle
+    pub(crate) fn persistent(
+        handle: LoadedObjectHandle,
+        name: Tpm2bName,
+        authorization: Authorization,
+    ) -> Self {
+        Self {
+            handle: TpmObjectHandle::Persistent(handle),
+            name,
+            authorization,
+        }
     }
 
-    pub(crate) fn name(&self) -> &[u8] {
+    pub(crate) fn internal_persistent(
+        handle: LoadedObjectHandle,
+        name: Tpm2bName,
+    ) -> Self {
+        Self {
+            handle: TpmObjectHandle::Persistent(handle),
+            name,
+            authorization: Authorization::default(),
+        }
+    }
+
+    pub(crate) fn handle(&self) -> LoadedObjectHandle {
+        self.handle.loaded_handle()
+    }
+
+    pub(crate) fn is_persistent(&self) -> bool {
+        self.handle.is_persistent()
+    }
+
+    pub(crate) fn name(&self) -> &Tpm2bName {
         &self.name
     }
 
     pub(crate) fn authorization(&self) -> &Authorization {
         &self.authorization
+    }
+
+    pub(crate) fn into_authorization(self) -> Authorization {
+        self.authorization
+    }
+}
+
+pub struct Key {
+    id: String,
+    data: KeyData,
+    obj_name: Tpm2bName,
+    authorization: Authorization,
+    name: Option<String>,
+    parent_id: Option<String>,
+}
+
+impl Key {
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    pub(crate) fn data(&self) -> &KeyData {
+        &self.data
+    }
+
+    pub(crate) fn obj_name(&self) -> &Tpm2bName {
+        &self.obj_name
+    }
+
+    pub(crate) fn authorization(&self) -> &Authorization {
+        &self.authorization
+    }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn parent_id(&self) -> Option<&str> {
+        self.parent_id.as_deref()
+    }
+
+    pub(crate) fn is_persistent(&self) -> bool {
+        match &self.data {
+            KeyData::Srk(resource)
+            | KeyData::Ecc(resource)
+            | KeyData::Rsa(resource) => {
+                resource.is_persistent()
+            },
+            KeyData::Symmetric { wrapping_key_resource, .. } => {
+                wrapping_key_resource.is_persistent()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum KeyData {
+    Srk(HandleResource),
+    Rsa(HandleResource),
+    Ecc(HandleResource),
+    Symmetric {
+        wrapping_key_resource: HandleResource,
+        wrapping_key_id: String,
+        wrapped_key: Vec<u8>,
+    },
+}
+
+#[derive(Debug)]
+pub(crate) enum HandleResource {
+    Transient {
+        public: Tpm2bPublic,
+        private: Tpm2bPrivate,
+    },
+    Persistent {
+        handle: TpmiDhPersistent,
+    },
+}
+
+impl HandleResource {
+    fn is_persistent(&self) -> bool {
+        matches!(self, Self::Persistent { .. })
     }
 }

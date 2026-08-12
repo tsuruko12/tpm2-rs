@@ -3,8 +3,8 @@ use crate::{
     Result,
     db::InternalKeyMeta,
     types::{
-        Authorization, CreatedObject, LoadedParent, Tpm2bAuth, TpmiDhObject, TpmiDhPersistent,
-        TpmtPublic,
+        Authorization, CreatedObject, LoadedHandle, Tpm2bAuth, TpmiDhObject, TpmiRhHierarchy,
+        TpmiDhPersistent, TpmtPublic,
     },
 };
 
@@ -17,6 +17,8 @@ impl Context {
         let mut key_meta = Vec::with_capacity(3);
         let mut persistent_handles = Vec::with_capacity(3);
 
+        let empty_auth = Tpm2bAuth::default();
+
         let srk_authorization = Authorization::default();
 
         let result = (|| {
@@ -27,8 +29,10 @@ impl Context {
                 Some(TpmiDhPersistent::SRK_SEARCH_END),
                 None,
                 |ctx| {
-                    ctx.create_owner_primary(
+                    ctx.create_primary(
+                        TpmiRhHierarchy::OWNER,
                         &TpmtPublic::storage_parent(), 
+                        empty_auth.duplicate(),
                         owner_authorization, 
                         None,
                     )
@@ -37,7 +41,7 @@ impl Context {
 
             let srk_handle = TpmiDhObject::try_from(srk_meta.handle)
                 .expect("created persistent handle must be valid");
-            let parent = LoadedParent::new(
+            let parent = LoadedHandle::new(
                 srk_handle,
                 srk_meta.object_name.clone(),
                 srk_authorization,
@@ -49,7 +53,7 @@ impl Context {
             self.flush_handles(&mut resources.transient_handles)?;
 
             let storage_available_first = TpmiDhPersistent::STORAGE_AVAILABLE_FIRST;
-            let rsa_public = TpmtPublic::rsa_decrypt();
+            let rsa_public = TpmtPublic::rsa_decrypt(Tpm2bDigest::default());
 
             let session_salt_key_meta = self.create_and_persist(
                 &mut resources,
@@ -57,13 +61,13 @@ impl Context {
                 owner_authorization,
                 Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
                 None,
-                |ctx| ctx.create_and_load(&rsa_public, Tpm2bAuth::default(), &parent, None),
+                |ctx| ctx.create_and_load(&rsa_public, empty_auth.duplicate(), &parent, None),
             )?;
-            let session_salt_key_handle = TpmiDhObject::try_from(session_salt_key_meta.handle)
+            let session_salt_handle = TpmiDhObject::try_from(session_salt_key_meta.handle)
                 .expect("created persistent handle must be valid");
 
             key_meta.push(session_salt_key_meta);
-            persistent_handles.push(session_salt_key_handle);
+            persistent_handles.push(session_salt_handle);
 
             self.flush_handles(&mut resources.transient_handles)?;
 
@@ -74,25 +78,23 @@ impl Context {
                     .expect("storage handle must be in the persistent range"),
                 owner_authorization,
                 Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
-                Some(session_salt_key_handle),
+                Some(session_salt_handle),
                 |ctx| {
                     ctx.create_and_load(
                         &rsa_public,
-                        Tpm2bAuth::default(),
+                        empty_auth,
                         &parent,
-                        Some(session_salt_key_handle),
+                        Some(session_salt_handle),
                     )
                 },
             )?;
-            let shared_wrapping_key_handle = TpmiDhObject::try_from(shared_wrapping_key_meta.handle)
+            let shared_wrapping_handle = TpmiDhObject::try_from(shared_wrapping_key_meta.handle)
                 .expect("created persistent handle must be valid");
 
             key_meta.push(shared_wrapping_key_meta);
-            persistent_handles.push(shared_wrapping_key_handle);
+            persistent_handles.push(shared_wrapping_handle);
 
-            self.flush_handles(&mut resources.transient_handles)?;
-
-            Ok(())
+            self.flush_handles(&mut resources.transient_handles)
         })();
 
         match result {

@@ -1,16 +1,17 @@
-use crate::{error::Result, types::{TpmCc, TpmaSession, TpmiDhObject}};
-use super::{
-    Context, CommandResources, 
-    session::{
-        decrypt_response_parameter, split_prepared_sessions, update_command_hmacs
-    }
-};
 use super::super::{codec::GetRandomResponse, commands::Command};
+use super::{
+    CommandResources, Context,
+    session::{decrypt_response_parameter, split_prepared_sessions, update_command_hmacs},
+};
+use crate::{
+    error::Result,
+    types::{TpmCc, TpmaSession, TpmiDhObject},
+};
 
 impl Context {
     pub(crate) fn get_random(
-        &mut self, 
-        bytes_requested: u16,  
+        &mut self,
+        bytes_requested: u16,
         session_salt_key: TpmiDhObject,
     ) -> Result<Vec<u8>> {
         let request_params = bytes_requested.to_be_bytes();
@@ -20,10 +21,10 @@ impl Context {
 
         let result = (|| {
             let mut sessions = self.prepare_sessions(
-                &mut resources, 
-                TpmaSession::encrypt(), 
-                None, 
-                Some(session_salt_key), 
+                &mut resources,
+                TpmaSession::encrypt(),
+                None,
+                Some(session_salt_key),
                 None,
             )?;
 
@@ -47,7 +48,7 @@ impl Context {
                 &response.authorizations,
             )?;
 
-            Ok(response.into_parts()?.into_bytes())
+            response.into_parts().map(|bytes| bytes.into_bytes())
         })();
 
         self.finish_command(result, &mut resources)

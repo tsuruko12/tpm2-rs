@@ -10,49 +10,6 @@ impl TpmiDhEntity {
     pub(crate) const RH_NULL: Self = Self(TpmHandle::RH_NULL);
 }
 
-newtype!(TpmiRhHierarchy(TpmHandle));
-
-impl TpmiRhHierarchy {
-    pub(crate) const OWNER: Self = Self(TpmHandle::new(0x4000_0001));
-    pub(crate) const NULL: Self = Self(TpmHandle::RH_NULL);
-    pub(crate) const ENDORSEMENT: Self = Self(TpmHandle::new(0x4000_000B));
-    pub(crate) const PLATFORM: Self = Self(TpmHandle::new(0x4000_000C));
-
-    pub(crate) const SVN_OWNER_FIRST: u32 = 0x40010000;
-    pub(crate) const SVN_OWNER_LAST: u32 = 0x4001FFFF;
-
-    pub(crate) const SVN_ENDORSEMENT_FIRST: u32 = 0x40020000;
-    pub(crate) const SVN_ENDORSEMENT_LAST: u32 = 0x4002FFFF;
-
-    pub(crate) const SVN_PLATFORM_FIRST: u32 = 0x40030000;
-    pub(crate) const SVN_PLATFORM_LAST: u32 = 0x4003FFFF;
-
-    pub(crate) const SVN_NULL_FIRST: u32 = 0x40040000;
-    pub(crate) const SVN_NULL_LAST: u32 = 0x4004FFFF;
-}
-
-impl TryFrom<TpmHandle> for TpmiRhHierarchy {
-    type Error = Error;
-
-    fn try_from(handle: TpmHandle) -> Result<Self> {
-        match handle.raw() {
-            0x4000_0001
-            | 0x4000_0007
-            | 0x4000_000B
-            | 0x4000_000C
-            | 0x4000_0140
-            | 0x4000_0141
-            | 0x4000_0142
-            | 0x4000_0143
-            | Self::SVN_OWNER_FIRST..=Self::SVN_OWNER_LAST
-            | Self::SVN_ENDORSEMENT_FIRST..=Self::SVN_ENDORSEMENT_LAST
-            | Self::SVN_PLATFORM_FIRST..=Self::SVN_PLATFORM_LAST
-            | Self::SVN_NULL_FIRST..=Self::SVN_NULL_LAST => Ok(Self(handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiRhHierarchy>(None)),
-        }
-    }
-}
-
 newtype!(TpmiShAuthSession(TpmHandle));
 
 impl TpmiShAuthSession {
@@ -90,10 +47,10 @@ impl TpmiShPolicy {
 impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
     type Error = Error;
 
-    fn try_from(handle: TpmiShAuthSession) -> Result<Self> {
-        let handle_raw = handle.raw();
+    fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
+        let handle_raw = session_handle.raw();
 
-        if handle.is_policy_session() {
+        if session_handle.is_policy_session() {
             Ok(Self(handle_raw.into()))
         } else {
             Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
@@ -111,10 +68,10 @@ impl TpmiShHmac {
 impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
     type Error = Error;
 
-    fn try_from(handle: TpmiShAuthSession) -> Result<Self> {
-        let handle_raw = handle.raw();
+    fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
+        let handle_raw = session_handle.raw();
 
-        if handle.is_hmac_session() {
+        if session_handle.is_hmac_session() {
             Ok(Self(handle_raw.into()))
         } else {
             Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))

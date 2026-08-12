@@ -396,9 +396,10 @@ impl Error {
             | TpmRc::MEMORY
             | TpmRc::SESSION_HANDLES
             | TpmRc::OBJECT_HANDLES
-            | TpmRc::TOO_MANY_CONTEXTS => {
-                Self::resource_exhausted_with_source("TPM resource exhausted", source)
-            }
+            | TpmRc::TOO_MANY_CONTEXTS => Self::resource_exhausted_with_source(
+                "TPM resource exhausted", 
+                source
+            ),
             TpmRc::YIELDED
             | TpmRc::TESTING
             | TpmRc::NEEDS_TEST
@@ -410,7 +411,7 @@ impl Error {
                     "TPM does not support the requested operation",
                     source,
                 )
-            }
+            },
             TpmRc::ASYMMETRIC
             | TpmRc::HASH
             | TpmRc::KEY_SIZE
@@ -424,9 +425,10 @@ impl Error {
             | TpmRc::SVN_LIMITED
             | TpmRc::PARMS
             | TpmRc::EXT_MU
-            | TpmRc::ONE_SHOT_SIGNATURE => {
-                Self::unsupported_with_source("TPM does not support the requested value", source)
-            }
+            | TpmRc::ONE_SHOT_SIGNATURE => Self::unsupported_with_source(
+                "TPM does not support the requested value", 
+                source
+            ),
             TpmRc::AUTH_TYPE
             | TpmRc::BAD_TAG
             | TpmRc::SEQUENCE

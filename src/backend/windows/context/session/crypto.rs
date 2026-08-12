@@ -20,7 +20,7 @@ use crate::{
     types::{Tpm2bAuth, TpmCc},
 };
 
-const DIGEST_SIZE: usize = 32;
+const NONCE_SIZE: usize = 32;
 const BITS: u32 = 256;
 const AES_BLOCK_SIZE: usize = 16;
 
@@ -126,7 +126,7 @@ pub(super) fn derive_session_key(
 }
 
 pub(super) fn generate_caller_nonce() -> Result<Tpm2bNonce> {
-    let mut nonce = vec![0u8; DIGEST_SIZE];
+    let mut nonce = vec![0u8; NONCE_SIZE];
     OsRng
         .try_fill_bytes(&mut nonce)
         .map_err(Error::random_generation)?;

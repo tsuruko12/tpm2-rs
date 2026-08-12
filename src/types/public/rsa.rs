@@ -1,4 +1,4 @@
-use super::{algorithm::HashAlgorithm, tpm::TpmtSymDefObject};
+use super::super::{algorithm::HashAlgorithm, tpm::TpmtSymDefObject};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RsaTemplate {
@@ -60,6 +60,7 @@ pub enum RsaKeyBits {
 
 impl RsaKeyBits {
     pub(super) const DEFAULT: Self = Self::Bits3072;
+    pub(crate) const MAX_BITS: usize = 4096;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

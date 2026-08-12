@@ -1,8 +1,7 @@
-use super::{TpmAlgId, TpmiAlgHash, TpmtSymDefObject};
+use super::{TpmAlgId, TpmiAlgHash, TpmsSchemeHash, TpmtKdfScheme, TpmtSymDefObject};
 use crate::{
     Error, Result,
-    macros::{newtype, tpm_list_type, tpm2b_bytes_type},
-    types::{TpmsSchemeHash, TpmtKdfScheme},
+    macros::{newtype, tpm_list_type, tpm2b_bytes_type}, types::EccCurve,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -28,7 +27,7 @@ impl TpmsEccParms {
         }
     }
 
-    fn ecdsa(curve_id: TpmiEccCurve, scheme_hash: TpmsSchemeHash) -> Self {
+    pub(crate) fn ecdsa(curve_id: TpmiEccCurve, scheme_hash: TpmsSchemeHash) -> Self {
         Self {
             symmetric: TpmtSymDefObject::null(),
             scheme: TpmtEccScheme::ecdsa(scheme_hash),
@@ -401,11 +400,11 @@ impl Default for TpmsEccPoint {
 }
 
 impl TpmsEccPoint {
-    pub(super) fn new(x: Vec<u8>, y: Vec<u8>) -> Self {
-        Self {
-            x: Tpm2bEccParameter::from(x),
-            y: Tpm2bEccParameter::from(y),
-        }
+    pub(crate) fn new(x: Vec<u8>, y: Vec<u8>) -> Result<Self> {
+        Ok(Self {
+            x: x.try_into()?,
+            y: y.try_into()?,
+        })
     }
 
     pub(crate) fn as_parts(&self) -> (&Tpm2bEccParameter, &Tpm2bEccParameter) {
@@ -414,3 +413,7 @@ impl TpmsEccPoint {
 }
 
 tpm2b_bytes_type!(Tpm2bEccParameter);
+
+impl Tpm2bEccParameter {
+    const MAX_BYTES: usize = EccCurve::MAX_BITS.div_ceil(8);
+}

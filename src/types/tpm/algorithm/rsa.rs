@@ -1,15 +1,15 @@
 use crate::{
     Error, Result,
     macros::{newtype, tpm2b_bytes_type},
-    types::{
-        TpmsEmpty, TpmsSchemeHash,
-        rsa::{RsaKeyBits, RsaScheme},
-    },
+    types::public::rsa::{RsaKeyBits, RsaScheme},
 };
-
-use super::{TpmAlgId, TpmtSymDefObject};
+use super::{TpmAlgId, TpmsEmpty, TpmsSchemeHash, TpmtSymDefObject};
 
 tpm2b_bytes_type!(Tpm2bPublicKeyRsa);
+
+impl Tpm2bPublicKeyRsa {
+    const MAX_BYTES: usize = RsaKeyBits::MAX_BITS / 2;
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmsRsaParms {
@@ -36,7 +36,7 @@ impl TpmsRsaParms {
         }
     }
 
-    pub(super) fn unrestricted(scheme: TpmtRsaScheme, key_bits: TpmiRsaKeyBits) -> Self {
+    pub(crate) fn unrestricted(scheme: TpmtRsaScheme, key_bits: TpmiRsaKeyBits) -> Self {
         Self {
             symmetric: TpmtSymDefObject::null(),
             scheme,
@@ -45,7 +45,7 @@ impl TpmsRsaParms {
         }
     }
 
-    pub(super) fn storage_parent() -> Self {
+    pub(crate) fn storage_parent() -> Self {
         Self {
             symmetric: TpmtSymDefObject::aes_128_cfb(),
             scheme: TpmtRsaScheme::null(),
@@ -130,9 +130,9 @@ pub(crate) enum TpmuRsaScheme {
 impl From<RsaScheme> for TpmtRsaScheme {
     fn from(rsa_scheme: RsaScheme) -> Self {
         match rsa_scheme {
-            RsaScheme::Oaep(hash) => Self::oaep(hash.into()),
-            RsaScheme::RsaSsa(hash) => Self::rsa_ssa(hash.into()),
-            RsaScheme::RsaPss(hash) => Self::rsa_pss(hash.into()),
+            RsaScheme::Oaep(hash_alg) => Self::oaep(hash_alg.into()),
+            RsaScheme::RsaSsa(hash_alg) => Self::rsa_ssa(hash_alg.into()),
+            RsaScheme::RsaPss(hash_alg) => Self::rsa_pss(hash_alg.into()),
             RsaScheme::RsaEs => Self::rsa_es(),
         }
     }

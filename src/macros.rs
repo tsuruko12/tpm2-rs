@@ -20,10 +20,42 @@ macro_rules! tpm2b_bytes_type {
             }
         }
 
-        $crate::macros::impl_tpm2b_common!($name);
+        $crate::macros::impl_buffer_methods!($name);
+        $crate::macros::impl_try_from_bytes!($name);
     };
     ($name:ident($inner:ty)) => {
-        #[derive(Clone)]
+        #[derive(Debug, Clone)]
+        pub(crate) struct $name($inner);
+
+        impl $name {
+            pub(crate) fn into_inner(self) -> $inner {
+                self.0
+            }
+
+            pub(crate) fn as_inner(&self) -> &$inner {
+                &self.0
+            }
+        }
+
+        impl From<$inner> for $name {
+            fn from(value: $inner) -> Self {
+                Self(value)
+            }
+        }
+    };
+}
+
+macro_rules! tpm2b_zeroize_type {
+    ($name:ident) => {
+        #[derive(Default, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+        pub(crate) struct $name(Vec<u8>);
+
+        $crate::macros::impl_redacted_debug!($name);
+        $crate::macros::impl_buffer_methods!($name);
+        $crate::macros::impl_try_from_bytes!($name);
+    };
+    ($name:ident($inner:ty)) => {
+        #[derive(zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
         pub(crate) struct $name($inner);
 
         impl $name {
@@ -37,51 +69,54 @@ macro_rules! tpm2b_bytes_type {
                 Self(value)
             }
         }
-
-        impl std::fmt::Debug for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                std::fmt::Debug::fmt(&self.0, f)
-            }
-        }
-
-        $crate::macros::impl_into_inner!($name, $inner);
     };
 }
 
-macro_rules! tpm2b_secret_type {
-    ($name:ident) => {
-        #[derive(Default, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
-        pub(crate) struct $name(Vec<u8>);
+macro_rules! impl_try_from_bytes {
+    ($name:ty) => {
+        impl TryFrom<Vec<u8>> for $name {
+            type Error = $crate::error::Error;
 
-        impl std::fmt::Debug for $name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.debug_struct(stringify!($name))
-                    .field("len", &self.0.len())
-                    .finish()
+            fn try_from(value: Vec<u8>) -> $crate::error::Result<Self> {
+                if value.len() <= <$name>::MAX_BYTES {
+                    Ok(Self(value))
+                } else {
+                    Err($crate::error::Error::conversion::<Vec<u8>, $name>(None))
+                }
             }
         }
 
-        $crate::macros::impl_tpm2b_common!($name);
-    };
-    ($name:ident($inner:ty)) => {
-        #[derive(zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
-        pub(crate) struct $name($inner);
+        impl TryFrom<&[u8]> for $name {
+            type Error = $crate::error::Error;
 
-        impl From<$inner> for $name {
-            fn from(value: $inner) -> Self {
-                Self(value)
+            fn try_from(value: &[u8]) -> $crate::error::Result<Self> {
+                if value.len() <= <$name>::MAX_BYTES {
+                    Ok(Self(value.to_vec()))
+                } else {
+                    Err($crate::error::Error::conversion::<&[u8], $name>(None))
+                }
             }
         }
     };
 }
 
-macro_rules! impl_tpm2b_common {
+macro_rules! impl_redacted_debug {
     ($name:ident) => {
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(concat!(stringify!($name), "([REDACTED])"))
+            }
+        }
+    };
+}
+
+macro_rules! impl_buffer_methods {
+    ($name:ty) => {
         impl $name {
             pub(crate) fn as_bytes(&self) -> &[u8] {
                 &self.0
             }
-
+            
             pub(crate) fn len(&self) -> usize {
                 self.0.len()
             }
@@ -90,7 +125,11 @@ macro_rules! impl_tpm2b_common {
                 self.0.is_empty()
             }
         }
+    };
+}
 
+macro_rules! impl_from_bytes {
+    ($name:ident) => {
         impl From<Vec<u8>> for $name {
             fn from(value: Vec<u8>) -> Self {
                 Self(value)
@@ -107,16 +146,12 @@ macro_rules! impl_tpm2b_common {
 
 macro_rules! tpm_list_type {
     ($name:ident($item:ty);) => {
-        #[derive(Debug, Clone, PartialEq, Eq)]
+        #[derive(Debug, Default, Clone, PartialEq, Eq)]
         pub(crate) struct $name {
             items: Vec<$item>,
         }
 
         impl $name {
-            pub(crate) fn default() -> Self {
-                Self { items: Vec::new() }
-            }
-
             pub(crate) fn len(&self) -> usize {
                 self.items.len()
             }
@@ -199,14 +234,8 @@ macro_rules! newtype {
             }
         }
 
-        $crate::macros::impl_into_inner!($name, $inner);
-    };
-}
-
-macro_rules! impl_into_inner {
-    ($from:ty, $to:ty) => {
-        impl From<$from> for $to {
-            fn from(value: $from) -> Self {
+        impl From<$name> for $inner {
+            fn from(value: $name) -> Self {
                 value.0
             }
         }
@@ -214,6 +243,6 @@ macro_rules! impl_into_inner {
 }
 
 pub(crate) use {
-    impl_into_inner, impl_tpm2b_common, newtype, tpm_list_type, tpm2b_bytes_type,
-    tpm2b_secret_type, unknown_tpm_data,
+    impl_redacted_debug, impl_buffer_methods, impl_try_from_bytes, newtype, tpm_list_type,
+    tpm2b_bytes_type, tpm2b_zeroize_type, unknown_tpm_data,
 };

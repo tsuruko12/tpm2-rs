@@ -1,14 +1,13 @@
 use super::{Tpm2bName, TpmaLocality};
 use crate::{
-    macros::{tpm2b_bytes_type, tpm2b_secret_type},
+    macros::{tpm2b_bytes_type, tpm2b_zeroize_type},
     types::{Tpm2bAuth, Tpm2bDigest, TpmAlgId, TpmlPcrSelection},
 };
 
 tpm2b_bytes_type!(Tpm2bNonce);
 tpm2b_bytes_type!(Tpm2bData);
 tpm2b_bytes_type!(Tpm2bCreationData(TpmsCreationData));
-tpm2b_secret_type!(Tpm2bSensitiveCreate(TpmsSensitiveCreate));
-tpm2b_secret_type!(Tpm2bSensitiveData);
+tpm2b_zeroize_type!(Tpm2bSensitiveCreate(TpmsSensitiveCreate));
 
 #[derive(Debug, Clone)]
 pub(crate) struct TpmsCreationData {
@@ -91,7 +90,6 @@ impl Tpm2bSensitiveCreate {
     }
 }
 
-// minimum marshaled size is 4 bytes: two TPM2B size fields
 #[derive(zeroize::Zeroize)]
 pub(crate) struct TpmsSensitiveCreate {
     user_auth: Tpm2bAuth,

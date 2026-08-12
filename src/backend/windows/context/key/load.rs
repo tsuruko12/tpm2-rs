@@ -9,7 +9,8 @@ use super::{
     types::{Tpm2bName, Tpm2bPrivate, TpmaSession},
 };
 use crate::{
-    Result, types::{LoadedParent, Tpm2bPublic, TpmCc, TpmHandle, TpmiDhObject},
+    Result, 
+    types::{LoadedHandle, LoadedObjectHandle, Tpm2bPublic, Tpm2bName, TpmCc, TpmHandle, TpmiDhObject},
 };
 
 impl Context {
@@ -17,11 +18,11 @@ impl Context {
         &mut self,
         in_private: &Tpm2bPrivate,
         in_public: &Tpm2bPublic,
-        parent: &LoadedParent,
+        parent: &LoadedHandle,
         session_salt_key: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
         caller_resources: Option<&mut CommandResources>,
-    ) -> Result<(TpmHandle, Tpm2bName)> {
+    ) -> Result<(LoadedObjectHandle, Tpm2bName)> {
         let mut request_params = Vec::new();
         marshal_tpm2b(&mut request_params, in_private.as_bytes())?;
         marshal_tpm2b(&mut request_params, in_public.as_inner())?;
@@ -91,5 +92,28 @@ impl Context {
         })();
 
         self.finish_command(result, resources)
+    }
+
+    pub(crate) fn resolve_persistent_handle(
+        &mut self, 
+        persistent_handle: TpmiDhPersistent,
+        obj_name: &Tpm2bName,
+    ) -> Result<ObjectHandle> {
+        let obj_handle = TpmiDhObject::from(persistent_handle);
+        self.validate_obj_name(obj_handle, obj_name, None)?;
+
+        Ok(obj_handle)
+    }
+
+    pub(crate) fn resolve_internal_key(
+        &mut self, 
+        key_meta: InternalKeyMeta,
+    ) -> Result<LoadedHandle> {
+        self.validate_obj_name(key_meta.handle, &key_meta.name, None)?;
+
+        Ok(LoadedHandle::internal_persistent(
+            key_meta.handle.into(), 
+            key_meta.object_name,
+        ))
     }
 }

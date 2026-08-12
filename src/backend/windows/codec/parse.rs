@@ -5,7 +5,7 @@ use super::super::{
     commands::TpmsAuthResponse,
     types::{
         Tpm2bCreationData, Tpm2bName, Tpm2bNonce, Tpm2bPrivate, TpmiShAuthSession,
-        TpmlDigest, TpmtTkCreation,
+        TpmtTkCreation,
     },
 };
 use super::{TpmUnmarshal, ensure_consumed, read_tpm2b, read_u8, read_u32, read_vec};
@@ -14,7 +14,7 @@ use crate::{
     types::{
         CapabilityData, Tpm2bDigest, TpmCap, TpmHandle, TpmlAlgProperty, TpmlCc, TpmlCca,
         TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
-        TpmtPublic, Tpm2bPublic, 
+        TpmlDigest, TpmtPublic, Tpm2bPublic, 
     },
 };
 

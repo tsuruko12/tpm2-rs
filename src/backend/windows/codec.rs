@@ -5,8 +5,9 @@ pub(super) use self::parse::{
     CreatePrimaryResponse, CreateResponse, GetCapabilityResponse, GetRandomResponse, LoadResponse, PcrReadResponse,
     ReadPublicResponse, StartAuthSessionResponse, parse_response_params_and_authorizations,
 };
-pub(super) use self::wire::{
-    TpmMarshal, TpmUnmarshal, marshal_tpm2b, read_tpm2b_exact, read_vec, tpm2b_payload_mut,
+pub(super) use crate::types::{
+    TpmMarshal, TpmUnmarshal, marshal_tpm2b, read_tpm2b, read_u16, read_u32, read_vec,
 };
+pub(super) use self::wire::{read_tpm2b_exact, tpm2b_payload_mut};
 
-use self::wire::{ensure_consumed, read_tpm2b, read_u8, read_u32};
+use self::wire::{ensure_consumed, read_u8};

@@ -11,7 +11,7 @@ use super::{
 use crate::{
     Error, Result,
     types::{
-        Authorization, CreatedObject, LoadedParent, Tpm2bAuth, TpmCc, TpmiDhObject,
+        Authorization, CreatedObject, LoadedHandle, Tpm2bAuth, TpmCc, TpmiDhObject,
         TpmlPcrSelection, TpmtPublic,
     },
 };
@@ -21,7 +21,7 @@ impl Context {
         &mut self,
         in_public: &TpmtPublic,
         auth: Tpm2bAuth,
-        parent: &LoadedParent,
+        parent: &LoadedHandle,
         session_salt_key: Option<TpmiDhObject>,
     ) -> Result<CreatedObject> {
         // use password session when session_salt_key is None
@@ -123,17 +123,19 @@ impl Context {
         self.finish_command(result, &mut resources)
     }
 
-    pub(crate) fn create_owner_primary(
+    pub(crate) fn create_primary(
         &mut self,
+        primary_handle: TpmiRhHierarchy,
         in_public: &TpmtPublic,
-        owner_authorization: &Authorization,
+        auth: Tpm2bAuth,
+        primary_authorization: &Authorization,
         session_salt_key: Option<TpmiDhObject>,
     ) -> Result<CreatedObject> {
         let mut request_params = Vec::new();
 
         marshal_tpm2b(
             &mut request_params,
-            &TpmsSensitiveCreate::asymmetric(Tpm2bAuth::default()),
+            &TpmsSensitiveCreate::asymmetric(auth),
         )?;
         marshal_tpm2b(&mut request_params, in_public)?;
         marshal_tpm2b(&mut request_params, Tpm2bData::default().as_bytes())?;
@@ -142,7 +144,6 @@ impl Context {
         let mut resources = CommandResources::default();
 
         let command_code = TpmCc::CREATE_PRIMARY;
-        let primary_handle = TpmiRhHierarchy::OWNER;
         let session_attrs = match session_salt_key {
             Some(_) => TpmaSession::encrypt_decrypt(),
             None => TpmaSession::empty(),
@@ -152,7 +153,7 @@ impl Context {
             let mut sessions = self.prepare_sessions(
                 &mut resources,
                 session_attrs,
-                Some(owner_authorization),
+                Some(primary_authorization),
                 session_salt_key,
                 None,
             )?;

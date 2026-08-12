@@ -1,26 +1,47 @@
 use tss_esapi::{
     handles::KeyHandle,
-    interface_types::{resource_handles::Hierarchy, session_handles::AuthSession},
-    structures::{Auth, Public},
+    interface_types::{resource_handles::Hierarchy as EsapiHierarchy, session_handles::AuthSession},
+    structures::Public,
 };
 
 use crate::{
-    Error, Result, types::{Authorization, CreatedObject, LoadedParent, TpmaSession, TpmtPublic}
+    Error, Result, 
+    public::KeyTemplate, 
+    types::{
+        Authorization, CreatedObject, Key, LoadedHandle, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, 
+        TpmaSession, TpmiRhHierarchy
+    }
 };
 
 use super::Context;
 use super::super::CommandResources;
 
 impl Context {
+    pub(crate) fn create_key(
+        &mut self,
+        template: KeyTemplate,
+        authorization: Authorization,
+        key_name: Option<&str>,
+        parent_name: Option<&str>,
+    ) -> Result<Key> {
+        let auth_policy = match authorization.policy() {
+            Some(policy) => self.compute_auth_policy(policy)?.into(),
+            None => Tpm2bDigest::default(),
+        };
+        let public = Tpm2bPublic::from_template(&template, auth_policy);
+    }
+
     pub(crate) fn create_and_load(
         &mut self,
-        public: &Public,
-        auth: Auth,
-        parent: &LoadedParent,
+        in_public: Tpm2bPublic,
+        auth: Tpm2bAuth,
+        parent: &LoadedHandle,
         session_salt_key: Option<KeyHandle>,
     ) -> Result<CreatedObject> {
         // use password session when session_salt_key is None
         let mut resources = CommandResources::default();
+
+        let in_public = Public::try_from(in_public)?;
         let parent_handle = parent.handle();
 
         let result = (|| {
@@ -41,8 +62,8 @@ impl Context {
                 .execute_with_sessions(resources.session_slots(), |ctx| {
                     ctx.create(
                         parent_handle,
-                        public.clone().into(),
-                        Some(auth),
+                        in_public,
+                        Some(auth.into()),
                         None,
                         None,
                         None,
@@ -52,69 +73,77 @@ impl Context {
                 .map_err(Error::from_tss_err)?;
 
             match session_salt_key {
-                Some(_) => resources.clear_policy_session(),
+                Some(_) => resources.flush_policy_session(self)?,
                 None => resources.clear_password_session(),
             }
 
-            let (obj_handle, name) = self.load_handle(
-                &out_private,
-                &out_public,
+            let (handle, name) = self.load_handle(
+                out_private.clone(),
+                out_public.clone(),
                 parent,
                 session_salt_key,
                 Some(&mut resources),
             )?;
 
             Ok(CreatedObject {
-                obj_handle,
-                public: TpmtPublic::try_from(out_public)?.into(),
-                private: Some(out_private.value().into()),
-                name: name.try_into()?,
+                handle,
+                public: out_public.try_into()?,
+                private: Some(out_private.into()),
+                name,
             })   
         })();
 
         self.finish_command(result, &mut resources)
     }
 
-    pub(crate) fn create_owner_primary(
+    pub(crate) fn create_primary(
         &mut self,
-        in_public: &Public,
-        owner_authorization: &Authorization,
+        primary_handle: TpmiRhHierarchy,
+        in_public: Tpm2bPublic,
+        auth: Tpm2bAuth,
+        primary_authorization: &Authorization,
         session_salt_key: Option<KeyHandle>,
     ) -> Result<CreatedObject> {
         let mut resources = CommandResources::default();
         
-        let primary_handle = Hierarchy::Owner;
+        let in_public = Public::try_from(in_public)?;
+        let primary_handle = EsapiHierarchy::try_from(primary_handle)
+            .map_err(|_| Error::invalid_state("unexpected primary hierarchy"))?;
         let session_attrs = match session_salt_key {
-            Some(_) => TpmaSession::encrypt_decrypt(),
-            None => TpmaSession::empty(),
+            Some(_) => TpmaSession::encrypt_decrypt().with_continue_session(),
+            None => TpmaSession::continue_session(),
         };
 
         let result = (|| {
             self.prepare_sessions(
                 &mut resources,
-                Some((primary_handle.into(), owner_authorization)),
+                Some((primary_handle.into(), primary_authorization)),
                 session_attrs,
                 session_salt_key,
             )?;
 
-            let (obj_handle, out_public) = self
+            let (handle, out_public) = self
                 .ctx
                 .execute_with_sessions(resources.session_slots(), |ctx| {
-                    ctx.create_primary(primary_handle, in_public.clone(), None, None, None, None)
+                    ctx.create_primary(
+                        primary_handle, 
+                        in_public, 
+                        Some(auth.into()), 
+                        None, 
+                        None, 
+                        None,
+                    )
                 })
                 .map(|created| (created.key_handle, created.out_public))
                 .map_err(Error::from_tss_err)?;
             
-            resources.add_transient_handle(obj_handle);
-            resources.clear_sessions();
-
-            let name = self.read_object_name(obj_handle)?;
+            resources.add_transient_handle(handle.into());
 
             Ok(CreatedObject {
-                obj_handle,
-                public: TpmtPublic::try_from(out_public)?.into(),
+                handle,
+                public: out_public.try_into()?,
                 private: None,
-                name: name.try_into()?,
+                name: self.read_obj_name(handle.into())?,
             })
         })();
 

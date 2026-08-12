@@ -1,24 +1,62 @@
 use bitflags::bitflags;
 
 use crate::{
-    Error, Result, macros::{newtype, tpm2b_bytes_type}, types::{
-        TpmiRsaKeyBits, TpmtRsaScheme,
-        tpm::{keyed_hash::TpmsKeyedHashParms, symmetric::TpmsSymCipherParms},
+    Error, Result,
+    macros::{newtype, tpm2b_bytes_type},
+    types::public::{
+        KeyTemplate,
+        ecc::EccTemplate,
+        rsa::{RsaScheme, RsaTemplate},
     },
 };
-
 use super::{
-    TpmAlgId, TpmiAlgHash,
-    digest::Tpm2bDigest,
-    ecc::{TpmsEccParms, TpmsEccPoint},
-    rsa::{Tpm2bPublicKeyRsa, TpmsRsaParms},
+    Tpm2bDigest, TpmAlgId, TpmHandle, TpmiAlgHash,
+    algorithm::{
+        Tpm2bPublicKeyRsa, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint, TpmsKeyedHashParms,
+        TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme,
+    },
 };
 
 tpm2b_bytes_type!(Tpm2bPublic(TpmtPublic));
 
 impl Tpm2bPublic {
-    pub(crate) fn unique(&self) -> &TpmuPublicId {
-        self.0.unique()
+    pub(crate) fn from_template(template: &KeyTemplate, auth_policy: impl Into<Tpm2bDigest>) -> Self {
+        let auth_policy = auth_policy.into();
+
+        match template {
+            KeyTemplate::Ecc(template) => TpmtPublic::ecc(template, auth_policy).into(),
+            KeyTemplate::Rsa(template) => TpmtPublic::rsa(template, auth_policy).into(),
+            KeyTemplate::Symmetric(_) => Self::rsa_decrypt(auth_policy),
+        }
+    }
+
+    pub(crate) fn storage_parent() -> Self {
+        TpmtPublic::new(
+            TpmiAlgPublic::RSA, 
+            TpmiAlgHash::SHA256, 
+            TpmaObject::storage_parent(), 
+            Tpm2bDigest::default(), 
+            TpmuPublicParms::RsaDetail(TpmsRsaParms::storage_parent()), 
+            TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+        )
+        .into()
+    }
+
+    pub(crate) fn rsa_decrypt(auth_policy: Tpm2bDigest) -> Self {
+        let rsa_params = TpmsRsaParms::unrestricted(
+            TpmtRsaScheme::oaep(TpmiAlgHash::SHA256.into()),
+            TpmiRsaKeyBits::BITS2048,
+        );
+
+        TpmtPublic::new(
+            TpmiAlgPublic::RSA, 
+            TpmiAlgHash::SHA256, 
+            TpmaObject::decrypt(false, false), 
+            auth_policy, 
+            TpmuPublicParms::RsaDetail(rsa_params), 
+            TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+        )
+        .into()
     }
 }
 
@@ -51,29 +89,47 @@ impl TpmtPublic {
         }
     }
 
-    pub(crate) fn storage_parent() -> Self {
-        Self {
-            alg_type: TpmiAlgPublic::RSA,
-            name_alg: TpmiAlgHash::SHA256,
-            object_attributes: TpmaObject::storage_parent(),
-            auth_policy: Tpm2bDigest::default(),
-            parameters: TpmuPublicParms::RsaDetail(TpmsRsaParms::storage_parent()),
-            unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+    fn ecc(template: &EccTemplate, auth_policy: Tpm2bDigest) -> Self {
+        let parameters = TpmuPublicParms::EccDetail(
+            TpmsEccParms::ecdsa(
+                template.curve().into(), 
+                template.scheme().into(),
+            )
+        );
+
+        Self { 
+            alg_type: TpmiAlgPublic::ECC, 
+            name_alg: TpmiAlgHash::SHA256, 
+            object_attributes: TpmaObject::sign(false, template.exportable()), 
+            auth_policy, 
+            parameters, 
+            unique: TpmuPublicId::Ecc(TpmsEccPoint::default()),
         }
     }
 
-    pub(crate) fn rsa_decrypt() -> Self {
-        let rsa_params = TpmsRsaParms::unrestricted(
-            TpmtRsaScheme::oaep(TpmiAlgHash::SHA256.into()),
-            TpmiRsaKeyBits::BITS2048,
-        );
+    fn rsa(template: &RsaTemplate, auth_policy: Tpm2bDigest) -> Self {
+        let duplicable = template.exportable();
+        let (rsa_params, object_attributes) = match template.scheme() {
+            Some(scheme) => {
+                let params = TpmsRsaParms::unrestricted(scheme.into(), template.key_bits().into());
+                let attrs = if matches!(scheme, RsaScheme::Oaep(_) | RsaScheme::RsaEs) {
+                    TpmaObject::decrypt(false, duplicable)
+                } else {
+                    TpmaObject::sign(false, duplicable)
+                };
 
-        Self {
-            alg_type: TpmiAlgPublic::RSA,
-            name_alg: TpmiAlgHash::SHA256,
-            object_attributes: TpmaObject::decrypt(false, false),
-            auth_policy: Tpm2bDigest::default(),
-            parameters: TpmuPublicParms::RsaDetail(rsa_params),
+                (params, attrs)
+            },
+            None => (TpmsRsaParms::storage_parent(), TpmaObject::storage_parent()),
+        };
+        let parameters = TpmuPublicParms::RsaDetail(rsa_params);
+
+        Self { 
+            alg_type: TpmiAlgPublic::RSA, 
+            name_alg: TpmiAlgHash::SHA256, 
+            object_attributes, 
+            auth_policy, 
+            parameters, 
             unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
         }
     }
@@ -217,19 +273,32 @@ pub(crate) enum TpmuPublicId {
 }
 
 impl TpmuPublicId {
-    pub(crate) fn keyed_hash(value: Tpm2bDigest) -> Self {
-        Self::KeyedHash(value)
+    pub(crate) fn keyed_hash(digest: Tpm2bDigest) -> Self {
+        Self::KeyedHash(digest)
     }
 
-    pub(crate) fn sym(value: Tpm2bDigest) -> Self {
-        Self::Sym(value)
+    pub(crate) fn sym(digest: Tpm2bDigest) -> Self {
+        Self::Sym(digest)
     }
 
-    pub(crate) fn rsa(value: Vec<u8>) -> Self {
-        Self::Rsa(Tpm2bPublicKeyRsa::from(value))
+    pub(crate) fn rsa(public_key: Tpm2bPublicKeyRsa) -> Self {
+        Self::Rsa(public_key)
     }
 
-    pub(crate) fn ecc(x: Vec<u8>, y: Vec<u8>) -> Self {
-        Self::Ecc(TpmsEccPoint::new(x, y))
+    pub(crate) fn ecc(point: TpmsEccPoint) -> Self {
+        Self::Ecc(point)
     }
 }
+
+tpm2b_bytes_type!(Tpm2bName);
+
+// size 4 -> handle (TPM_HANDLE)
+// size 0 -> no name
+// others -> TPM_ALG_ID + digest (TPMT_HA)
+
+impl Tpm2bName {
+    const NO_NAME_SIZE: usize = 0;
+    const HANDLE_SIZE: usize = size_of::<TpmHandle>();
+    const MAX_BYTES: usize = TpmtHa::MAX_BYTES;
+}
+

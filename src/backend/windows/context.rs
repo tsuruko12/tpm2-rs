@@ -27,6 +27,7 @@ struct CommandResources {
     transient_handles: Vec<TpmiDhObject>,
 }
 
+// memo: pass Context to let CommandResource gets access flush methods
 impl CommandResources {
     fn sessions(&self) -> &SessionSlots {
         &self.sessions

@@ -1,13 +1,9 @@
 mod algorithm;
 mod attribute;
+mod buffer;
 mod capability;
 mod command_code;
-mod digest;
-mod ecc;
 mod handle;
-mod keyed_hash;
 mod policy;
 mod public;
-mod rsa;
-mod symmetric;
 mod tag;

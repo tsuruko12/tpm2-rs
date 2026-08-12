@@ -1,7 +1,30 @@
+mod ecc;
+mod hash;
+mod keyed_hash;
+mod rsa;
+mod symmetric;
+
+pub(crate) use self::ecc::{
+    TpmEccCurve, TpmiAlgEccScheme, TpmiEccCurve, TpmlEccCurve, TpmsEccParms, TpmsEccPoint,
+    TpmsSchemeEcdaa, TpmtEccScheme, TpmtSigScheme, TpmuEccScheme, TpmuSigScheme, Tpm2bEccParameter
+};
+pub(crate) use self::hash::{TpmiAlgHash, TpmsSchemeHash, TpmtHa, TpmlDigest};
+pub(crate) use self::keyed_hash::{
+    TpmiAlgKeyedHashScheme, TpmsKeyedHashParms, TpmsSchemeXor, TpmtKeyedHashScheme,
+    TpmuSchemeKeyedHash,
+};
+pub(crate) use self::rsa::{
+    Tpm2bPublicKeyRsa, TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme,
+    TpmuRsaScheme,
+};
+pub(crate) use self::symmetric::{
+    TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmsSymCipherParms, TpmtSymDefObject,
+};
+
+
 use crate::{
     Error, Result,
     macros::{newtype, tpm_list_type},
-    types::algorithm::HashAlgorithm,
 };
 
 tpm_list_type!(TpmlAlgProperty(TpmsAlgProperty););
@@ -148,80 +171,6 @@ impl TryFrom<u16> for TpmAlgId {
     }
 }
 
-newtype!(TpmiAlgHash(TpmAlgId));
-
-impl TpmiAlgHash {
-    pub(crate) const SHA1: Self = Self(TpmAlgId::Sha1);
-    pub(crate) const SHA256: Self = Self(TpmAlgId::Sha256);
-    pub(crate) const SHA384: Self = Self(TpmAlgId::Sha384);
-    pub(crate) const SHA512: Self = Self(TpmAlgId::Sha512);
-    pub(crate) const SHA256_192: Self = Self(TpmAlgId::Sha256_192);
-    pub(crate) const SM3_256: Self = Self(TpmAlgId::Sm3_256);
-    pub(crate) const SHA3_256: Self = Self(TpmAlgId::Sha3_256);
-    pub(crate) const SHA3_384: Self = Self(TpmAlgId::Sha3_384);
-    pub(crate) const SHA3_512: Self = Self(TpmAlgId::Sha3_512);
-    pub(crate) const SHAKE256_192: Self = Self(TpmAlgId::Shake256_192);
-    pub(crate) const SHAKE256_256: Self = Self(TpmAlgId::Shake256_256);
-    pub(crate) const SHAKE256_512: Self = Self(TpmAlgId::Shake256_512);
-    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-}
-
-impl TryFrom<TpmAlgId> for TpmiAlgHash {
-    type Error = Error;
-
-    fn try_from(alg: TpmAlgId) -> Result<Self> {
-        match alg {
-            TpmAlgId::Sha1
-            | TpmAlgId::Sha256
-            | TpmAlgId::Sha384
-            | TpmAlgId::Sha512
-            | TpmAlgId::Sha256_192
-            | TpmAlgId::Null
-            | TpmAlgId::Sm3_256
-            | TpmAlgId::Sha3_256
-            | TpmAlgId::Sha3_384
-            | TpmAlgId::Sha3_512
-            | TpmAlgId::Shake256_192
-            | TpmAlgId::Shake256_256
-            | TpmAlgId::Shake256_512 => Ok(Self(alg)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgHash>(Some(&alg))),
-        }
-    }
-}
-
-impl TryFrom<u16> for TpmiAlgHash {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        Self::try_from(TpmAlgId::try_from(value)?)
-    }
-}
-
-impl From<HashAlgorithm> for TpmiAlgHash {
-    fn from(hash: HashAlgorithm) -> Self {
-        match hash {
-            HashAlgorithm::Sha1 => Self::SHA1,
-            HashAlgorithm::Sha256 => Self::SHA256,
-            HashAlgorithm::Sha384 => Self::SHA384,
-            HashAlgorithm::Sha512 => Self::SHA512,
-        }
-    }
-}
-
-impl From<HashAlgorithm> for TpmsSchemeHash {
-    fn from(hash: HashAlgorithm) -> Self {
-        Self {
-            hash_alg: hash.into(),
-        }
-    }
-}
-
-impl From<TpmiAlgHash> for TpmsSchemeHash {
-    fn from(hash_alg: TpmiAlgHash) -> Self {
-        Self { hash_alg }
-    }
-}
-
 newtype!(TpmiAlgKdf(TpmAlgId));
 
 impl TpmiAlgKdf {
@@ -254,11 +203,6 @@ impl TryFrom<TpmAlgId> for TpmiAlgKdf {
             _ => Err(Error::conversion::<TpmAlgId, TpmiAlgKdf>(Some(&alg))),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmsSchemeHash {
-    pub(crate) hash_alg: TpmiAlgHash,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use tracing::debug;
 use tss_esapi::{
     constants::Tss2ResponseCodeKind,
     handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, SessionHandle},
-    interface_types::{resource_handles::Provision, session_handles::AuthSession},
+    interface_types::{resource_handles::Provision, session_handles::{AuthSession, PolicySession}},
 };
 
 use crate::{Error, Result, types::{Authorization, TpmaSession}};
@@ -22,7 +22,7 @@ impl Context {
             self.prepare_sessions(
                 resources,
                 Some((ObjectHandle::Owner, owner_authorization)),
-                TpmaSession::empty(),
+                TpmaSession::empty().with_continue_session(),
                 session_salt_key,
             )?;
 
@@ -30,10 +30,7 @@ impl Context {
                 match self.ctx.execute_with_sessions(resources.session_slots(), |ctx| {
                     ctx.evict_control(Provision::Owner, obj_handle, (*persistent_handle).into())
                 }) {
-                    Ok(handle) => {
-                        resources.clear_sessions();
-                        break Ok(handle)
-                    },
+                    Ok(handle) => break Ok(handle),
                     Err(e) => {
                         if is_nv_defined_err(e) {
                             let handle_raw = u32::from(*persistent_handle);
@@ -61,32 +58,6 @@ impl Context {
         self.finish_command(result, resources)
     }
 
-    pub(super) fn release_resources(&mut self, resources: &mut CommandResources) -> Result<()> {
-        if !resources.persistent_handles.is_empty() {
-            self.close_handles(&mut resources.persistent_handles)?;
-        }
-
-        if !resources.transient_handles.is_empty() {
-            self.flush_handles(&mut resources.transient_handles)?;
-        }
-        
-        self.flush_sessions(&mut resources.sessions)?;
-
-        Ok(())   
-    }
-
-    pub(super) fn cleanup_resources(&mut self, resources: &mut CommandResources) {
-        if !resources.persistent_handles.is_empty() {
-            let _ = self.close_handles(&mut resources.persistent_handles);
-        }
-
-        if !resources.transient_handles.is_empty() {
-            let _ = self.flush_handles(&mut resources.transient_handles);
-        }
-
-        let _ = self.flush_sessions(&mut resources.sessions);
-    }
-
     pub(super) fn flush_sessions(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
         let mut first_err = None;
 
@@ -96,7 +67,7 @@ impl Context {
             };
 
             if handle != AuthSession::Password {
-                if let Err(e) = self.flush_context(SessionHandle::from(handle)) {
+                if let Err(e) = self.flush_context(SessionHandle::from(handle).into()) {
                     first_err.get_or_insert(e);
                     debug!(?handle, "failed to flush TPM session");
 
@@ -110,43 +81,51 @@ impl Context {
         first_err.map_or(Ok(()), Err)
     }
 
-    pub(super) fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
-        let mut first_err = None;
-        let mut remaining = Vec::new();
-
-        while let Some(handle) = handles.pop() {
-            if let Err(e) = self.flush_context(handle) {
-                first_err.get_or_insert(e);
-                remaining.push(handle);
-
-                debug!("failed to flush TPM handle");
-            }
+    pub(super) fn flush_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {
+        if *handle == ObjectHandle::None {
+            return Ok(());
         }
 
-        *handles = remaining;
+        self
+            .flush_context(*handle)
+            .inspect_err(|_| debug!("failed to flush TPM handle"))?;
+
+        *handle = ObjectHandle::None;
+
+        Ok(())
+    }
+
+    pub(super) fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
+        let mut first_err = None;
+
+        for handle in handles.iter_mut() {
+            if let Err(e) = self.flush_handle(handle) {
+                first_err.get_or_insert(e);
+            }
+        }
 
         first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn close_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
         let mut first_err = None;
-        let mut remaining = Vec::new();
 
-        while let Some(mut handle) = handles.pop() {
-            if let Err(e) = self.close_handle(&mut handle) {
+        for handle in handles.iter_mut() {
+            if let Err(e) = self.close_handle(handle) {
                 first_err.get_or_insert(e);
-                remaining.push(handle);
 
                 debug!("failed to close ESAPI handle");
             }
         }
 
-        *handles = remaining;
-
         first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn close_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {
+        if *handle == ObjectHandle::None {
+            return Ok(());
+        }
+
         if let Err(e) = self.ctx.tr_close(handle) {
             debug!("failed to close ESAPI handle");
             return Err(Error::from_tss_err(e));
@@ -155,8 +134,88 @@ impl Context {
         Ok(())
     }
 
-    fn flush_context(&mut self, flush_handle: impl Into<ObjectHandle>) -> Result<()> {
-        self.ctx.flush_context(flush_handle.into()).map_err(Error::from_tss_err)
+    pub(super) fn flush_policy_session(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
+        for session in sessions.iter_mut() {
+            let Some(handle) = *session else {
+                continue;
+            };
+
+            if PolicySession::try_from(handle).is_ok() {
+                self.flush_context(SessionHandle::from(handle).into())?;
+                *session = None;
+                
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn flush_context(&mut self, flush_handle: ObjectHandle) -> Result<()> {
+        self.ctx.flush_context(flush_handle).map_err(Error::from_tss_err)
+    }
+}
+
+impl CommandResources {
+    pub(super) fn release_handle(
+        &mut self, 
+        ctx: &mut Context, 
+        target: ObjectHandle, 
+        is_persistent: bool
+    ) -> Result<()> {
+        if is_persistent {
+            self.close_handle(ctx, target)
+        } else {
+            self.flush_handle(ctx, target)
+        }
+    }
+
+    pub(super) fn flush_handle(
+        &mut self,
+        ctx: &mut Context,
+        target: ObjectHandle,
+    ) -> Result<()> {
+        let handle = self
+            .transient_handles
+            .iter_mut()
+            .find(|handle| **handle == target)
+            .expect("transient handle must be tracked in command resources");
+
+        ctx.flush_handle(handle)
+    }
+
+    pub(super) fn close_handle(
+        &mut self,
+        ctx: &mut Context,
+        target: ObjectHandle,
+    ) -> Result<()> {
+        let handle = self
+            .persistent_handles
+            .iter_mut()
+            .find(|handle| **handle == target)
+            .expect("persistent handle must be tracked in command resources");
+
+        ctx.close_handle(handle)
+    }
+
+    pub(super) fn flush_sessions(&mut self, ctx: &mut Context) -> Result<()> {
+        ctx.flush_sessions(&mut self.sessions)
+    }
+
+    pub(super) fn flush_policy_session(&mut self, ctx: &mut Context) -> Result<()> {
+        ctx.flush_policy_session(&mut self.sessions)
+    }
+
+    pub(super) fn release(&mut self, ctx: &mut Context) -> Result<()> {
+        ctx.close_handles(&mut self.persistent_handles)?;
+        ctx.flush_handles(&mut self.transient_handles)?;
+        ctx.flush_sessions(&mut self.sessions)
+    }
+
+    pub(super) fn cleanup(&mut self, ctx: &mut Context) {
+        let _ = ctx.close_handles(&mut self.persistent_handles);
+        let _ = ctx.flush_handles(&mut self.transient_handles);
+        let _ = ctx.flush_sessions(&mut self.sessions);
     }
 }
 

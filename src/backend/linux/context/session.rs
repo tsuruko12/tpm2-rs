@@ -8,14 +8,14 @@ use tss_esapi::{
         session_handles::{AuthSession, PolicySession},
     },
     structures::{
-        Digest, DigestList, PcrSelectionList, PcrSelectionListBuilder, SymmetricDefinition,
+        Auth, Digest, DigestList, PcrSelectionList, PcrSelectionListBuilder, SymmetricDefinition
     },
 };
 
-use super::{CommandResources, Context, auth_from_bytes};
+use super::{CommandResources, Context};
 use crate::{
     Error, Result,
-    types::{Authorization, PcrSelection, PolicyCommand, PolicyData, Tpm2bDigest, TpmaSession},
+    types::{Authorization, PcrSelection, PolicyCommand, PolicyData, TpmaSession, TpmlDigest},
 };
 
 // policy + no-attrs -> policy authorization
@@ -36,7 +36,7 @@ impl Context {
         match authorization {
             Some((obj_handle, authorization)) => {
                 let (auth, policy) = authorization.as_parts();
-                self.set_auth(obj_handle, auth)?;
+                self.set_auth(obj_handle, auth.into())?;
 
                 if let Some(hmac_session) = resources.find_hmac_session() {
                     self.prepare_sessions_with_hmac(
@@ -60,13 +60,11 @@ impl Context {
                 } else {
                     self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
                 }                       
-            },
-            None => {
-                self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
-            }
-        }
 
-        Ok(())
+                Ok(())
+            },
+            None => self.prepare_hmac_session(resources, session_attrs, tpm_key),
+        }
     }
 
     fn prepare_sessions_with_hmac(
@@ -89,19 +87,16 @@ impl Context {
         resources: &mut CommandResources,
         policy: &PolicyData,
         tpm_key: Option<KeyHandle>,
-    ) -> Result<AuthSession> {
-        let policy_session = self.start_auth_session(tpm_key, SessionType::Policy)?;
-        resources.add_session(policy_session)?;
+    ) -> Result<()> {
+        let policy_session = self.start_auth_session(resources, tpm_key, SessionType::Policy)?;
 
-        self.set_session_attrs(policy_session, TpmaSession::empty())?;
+        self.set_session_attrs(policy_session, TpmaSession::continue_session())?;
         self.apply_policy(
             policy_session
                 .try_into()
                 .expect("session must be a policy session"),
             policy,
-        )?;
-
-        Ok(policy_session)
+        )
     }
 
     fn prepare_hmac_session(
@@ -109,12 +104,9 @@ impl Context {
         resources: &mut CommandResources,
         session_attrs: TpmaSession,
         tpm_key: Option<KeyHandle>,
-    ) -> Result<AuthSession> {
-        let hmac_session = self.start_auth_session(tpm_key, SessionType::Hmac)?;
-        resources.add_session(hmac_session)?;
-        self.set_session_attrs(hmac_session, session_attrs)?;
-
-        Ok(hmac_session)
+    ) -> Result<()> {
+        let hmac_session = self.start_auth_session(resources, tpm_key, SessionType::Hmac)?;
+        self.set_session_attrs(hmac_session, session_attrs)
     }
 
     fn set_session_attrs(&mut self, session: AuthSession, session_attrs: TpmaSession) -> Result<()> {
@@ -128,6 +120,7 @@ impl Context {
 
     fn start_auth_session(
         &mut self,
+        resources: &mut CommandResources,
         tpm_key: Option<KeyHandle>,
         session_type: SessionType,
     ) -> Result<AuthSession> {
@@ -147,14 +140,31 @@ impl Context {
                 Error::InvalidData
             })?;
 
+        resources.add_session(session)?;
+
         Ok(session)
     }
 
-    fn set_auth(&mut self, handle: ObjectHandle, auth: &[u8]) -> Result<()> {
+    fn set_auth(&mut self, handle: ObjectHandle, auth: Auth) -> Result<()> {
         self.ctx
-            .tr_set_auth(handle, auth_from_bytes(auth)?)
+            .tr_set_auth(handle, auth)
             .map_err(Error::esapi)
     }
+
+    pub(super) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Digest> {
+        let mut resources = CommandResources::default();
+
+        let result = (|| {
+            let policy_session = self
+                .start_auth_session(&mut resources, None, SessionType::Trial)
+                .map(|session| session.try_into().expect("session must be a policy session"))?;
+            self.apply_policy(policy_session, policy)?;
+
+            self.ctx.policy_get_digest(policy_session).map_err(Error::from_tss_err)     
+        })();
+
+        self.finish_command(result, &mut resources)
+    } 
 
     fn apply_policy(&mut self, session: PolicySession, policy: &PolicyData) -> Result<()> {
         self.apply_policy_step(session, policy)
@@ -210,19 +220,19 @@ impl Context {
     fn apply_policy_or(
         &mut self,
         session: PolicySession,
-        digests: &[Tpm2bDigest],
+        digests: &TpmlDigest,
         selected_branch: &PolicyData,
     ) -> Result<()> {
         let mut digest_list = DigestList::new();
 
-        for digest in digests {
+        for digest in digests.items() {
             digest_list
-                .add(digest.clone().try_into()?)
-                .map_err(|_| Error::invalid_state("digest list contains more than 8 items"))?;
+                .add(Digest::from(digest.clone()))
+                .expect("TpmlDigest must contain at most 8 items");
         }
 
         if matches!(selected_branch, PolicyData::Or { .. }) {
-            return Err(Error::invalid_state("unexpected nested PolicyOr"));
+            return Err(Error::invalid_state("unexpected nested PolicyOR"));
         }
 
         self.apply_policy_step(session, selected_branch)?;

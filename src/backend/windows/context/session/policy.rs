@@ -5,13 +5,14 @@ use super::super::super::{
     codec::{PcrReadResponse, TpmMarshal, marshal_tpm2b},
     commands::Command,
     macros::reject_trailing_bytes,
-    types::{TpmiShPolicy, TpmlDigest},
+    types::TpmiShPolicy,
 };
 use super::super::Context;
 use crate::{
     Error, Result,
     types::{
         PcrSelection, PcrSlot, PolicyData, Tpm2bDigest, TpmCc, TpmHandle, TpmiAlgHash,
+        TpmlDigest,
         TpmlPcrSelection, TpmsPcrSelection,
     },
 };
@@ -25,13 +26,13 @@ impl Context {
     }
 
     fn apply_policy_pcr(&mut self, handle: TpmHandle, selection: &PcrSelection) -> Result<()> {
-        let hash = TpmiAlgHash::from(selection.hash_alg());
+        let hash_alg = TpmiAlgHash::from(selection.hash_alg());
         let slots = selection.slots();
 
         let pcr_select = slots_to_pcr_select(slots);
-        let selection_list = TpmlPcrSelection::from(vec![TpmsPcrSelection::new(hash, pcr_select)]);
+        let selection_list = TpmlPcrSelection::from(vec![TpmsPcrSelection::new(hash_alg, pcr_select)]);
 
-        let digest = self.compute_pcr_digest(hash, slots)?;
+        let digest = self.compute_pcr_digest(hash_alg, slots)?;
 
         let mut request_params = Vec::new();
         marshal_tpm2b(&mut request_params, digest.as_bytes())?;
@@ -97,17 +98,17 @@ impl Context {
     fn apply_policy_or(
         &mut self,
         handle: TpmHandle,
-        digests: &[Tpm2bDigest],
+        digests: &TpmlDigest,
         selected_branch: &PolicyData,
     ) -> Result<()> {
         if matches!(selected_branch, PolicyData::Or { .. }) {
-            return Err(Error::invalid_state("unexpected nested PolicyOr"));
+            return Err(Error::invalid_state("unexpected nested PolicyOR"));
         }
 
         self.apply_policy_step(handle, selected_branch)?;
 
         let mut request_params = Vec::new();
-        TpmlDigest::from(digests).marshal(&mut request_params)?;
+        digests.marshal(&mut request_params)?;
 
         let command = Command::new(TpmCc::POLICY_OR)
             .with_handles([handle])

@@ -1,6 +1,5 @@
-use crate::{Error, Result, macros::newtype};
-
 use super::TpmAlgId;
+use crate::{Error, Result, macros::newtype};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmsSymCipherParms {
@@ -154,4 +153,3 @@ impl TryFrom<TpmAlgId> for TpmiAlgSymMode {
         }
     }
 }
-

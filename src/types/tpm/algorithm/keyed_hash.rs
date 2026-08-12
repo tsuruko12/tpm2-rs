@@ -1,8 +1,5 @@
-use crate::{
-    Error, Result,
-    macros::newtype,
-    types::{TpmAlgId, TpmiAlgHash, TpmiAlgKdf, TpmsSchemeHash},
-};
+use super::{TpmAlgId, TpmiAlgHash, TpmiAlgKdf, TpmsSchemeHash};
+use crate::{Error, Result, macros::newtype};
 
 // Support for TPM_ALG_NULL for HMAC keys
 // with the sign attribute was deprecated
