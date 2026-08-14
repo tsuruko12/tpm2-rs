@@ -1,15 +1,9 @@
 use crate::{
     Error, Result,
-    macros::{newtype, tpm2b_bytes_type},
+    macros::newtype,
     types::public::rsa::{RsaKeyBits, RsaScheme},
 };
 use super::{TpmAlgId, TpmsEmpty, TpmsSchemeHash, TpmtSymDefObject};
-
-tpm2b_bytes_type!(Tpm2bPublicKeyRsa);
-
-impl Tpm2bPublicKeyRsa {
-    const MAX_BYTES: usize = RsaKeyBits::MAX_BITS / 2;
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmsRsaParms {

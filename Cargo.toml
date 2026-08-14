@@ -15,10 +15,10 @@ bundled-windows = ["rusqlite/bundled-windows"]
 [dependencies]
 aes-gcm = { version = "0.10", optional = true }
 asn1 = "0.24"
-base64 = "0.22"
 bitflags = "2.13"
 block-padding = "0.4"
 directories = "6.0"
+hex = "0.4"
 openssl = { version = "0.10", optional = true }
 rand = "0.8"
 rusqlite = { version = "0.40", default-features = false, features = ["fallible_uint"] }

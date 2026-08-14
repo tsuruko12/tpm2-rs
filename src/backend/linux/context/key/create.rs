@@ -5,11 +5,8 @@ use tss_esapi::{
 };
 
 use crate::{
-    Error, Result, 
-    public::KeyTemplate, 
-    types::{
-        Authorization, CreatedObject, Key, LoadedHandle, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, 
-        TpmaSession, TpmiRhHierarchy
+    Error, Result, db::{KeyMeta, TpmKeyMeta}, hierarchy::Hierarchy, public::KeyTemplate, types::{
+        Authorization, CreatedObject, Key, LoadedHandle, PolicyData, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmaSession, TpmiRhHierarchy
     }
 };
 
@@ -17,18 +14,52 @@ use super::Context;
 use super::super::CommandResources;
 
 impl Context {
-    pub(crate) fn create_key(
+    pub(crate) fn create_child_key(
         &mut self,
-        template: KeyTemplate,
-        authorization: Authorization,
-        key_name: Option<&str>,
-        parent_name: Option<&str>,
-    ) -> Result<Key> {
-        let auth_policy = match authorization.policy() {
-            Some(policy) => self.compute_auth_policy(policy)?.into(),
-            None => Tpm2bDigest::default(),
-        };
-        let public = Tpm2bPublic::from_template(&template, auth_policy);
+        in_public: Tpm2bPublic,
+        auth: Tpm2bAuth,
+        parent: LoadedHandle,
+        session_salt_key: KeyHandle,
+    ) -> Result<CreatedObject> {
+        let mut resources = CommandResources::default();
+
+        let parent_is_persistent = parent.is_persistent();
+        resources.add_handle(parent.handle().into(), parent_is_persistent);
+
+        let result = (|| {
+            let created = self.create_and_load(
+                in_public, 
+                auth, 
+                &parent, 
+                Some(session_salt_key)
+            )?;
+
+            resources.add_transient_handle(created.handle.into());
+            resources.release(self)?;
+
+            Ok(created)
+        })();
+
+        self.finish_command(result, &mut resources)
+    }
+
+    pub(crate) fn create_srk(
+        &mut self, 
+        in_public: Tpm2bPublic,
+        auth: Tpm2bAuth,
+        owner_authorization: &Authorization,
+        session_salt_key: KeyHandle,
+    ) -> Result<CreatedObject> {
+        let created = self.create_primary(
+            TpmiRhHierarchy::OWNER, 
+            in_public, 
+            auth, 
+            owner_authorization, 
+            Some(session_salt_key)
+        )?;      
+        self.flush_handle(&mut created.handle.into())?;
+
+        Ok(created)
     }
 
     pub(crate) fn create_and_load(

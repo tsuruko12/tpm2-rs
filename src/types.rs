@@ -6,7 +6,7 @@ pub mod policy;
 pub mod public;
 mod tpm;
 
-pub(crate) use self::authorization::{Authorization, AuthorizationCache};
+pub(crate) use self::authorization::Authorization;
 pub(crate) use self::key::*;
 pub(crate) use self::policy::*;
 pub(crate) use self::public::{EccCurve, KeyTemplate, RsaScheme, RsaTemplate, SymmetricKeyBits};

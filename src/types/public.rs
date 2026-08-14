@@ -81,4 +81,11 @@ impl KeyTemplate {
 
         Ok(self)
     }
+
+    pub(crate) fn is_storage_parent(&self) -> bool {
+        match self {
+            Self::Rsa(template) => template.is_storage_parent(),
+            _ => false,
+        }
+    }
 }

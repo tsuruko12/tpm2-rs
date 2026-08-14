@@ -1,7 +1,9 @@
+use std::fmt::{Debug, Formatter, Result as StdResult};
+
 #[cfg(target_os = "linux")]
 use tss_esapi::handles::KeyHandle;
 
-use crate::types::TpmiDhPersistent;
+use crate::types::{Tpm2bPublicKeyRsa, TpmiDhPersistent};
 
 #[cfg(target_os = "windows")]
 use super::tpm::TpmiDhObject;
@@ -12,7 +14,6 @@ pub(crate) type LoadedObjectHandle = KeyHandle;
 #[cfg(target_os = "windows")]
 pub(crate) type LoadedObjectHandle = TpmiDhObject;
 
-#[derive(Debug)]
 pub(crate) struct CreatedObject {
     pub(crate) handle: LoadedObjectHandle,
     pub(crate) public: Tpm2bPublic,
@@ -20,11 +21,29 @@ pub(crate) struct CreatedObject {
     pub(crate) name: Tpm2bName,
 }
 
-#[derive(Debug)]
+impl Debug for CreatedObject {
+    fn fmt(&self, f: &mut Formatter<'_>) -> StdResult {
+        f.debug_struct("CreatedObject")
+            .field("handle", &self.handle)
+            .field("public", &self.public)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
 pub(crate) struct LoadedHandle {
     handle: TpmObjectHandle,
     name: Tpm2bName,
     authorization: Authorization,
+}
+
+impl Debug for LoadedHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> StdResult {
+        f.debug_struct("LoadedHandle")
+            .field("handle", &self.handle)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -102,50 +121,28 @@ impl LoadedHandle {
     }
 }
 
-pub struct Key {
-    id: String,
-    data: KeyData,
-    obj_name: Tpm2bName,
-    authorization: Authorization,
-    name: Option<String>,
-    parent_id: Option<String>,
-}
+pub struct Key(KeyId);
 
 impl Key {
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
+    pub(crate) fn new(id: KeyId) -> Self {
+        Self(id)
     }
 
-    pub(crate) fn data(&self) -> &KeyData {
-        &self.data
+    pub(crate) fn id(&self) -> &KeyId {
+        &self.0
     }
+}
 
-    pub(crate) fn obj_name(&self) -> &Tpm2bName {
-        &self.obj_name
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum KeyId {
+    Stored(String),
+    Temporary(String),
+}
 
-    pub(crate) fn authorization(&self) -> &Authorization {
-        &self.authorization
-    }
-
-    pub(crate) fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub(crate) fn parent_id(&self) -> Option<&str> {
-        self.parent_id.as_deref()
-    }
-
-    pub(crate) fn is_persistent(&self) -> bool {
-        match &self.data {
-            KeyData::Srk(resource)
-            | KeyData::Ecc(resource)
-            | KeyData::Rsa(resource) => {
-                resource.is_persistent()
-            },
-            KeyData::Symmetric { wrapping_key_resource, .. } => {
-                wrapping_key_resource.is_persistent()
-            }
+impl KeyId {
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            Self::Stored(id) | Self::Temporary(id) => id,
         }
     }
 }
@@ -158,19 +155,42 @@ pub(crate) enum KeyData {
     Symmetric {
         wrapping_key_resource: HandleResource,
         wrapping_key_id: String,
-        wrapped_key: Vec<u8>,
+        wrapped_key: Tpm2bPublicKeyRsa,
     },
 }
 
-#[derive(Debug)]
 pub(crate) enum HandleResource {
     Transient {
         public: Tpm2bPublic,
         private: Tpm2bPrivate,
+        obj_name: Tpm2bName,
     },
     Persistent {
         handle: TpmiDhPersistent,
+        obj_name: Tpm2bName,
     },
+}
+
+impl Debug for HandleResource {
+    fn fmt(&self, f: &mut Formatter<'_>) -> StdResult {
+        match self {
+            Self::Transient {
+                public,
+                obj_name,
+                ..
+            } => f
+                .debug_struct("Transient")
+                .field("public", public)
+                .field("obj_name", obj_name)
+                .finish_non_exhaustive(),
+
+            Self::Persistent { handle, obj_name } => f
+                .debug_struct("Persistent")
+                .field("handle", handle)
+                .field("obj_name", obj_name)
+                .finish(),
+        }
+    }
 }
 
 impl HandleResource {

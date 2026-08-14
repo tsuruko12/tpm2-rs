@@ -49,7 +49,7 @@ impl From<Tpm2bAuth> for Auth {
 
 impl From<&Tpm2bAuth> for Auth {
     fn from(auth: &Tpm2bAuth) -> Self {
-        auth.duplicate().into()
+        auth.clone().into()
     }
 }
 

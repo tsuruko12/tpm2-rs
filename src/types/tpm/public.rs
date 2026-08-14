@@ -1,23 +1,38 @@
 use bitflags::bitflags;
 
 use crate::{
-    Error, Result,
-    macros::{newtype, tpm2b_bytes_type},
-    types::public::{
+    Error, Result, macros::{newtype, tpm2b_bytes_type}, public::RsaKeyBits, types::public::{
         KeyTemplate,
         ecc::EccTemplate,
         rsa::{RsaScheme, RsaTemplate},
-    },
+    }
 };
 use super::{
     Tpm2bDigest, TpmAlgId, TpmHandle, TpmiAlgHash,
     algorithm::{
-        Tpm2bPublicKeyRsa, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint, TpmsKeyedHashParms,
-        TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme,
+        TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint,
+        TpmsKeyedHashParms, TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme,
     },
 };
 
-tpm2b_bytes_type!(Tpm2bPublic(TpmtPublic));
+#[derive(Debug, Clone)]
+pub(crate) struct Tpm2bPublic(TpmtPublic);
+
+impl Tpm2bPublic {
+    pub(crate) fn into_inner(self) -> TpmtPublic {
+        self.0
+    }
+
+    pub(crate) fn as_inner(&self) -> &TpmtPublic {
+        &self.0
+    }
+}
+
+impl From<TpmtPublic> for Tpm2bPublic {
+    fn from(public: TpmtPublic) -> Self {
+        Self(public)
+    }
+}
 
 impl Tpm2bPublic {
     pub(crate) fn from_template(template: &KeyTemplate, auth_policy: impl Into<Tpm2bDigest>) -> Self {
@@ -58,9 +73,32 @@ impl Tpm2bPublic {
         )
         .into()
     }
+
+    pub(crate) fn is_storage_parent(&self) -> bool {
+        let public = self.as_inner();
+
+        if public.alg_type() != TpmiAlgPublic::RSA
+            || !public
+                .object_attributes()
+                .contains(TpmaObject::RESTRICTED | TpmaObject::DECRYPT)
+            || public
+                .object_attributes()
+                .contains(TpmaObject::SIGN_ENCRYPT)
+        {
+            return false;
+        }
+
+        match public.parameters() {
+            TpmuPublicParms::RsaDetail(parameters) => {
+                !parameters.symmetric().is_null()
+                    && matches!(parameters.scheme().into_parts().0, TpmiAlgRsaScheme::NULL)
+            }
+            _ => false,
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct TpmtPublic {
     alg_type: TpmiAlgPublic,
     name_alg: TpmiAlgHash,
@@ -68,6 +106,17 @@ pub(crate) struct TpmtPublic {
     auth_policy: Tpm2bDigest,
     parameters: TpmuPublicParms,
     unique: TpmuPublicId,
+}
+
+impl std::fmt::Debug for TpmtPublic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TpmtPublic")
+            .field("alg_type", &self.alg_type)
+            .field("name_alg", &self.name_alg)
+            .field("object_attributes", &self.object_attributes)
+            .field("parameters", &self.parameters)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TpmtPublic {
@@ -290,7 +339,14 @@ impl TpmuPublicId {
     }
 }
 
-tpm2b_bytes_type!(Tpm2bName);
+tpm2b_bytes_type!(Tpm2bPublicKeyRsa, RsaKeyBits::MAX_BITS / 8); // TODO: consider zeroize type not to be debug
+
+impl zeroize::Zeroize for Tpm2bPublicKeyRsa {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+tpm2b_bytes_type!(Tpm2bName, TpmtHa::MAX_BYTES);
 
 // size 4 -> handle (TPM_HANDLE)
 // size 0 -> no name
@@ -299,6 +355,4 @@ tpm2b_bytes_type!(Tpm2bName);
 impl Tpm2bName {
     const NO_NAME_SIZE: usize = 0;
     const HANDLE_SIZE: usize = size_of::<TpmHandle>();
-    const MAX_BYTES: usize = TpmtHa::MAX_BYTES;
 }
-

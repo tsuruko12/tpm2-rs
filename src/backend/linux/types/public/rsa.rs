@@ -1,13 +1,12 @@
 use tss_esapi::{
-    structures::RsaScheme as EsapiRsaScheme,
+    structures::{PublicKeyRsa, RsaScheme as EsapiRsaScheme},
     tss2_esys::{TPMS_RSA_PARMS, TPMT_RSA_SCHEME, TPMU_ASYM_SCHEME},
 };
 
 use crate::{
     Error, Result,
     types::{
-        TpmAlgId, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuPublicParms,
-        TpmuRsaScheme,
+        Tpm2bPublicKeyRsa, TpmAlgId, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuPublicParms, TpmuRsaScheme
     },
 };
 
@@ -97,5 +96,23 @@ impl TryFrom<TpmtRsaScheme> for TPMT_RSA_SCHEME {
             scheme: raw_scheme,
             details,
         })
+    }
+}
+
+impl From<Tpm2bPublicKeyRsa> for PublicKeyRsa {
+    fn from(public_key: Tpm2bPublicKeyRsa) -> Self {
+        public_key
+            .into_bytes()
+            .try_into()
+            .expect("Tpm2bPublicKeyRsa must be valid for PublicKeyRsa")
+    }
+}
+
+impl From<PublicKeyRsa> for Tpm2bPublicKeyRsa {
+    fn from(public_key: PublicKeyRsa) -> Self {
+        public_key
+            .value()
+            .try_into()
+            .expect("PublicKeyRsa must be valid for Tpm2bPublicKeyRsa")
     }
 }

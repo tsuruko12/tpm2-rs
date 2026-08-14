@@ -87,7 +87,7 @@ impl TryFrom<u16> for TpmiStCommandTag {
     }
 }
 
-impl std::fmt::Debug for TpmiStCommandTag {
+impl  for TpmiStCommandTag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             Self::NO_SESSIONS => f.write_str("NO_SESSIONS"),

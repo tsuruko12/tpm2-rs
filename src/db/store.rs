@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension};
 use tracing::debug;
 
 use crate::{
-    Error, Result, generate_random_bytes,
+    Error, Result,
     hierarchy::Hierarchy,
     policy::{PcrSelection, PcrSlot, PolicyCommand},
     types::{
@@ -31,8 +31,7 @@ const CREATE_SCHEMA: &str = r#"
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE user_keys (
-    id       TEXT PRIMARY KEY,
-    key_name TEXT NOT NULL UNIQUE,
+    key_name TEXT NOT NULL PRIMARY KEY,
     kind     TEXT NOT NULL CHECK (kind IN ('primary', 'child', 'symmetric'))
 );
 
@@ -46,7 +45,7 @@ CREATE TABLE policies (
             'sha1',
             'sha256',
             'sha384',
-            'sha512',
+            'sha512'
         )
     ),
     pcr_slots_mask          INTEGER CHECK (
@@ -115,24 +114,22 @@ CREATE TABLE policy_branches (
 );
 
 CREATE TABLE tpm_keys (
-    id                TEXT PRIMARY KEY,
-    kind              TEXT NOT NULL CHECK (kind IN ('primary', 'child')),
-    hierarchy         TEXT CHECK (
+    key_name        TEXT NOT NULL PRIMARY KEY REFERENCES user_keys(key_name) ON DELETE CASCADE,
+    kind            TEXT NOT NULL CHECK (kind IN ('primary', 'child')),
+    hierarchy       TEXT CHECK (
         hierarchy IN ('owner', 'endorsement', 'platform')
     ),
-    public            BLOB NOT NULL,
-    object_name          BLOB NOT NULL,
-    private           BLOB NOT NULL,
+    public          BLOB NOT NULL,
+    object_name     BLOB NOT NULL,
+    private         BLOB,
     persistent_handle INTEGER UNIQUE,
-    policy_id         TEXT REFERENCES policies(id) ON DELETE RESTRICT,
-    parent_id         TEXT REFERENCES tpm_keys(id) ON DELETE RESTRICT,
+    policy_id       TEXT REFERENCES policies(id) ON DELETE RESTRICT,
+    parent_key_name TEXT REFERENCES tpm_keys(key_name) ON DELETE RESTRICT,
 
     CHECK (
-        (kind = 'primary' AND hierarchy IS NOT NULL AND parent_id IS NULL) OR
-        (kind = 'child' AND hierarchy IS NULL)
+        (kind = 'primary' AND hierarchy IS NOT NULL AND parent_key_name IS NULL AND private IS NULL) OR
+        (kind = 'child' AND hierarchy IS NULL AND private IS NOT NULL)
     )
-
-    FOREIGN KEY (id) REFERENCES user_keys(id) ON DELETE CASCADE,
 );
 
 CREATE TABLE wrapping_keys (
@@ -143,14 +140,12 @@ CREATE TABLE wrapping_keys (
 );
 
 CREATE TABLE symmetric_keys (
-    id              TEXT PRIMARY KEY,
+    key_name        TEXT NOT NULL PRIMARY KEY REFERENCES user_keys(key_name) ON DELETE CASCADE,
     block_cipher    TEXT NOT NULL,
     key_bits        INTEGER NOT NULL,
     mode            TEXT NOT NULL,
     wrapped_key     BLOB NOT NULL,
-    wrapping_key_id TEXT REFERENCES wrapping_keys(id),
-
-    FOREIGN KEY (id) REFERENCES user_keys(id) ON DELETE CASCADE
+    wrapping_key_id TEXT REFERENCES wrapping_keys(id)
 );
 
 CREATE TABLE hierarchy_policies (
@@ -201,14 +196,14 @@ impl InternalKeyKind {
 #[derive(Debug)]
 pub(crate) enum KeyMeta {
     Tpm {
-        name: String,
+        key_name: String,
         hierarchy: Option<Hierarchy>,
         tpm_key_meta: TpmKeyMeta,
         persistent_handle: Option<TpmiDhPersistent>,
         parent_name: Option<String>,
     },
     Symmetric {
-        name: String,
+        key_name: String,
         wrapped_key: Vec<u8>,
         wrapping_key: WrappingKeyMeta,
     },
@@ -216,12 +211,12 @@ pub(crate) enum KeyMeta {
 
 impl KeyMeta {
     pub(crate) fn owner_primary(
-        name: String,
+        key_name: String,
         tpm_key_meta: TpmKeyMeta,
         persistent_handle: Option<TpmiDhPersistent>,
     ) -> Self {
         Self::Tpm {
-            name,
+            key_name,
             hierarchy: Some(Hierarchy::Storage),
             tpm_key_meta,
             persistent_handle,
@@ -230,13 +225,13 @@ impl KeyMeta {
     }
 
     pub(crate) fn child(
-        name: String,
+        key_name: String,
         tpm_key_meta: TpmKeyMeta,
         persistent_handle: Option<TpmiDhPersistent>,
         parent_name: Option<String>,
     ) -> Self {
         Self::Tpm {
-            name,
+            key_name,
             hierarchy: None,
             tpm_key_meta,
             persistent_handle,
@@ -245,12 +240,12 @@ impl KeyMeta {
     }
 
     pub(crate) fn symmetric(
-        name: String,
+        key_name: String,
         wrapped_key: Vec<u8>,
         wrapping_key: WrappingKeyMeta,
     ) -> Self {
         Self::Symmetric {
-            name,
+            key_name,
             wrapped_key,
             wrapping_key,
         }
@@ -263,12 +258,22 @@ enum WrappingKeyMeta {
     Dedicated(TpmKeyMeta),
 }
 
-#[derive(Debug)]
 pub(crate) struct TpmKeyMeta {
     pub(crate) public: Tpm2bPublic,
-    pub(crate) private: Tpm2bPrivate,
+    pub(crate) private: Option<Tpm2bPrivate>,
     pub(crate) obj_name: Tpm2bName,
     pub(crate) policy: Option<PolicyData>,
+}
+
+impl std::fmt::Debug for TpmKeyMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TpmKeyMeta")
+            .field("public", &self.public)
+            .field("private", &self.private.is_some())
+            .field("obj_name", &self.obj_name)
+            .field("policy", &self.policy)
+            .finish()
+    }
 }
 
 pub(crate) struct MetadataStore {
@@ -329,6 +334,41 @@ impl MetadataStore {
         Ok(())
     }
 
+    pub(crate) fn ensure_unique_key_name(&self, key_name: &str) -> Result<()> {
+        let exists = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM user_keys WHERE name = ?)", 
+            [key_name], 
+            |row| Ok(row.get(0)?)
+        )?;
+
+        if exists {
+            Err(Error::KeyAlreadyExists(key_name.into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn load_key(&self, key_name: &str) -> Result<KeyMeta> {
+        let kind = self
+            .conn
+            .query_row(
+                "SELECT kind FROM user_keys WHERE key_name = ?",
+                [key_name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or(Error::KeyNotFound)?;
+
+        match kind.as_str() {
+            "primary" | "child" => self.load_tpm_key(key_name),
+            "symmetric" => self.load_symmetric_key(key_name),
+            _ => {
+                debug!(%key_name, %kind, "stored key kind is invalid");
+                Err(Error::corrupted_store())
+            }
+        }
+    }
+
     pub(crate) fn load_tpm_key(&self, key_name: &str) -> Result<KeyMeta> {
         let stmt = r#"
             SELECT
@@ -341,16 +381,14 @@ impl MetadataStore {
                 tpm_keys.object_name,
                 tpm_keys.persistent_handle,
                 tpm_keys.policy_id,
-                tpm_keys.parent_id,
-                parent_user_keys.key_name
+                tpm_keys.parent_key_name
             FROM user_keys
-            JOIN tpm_keys ON tpm_keys.id = user_keys.id
-            LEFT JOIN user_keys AS parent_user_keys ON parent_user_keys.id = tpm_keys.parent_id
+            JOIN tpm_keys ON tpm_keys.key_name = user_keys.key_name
             WHERE user_keys.key_name = ?
         "#;
 
         let (
-            name,
+            key_name,
             user_key_kind,
             tpm_key_kind,
             hierarchy,
@@ -359,7 +397,6 @@ impl MetadataStore {
             object_name,
             persistent_handle,
             policy_id,
-            parent_id,
             parent_name,
         ) = self
             .conn
@@ -370,12 +407,11 @@ impl MetadataStore {
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Vec<u8>>(4)?,
-                    row.get::<_, Vec<u8>>(5)?,
+                    row.get::<_, Option<Vec<u8>>>(5)?,
                     row.get::<_, Vec<u8>>(6)?,
                     row.get::<_, Option<i64>>(7)?,
                     row.get::<_, Option<String>>(8)?,
                     row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
                 ))
             })
             .optional()?
@@ -389,23 +425,34 @@ impl MetadataStore {
         let hierarchy = match (
             tpm_key_kind.as_str(),
             hierarchy.as_deref(),
-            parent_id.as_deref(),
             parent_name.as_deref(),
         ) {
-            ("primary", Some(hierarchy), None, None) => Some(Hierarchy::from_db(hierarchy)?),
-            ("child", None, None, None) | ("child", None, Some(_), Some(_)) => None,
+            ("primary", Some(hierarchy), None) => Some(Hierarchy::from_db(hierarchy)?),
+            ("child", None, _) => None,
             _ => {
                 debug!(
                     key_name,
                     ?tpm_key_kind,
                     ?hierarchy,
-                    ?parent_id,
                     ?parent_name,
                     "TPM key metadata is inconsistent"
                 );
                 return Err(Error::corrupted_store());
             }
         };
+
+        match (tpm_key_kind.as_str(), private.is_some()) {
+            ("primary", false) | ("child", true) => {}
+            _ => {
+                debug!(
+                    %key_name,
+                    ?tpm_key_kind,
+                    has_private = private.is_some(),
+                    "TPM key private data is inconsistent"
+                );
+                return Err(Error::corrupted_store());
+            }
+        }
 
         let persistent_handle = persistent_handle
             .map(|value| {
@@ -417,7 +464,7 @@ impl MetadataStore {
             self.load_tpm_key_meta(public, private, object_name, policy_id.as_deref())?;
 
         Ok(KeyMeta::Tpm {
-            name,
+            key_name,
             hierarchy,
             tpm_key_meta,
             persistent_handle,
@@ -436,7 +483,7 @@ impl MetadataStore {
                 wrapping_keys.private,
                 wrapping_keys.object_name
             FROM user_keys
-            LEFT JOIN symmetric_keys ON symmetric_keys.id = user_keys.id
+            LEFT JOIN symmetric_keys ON symmetric_keys.key_name = user_keys.key_name
             LEFT JOIN wrapping_keys ON wrapping_keys.id = symmetric_keys.wrapping_key_id
             WHERE user_keys.key_name = ?
         "#;
@@ -485,7 +532,7 @@ impl MetadataStore {
 
                 WrappingKeyMeta::Dedicated(self.load_tpm_key_meta(
                     public,
-                    private,
+                    Some(private),
                     object_name,
                     None,
                 )?)
@@ -499,7 +546,7 @@ impl MetadataStore {
     fn load_tpm_key_meta(
         &self,
         public: Vec<u8>,
-        private: Vec<u8>,
+        private: Option<Vec<u8>>,
         obj_name: Vec<u8>,
         policy_id: Option<&str>,
     ) -> Result<TpmKeyMeta> {
@@ -515,10 +562,14 @@ impl MetadataStore {
             return Err(Error::corrupted_store());
         }
 
-        let private = private.try_into().map_err(|_| {
-            debug!("invalid stored private data");
-            Error::corrupted_store()
-        })?;
+        let private = private
+            .map(|private| {
+                Tpm2bPrivate::try_from(private).map_err(|_| {
+                    debug!("invalid stored private data");
+                    Error::corrupted_store()
+                })
+            })
+            .transpose()?;
         let obj_name = obj_name.try_into().map_err(|_| {
             debug!("invalid stored object name");
             Error::corrupted_store()
@@ -802,13 +853,6 @@ fn unmarshal_policy_branch_digest_lists(
     }
 
     Ok(digest_lists)
-}
-
-pub(crate) fn generate_id() -> Result<String> {
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-
-    let bytes = generate_random_bytes(16)?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn store_path_from_env() -> Option<PathBuf> {

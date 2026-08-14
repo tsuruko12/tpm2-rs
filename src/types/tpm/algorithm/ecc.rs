@@ -412,8 +412,4 @@ impl TpmsEccPoint {
     }
 }
 
-tpm2b_bytes_type!(Tpm2bEccParameter);
-
-impl Tpm2bEccParameter {
-    const MAX_BYTES: usize = EccCurve::MAX_BITS.div_ceil(8);
-}
+tpm2b_bytes_type!(Tpm2bEccParameter, EccCurve::MAX_BITS.div_ceil(8));

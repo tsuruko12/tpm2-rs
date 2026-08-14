@@ -6,7 +6,8 @@ use crate::{
     Error, Result, 
     db::{InternalKeyKind, InternalKeyMeta}, 
     types::{
-        Authorization, CreatedObject, LoadedHandle, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmiDhPersistent, TpmiRhHierarchy
+        Authorization, CreatedObject, LoadedHandle, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmiDhPersistent, 
+        TpmiRhHierarchy
     }
 };
 use super::{Context, CommandResources};
@@ -40,7 +41,7 @@ impl Context {
                     ctx.create_primary(
                         TpmiRhHierarchy::OWNER,
                         Tpm2bPublic::storage_parent(),
-                        empty_auth.duplicate(), 
+                        empty_auth.clone(), 
                         owner_authorization, 
                         None,
                     )
@@ -55,7 +56,7 @@ impl Context {
             key_meta.push(srk_meta);
             persistent_handles.push(srk_handle);
 
-            self.flush_handles(&mut resources.transient_handles)?;
+            resources.flush_handles(self)?;
 
             let storage_first = PersistentTpmHandle::new(
                 TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.raw()
@@ -78,7 +79,7 @@ impl Context {
                 |ctx| {
                     ctx.create_and_load(
                         rsa_public.clone(), 
-                        empty_auth.duplicate(), 
+                        empty_auth.clone(), 
                         &parent, 
                         None
                     )
@@ -91,7 +92,7 @@ impl Context {
             key_meta.push(session_salt_key_meta);
             persistent_handles.push(session_salt_handle);
 
-            self.flush_handles(&mut resources.transient_handles)?;
+            resources.flush_handles(self)?;
 
             let (shared_wrapping_key_meta, shared_wrapping_handle) = self.create_and_persist(
                 &mut resources,
@@ -113,14 +114,17 @@ impl Context {
             key_meta.push(shared_wrapping_key_meta);
             persistent_handles.push(shared_wrapping_handle);
 
-            self.flush_handles(&mut resources.transient_handles)
+            resources.flush_handles(self)
         })();
 
         match result {
             Ok(()) => {
                 match resources.release(self) {
                     Ok(()) => {
-                        let _ = self.close_handles(&mut persistent_handles);
+                        for handle in persistent_handles {
+                            resources.add_persistent_handle(handle);
+                        }
+                        let _ = resources.close_handles(self);
                         Ok(key_meta)
                     },
                     Err(e) => {

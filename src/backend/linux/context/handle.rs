@@ -58,7 +58,7 @@ impl Context {
         self.finish_command(result, resources)
     }
 
-    pub(super) fn flush_sessions(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
+    fn flush_sessions(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
         let mut first_err = None;
 
         for session in sessions {
@@ -95,7 +95,7 @@ impl Context {
         Ok(())
     }
 
-    pub(super) fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
+   fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
         let mut first_err = None;
 
         for handle in handles.iter_mut() {
@@ -107,7 +107,7 @@ impl Context {
         first_err.map_or(Ok(()), Err)
     }
 
-    pub(super) fn close_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
+    fn close_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
         let mut first_err = None;
 
         for handle in handles.iter_mut() {
@@ -134,7 +134,7 @@ impl Context {
         Ok(())
     }
 
-    pub(super) fn flush_policy_session(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
+    fn flush_policy_session(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
         for session in sessions.iter_mut() {
             let Some(handle) = *session else {
                 continue;
@@ -206,15 +206,23 @@ impl CommandResources {
         ctx.flush_policy_session(&mut self.sessions)
     }
 
+    pub(super) fn flush_handles(&mut self, ctx: &mut Context) -> Result<()> {
+        ctx.flush_handles(&mut self.transient_handles)
+    }
+
+    pub(super) fn close_handles(&mut self, ctx: &mut Context) -> Result<()> {
+        ctx.close_handles(&mut self.persistent_handles)
+    }
+
     pub(super) fn release(&mut self, ctx: &mut Context) -> Result<()> {
-        ctx.close_handles(&mut self.persistent_handles)?;
-        ctx.flush_handles(&mut self.transient_handles)?;
+        self.close_handles(ctx)?;
+        self.flush_handles(ctx)?;
         ctx.flush_sessions(&mut self.sessions)
     }
 
     pub(super) fn cleanup(&mut self, ctx: &mut Context) {
-        let _ = ctx.close_handles(&mut self.persistent_handles);
-        let _ = ctx.flush_handles(&mut self.transient_handles);
+        let _ = self.close_handles(ctx);
+        let _ = self.flush_handles(ctx);
         let _ = ctx.flush_sessions(&mut self.sessions);
     }
 }

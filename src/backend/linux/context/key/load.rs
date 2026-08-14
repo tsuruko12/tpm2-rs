@@ -8,7 +8,8 @@ use crate::{
     Error, Result, 
     db::InternalKeyMeta, 
     types::{
-        Authorization, HandleResource, LoadedHandle, LoadedObjectHandle, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmaSession, TpmiDhPersistent, TpmiRhHierarchy
+        Authorization, LoadedHandle, LoadedObjectHandle, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, 
+        TpmaSession, TpmiDhPersistent, TpmiRhHierarchy
     }
 };
 use super::Context;
@@ -154,7 +155,7 @@ impl Context {
             let created = self.create_primary(
                 primary_handle, 
                 public, 
-                authorization.auth().duplicate(),
+                authorization.auth().clone(),
                 primary_authorization, 
                 Some(session_salt_key)
             )?;

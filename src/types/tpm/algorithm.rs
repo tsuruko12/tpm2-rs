@@ -14,8 +14,7 @@ pub(crate) use self::keyed_hash::{
     TpmuSchemeKeyedHash,
 };
 pub(crate) use self::rsa::{
-    Tpm2bPublicKeyRsa, TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme,
-    TpmuRsaScheme,
+    TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme
 };
 pub(crate) use self::symmetric::{
     TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmsSymCipherParms, TpmtSymDefObject,

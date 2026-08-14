@@ -10,11 +10,13 @@ macro_rules! unknown_tpm_data {
 }
 
 macro_rules! tpm2b_bytes_type {
-    ($name:ident) => {
+    ($name:ident,$max:expr) => {
         #[derive(Debug, Default, Clone)]
         pub(crate) struct $name(Vec<u8>);
 
         impl $name {
+            pub(crate) const MAX_BYTES: usize = $max;
+ 
             pub(crate) fn into_bytes(self) -> Vec<u8> {
                 self.0
             }
@@ -23,11 +25,13 @@ macro_rules! tpm2b_bytes_type {
         $crate::macros::impl_buffer_methods!($name);
         $crate::macros::impl_try_from_bytes!($name);
     };
-    ($name:ident($inner:ty)) => {
+    ($name:ident($inner:ty),$max:expr) => {
         #[derive(Debug, Clone)]
         pub(crate) struct $name($inner);
 
         impl $name {
+            pub(crate) const MAX_BYTES: usize = $max;
+
             pub(crate) fn into_inner(self) -> $inner {
                 self.0
             }
@@ -46,19 +50,23 @@ macro_rules! tpm2b_bytes_type {
 }
 
 macro_rules! tpm2b_zeroize_type {
-    ($name:ident) => {
-        #[derive(Default, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
-        pub(crate) struct $name(Vec<u8>);
+    ($name:ident,$max:expr) => {
+        #[derive(Default)]
+        pub(crate) struct $name(zeroize::Zeroizing<Vec<u8>>);
 
-        $crate::macros::impl_redacted_debug!($name);
+        impl $name {
+            pub(crate) const MAX_BYTES: usize = $max;
+        }
+
         $crate::macros::impl_buffer_methods!($name);
         $crate::macros::impl_try_from_bytes!($name);
     };
-    ($name:ident($inner:ty)) => {
-        #[derive(zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+    ($name:ident($inner:ty),$max:expr) => {
         pub(crate) struct $name($inner);
 
         impl $name {
+            pub(crate) const MAX_BYTES: usize = $max;
+            
             pub(crate) fn as_inner(&self) -> &$inner {
                 &self.0
             }
@@ -79,7 +87,7 @@ macro_rules! impl_try_from_bytes {
 
             fn try_from(value: Vec<u8>) -> $crate::error::Result<Self> {
                 if value.len() <= <$name>::MAX_BYTES {
-                    Ok(Self(value))
+                    Ok(Self(value.into()))
                 } else {
                     Err($crate::error::Error::conversion::<Vec<u8>, $name>(None))
                 }
@@ -91,7 +99,7 @@ macro_rules! impl_try_from_bytes {
 
             fn try_from(value: &[u8]) -> $crate::error::Result<Self> {
                 if value.len() <= <$name>::MAX_BYTES {
-                    Ok(Self(value.to_vec()))
+                    Ok(Self(value.to_vec().into()))
                 } else {
                     Err($crate::error::Error::conversion::<&[u8], $name>(None))
                 }

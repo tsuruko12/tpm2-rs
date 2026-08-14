@@ -15,7 +15,7 @@ use tss_esapi::{
 use super::{CommandResources, Context};
 use crate::{
     Error, Result,
-    types::{Authorization, PcrSelection, PolicyCommand, PolicyData, TpmaSession, TpmlDigest},
+    types::{Authorization, PcrSelection, PolicyCommand, PolicyData, Tpm2bDigest, TpmaSession, TpmlDigest},
 };
 
 // policy + no-attrs -> policy authorization
@@ -151,7 +151,7 @@ impl Context {
             .map_err(Error::esapi)
     }
 
-    pub(super) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Digest> {
+    pub(crate) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Tpm2bDigest> {
         let mut resources = CommandResources::default();
 
         let result = (|| {
@@ -160,7 +160,11 @@ impl Context {
                 .map(|session| session.try_into().expect("session must be a policy session"))?;
             self.apply_policy(policy_session, policy)?;
 
-            self.ctx.policy_get_digest(policy_session).map_err(Error::from_tss_err)     
+            self
+                .ctx
+                .policy_get_digest(policy_session)
+                .map(Into::into)
+                .map_err(Error::from_tss_err)     
         })();
 
         self.finish_command(result, &mut resources)

@@ -17,7 +17,7 @@ pub(crate) use self::algorithm::{
     TpmsEccParms,  TpmsEccPoint, TpmsEmpty, TpmsKeyedHashParms, TpmsRsaParms, TpmsSchemeEcdaa,
     TpmsSchemeHash, TpmsSchemeXor, TpmsSymCipherParms, TpmtEccScheme, TpmtKdfScheme,
     TpmtKeyedHashScheme, TpmtRsaScheme, TpmtSigScheme, TpmtSymDefObject, TpmuEccScheme,
-    TpmuKdfScheme, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSigScheme, Tpm2bPublicKeyRsa, Tpm2bEccParameter,
+    TpmuKdfScheme, TpmuRsaScheme, TpmuSchemeKeyedHash, TpmuSigScheme, Tpm2bEccParameter,
     TpmlDigest
 };
 pub(crate) use self::attribute::{TpmaCc, TpmaSession, TpmlCca};
@@ -28,7 +28,7 @@ pub(crate) use self::handle::*;
 pub(crate) use self::policy::{TpmlPcrSelection, TpmsPcrSelection};
 pub(crate) use self::public::{
     Tpm2bName, Tpm2bPublic, TpmaObject, TpmiAlgPublic, TpmtPublic, TpmuPublicId,
-    TpmuPublicParms,
+    TpmuPublicParms, Tpm2bPublicKeyRsa
 };
 pub(crate) use self::tag::{
     TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,

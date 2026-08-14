@@ -1,5 +1,5 @@
 mod store;
 
 pub(crate) use self::store::{
-    InternalKeyKind, InternalKeyMeta, KeyMeta, MetadataStore, TpmKeyMeta, generate_id
+    InternalKeyKind, InternalKeyMeta, KeyMeta, MetadataStore, TpmKeyMeta
 };

@@ -36,7 +36,7 @@ pub enum Error {
     CorruptedStore(#[source] Option<BoxError>),
     #[error("key not found")]
     KeyNotFound,
-    #[error("key already exists")]
+    #[error("key already exists: {0}")]
     KeyAlreadyExists(String),
     #[error("storage path is unavailable")]
     StorePathUnavailable,
@@ -168,15 +168,15 @@ impl Error {
         })
     }
 
-    pub(crate) fn conversion<From: std::fmt::Debug + ?Sized, To: ?Sized>(
-        value: Option<&From>,
+    pub(crate) fn conversion<From: ?Sized, To: ?Sized>(
+        value: Option<&dyn std::fmt::Debug>,
     ) -> Self {
         let from = match value {
             Some(v) => {
                 let ty = type_name::<From>().rsplit("::").next().unwrap();
                 format!("{ty} ({v:?})")
             },
-            None => type_name::<From>().rsplit("::").next().unwrap().to_string(),
+            None => type_name::<From>().rsplit("::").next().unwrap().into(),
         };
 
         Self::internal(InternalError::Conversion {
@@ -206,6 +206,7 @@ impl Error {
     }
 }
 
+// TODO: remove InsufficientBytes and TrailingBytes
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum InternalError {
     #[error("target: {target}, required: {required}, remaining: {remaining}")]
