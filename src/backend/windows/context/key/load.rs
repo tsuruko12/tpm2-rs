@@ -19,7 +19,7 @@ impl Context {
         in_private: &Tpm2bPrivate,
         in_public: &Tpm2bPublic,
         parent: &LoadedHandle,
-        session_salt_key: Option<TpmiDhObject>,
+        session_salt_handle: Option<TpmiDhObject>,
         hmac_session_state: Option<HmacSessionState>,
         caller_resources: Option<&mut CommandResources>,
     ) -> Result<(LoadedObjectHandle, Tpm2bName)> {
@@ -34,13 +34,13 @@ impl Context {
         let command_code = TpmCc::LOAD;
 
         let result = (|| {
-            match session_salt_key {
+            match session_salt_handle {
                 Some(_) => {
                     let mut sessions = self.prepare_sessions(
                         resources,
                         TpmaSession::encrypt_decrypt().with_continue_session(),
                         Some(parent.authorization()),
-                        session_salt_key,
+                        session_salt_handle,
                         hmac_session_state,
                     )?;
 

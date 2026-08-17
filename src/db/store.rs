@@ -4,16 +4,19 @@ use std::{
 };
 
 use directories::ProjectDirs;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use tracing::debug;
 
 use crate::{
-    Error, Result,
+    Error, Result, generate_key_id,
     hierarchy::Hierarchy,
     policy::{PcrSelection, PcrSlot, PolicyCommand},
     types::{
-        PolicyData, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmUnmarshal, TpmiDhPersistent,
-        TpmlDigest, TpmtPublic, algorithm::HashAlgorithm, read_u32,
+        PolicyData, SymmetricKeyBits, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal,
+        TpmUnmarshal, TpmiDhPersistent, TpmlDigest, TpmtPublic,
+        algorithm::HashAlgorithm,
+        public::{BlockCipher, CipherMode},
+        read_u32,
     },
 };
 
@@ -136,7 +139,8 @@ CREATE TABLE wrapping_keys (
     id          TEXT PRIMARY KEY,
     public      BLOB NOT NULL,
     private     BLOB NOT NULL,
-    object_name BLOB NOT NULL
+    object_name BLOB NOT NULL,
+    policy_id   TEXT REFERENCES policies(id) ON DELETE RESTRICT
 );
 
 CREATE TABLE symmetric_keys (
@@ -204,6 +208,9 @@ pub(crate) enum KeyMeta {
     },
     Symmetric {
         key_name: String,
+        block_cipher: BlockCipher,
+        key_bits: SymmetricKeyBits,
+        mode: CipherMode,
         wrapped_key: Vec<u8>,
         wrapping_key: WrappingKeyMeta,
     },
@@ -241,11 +248,17 @@ impl KeyMeta {
 
     pub(crate) fn symmetric(
         key_name: String,
+        block_cipher: BlockCipher,
+        key_bits: SymmetricKeyBits,
+        mode: CipherMode,
         wrapped_key: Vec<u8>,
         wrapping_key: WrappingKeyMeta,
     ) -> Self {
         Self::Symmetric {
             key_name,
+            block_cipher,
+            key_bits,
+            mode,
             wrapped_key,
             wrapping_key,
         }
@@ -253,7 +266,7 @@ impl KeyMeta {
 }
 
 #[derive(Debug)]
-enum WrappingKeyMeta {
+pub(crate) enum WrappingKeyMeta {
     Shared,
     Dedicated(TpmKeyMeta),
 }
@@ -336,7 +349,7 @@ impl MetadataStore {
 
     pub(crate) fn ensure_unique_key_name(&self, key_name: &str) -> Result<()> {
         let exists = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM user_keys WHERE name = ?)", 
+            "SELECT EXISTS(SELECT 1 FROM user_keys WHERE key_name = ?1)", 
             [key_name], 
             |row| Ok(row.get(0)?)
         )?;
@@ -352,7 +365,7 @@ impl MetadataStore {
         let kind = self
             .conn
             .query_row(
-                "SELECT kind FROM user_keys WHERE key_name = ?",
+                "SELECT kind FROM user_keys WHERE key_name = ?1",
                 [key_name],
                 |row| row.get::<_, String>(0),
             )
@@ -384,7 +397,7 @@ impl MetadataStore {
                 tpm_keys.parent_key_name
             FROM user_keys
             JOIN tpm_keys ON tpm_keys.key_name = user_keys.key_name
-            WHERE user_keys.key_name = ?
+            WHERE user_keys.key_name = ?1
         "#;
 
         let (
@@ -477,36 +490,48 @@ impl MetadataStore {
             SELECT
                 user_keys.key_name,
                 user_keys.kind,
+                symmetric_keys.block_cipher,
+                symmetric_keys.key_bits,
+                symmetric_keys.mode,
                 symmetric_keys.wrapped_key,
                 symmetric_keys.wrapping_key_id,
                 wrapping_keys.public,
                 wrapping_keys.private,
-                wrapping_keys.object_name
+                wrapping_keys.object_name,
+                wrapping_keys.policy_id
             FROM user_keys
             LEFT JOIN symmetric_keys ON symmetric_keys.key_name = user_keys.key_name
             LEFT JOIN wrapping_keys ON wrapping_keys.id = symmetric_keys.wrapping_key_id
-            WHERE user_keys.key_name = ?
+            WHERE user_keys.key_name = ?1
         "#;
 
         let (
             name,
             user_key_kind,
+            block_cipher,
+            key_bits,
+            mode,
             wrapped_key,
             wrapping_key_id,
             wrapping_public,
             wrapping_private,
             wrapping_object_name,
+            wrapping_policy_id,
         ) = self
             .conn
             .query_row(stmt, [key_name], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, Option<Vec<u8>>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<Vec<u8>>>(4)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<u32>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<Vec<u8>>>(5)?,
-                    row.get::<_, Option<Vec<u8>>>(6)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<Vec<u8>>>(7)?,
+                    row.get::<_, Option<Vec<u8>>>(8)?,
+                    row.get::<_, Option<Vec<u8>>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
                 ))
             })
             .optional()?
@@ -516,10 +541,15 @@ impl MetadataStore {
             return Err(Error::invalid_key("requested key is not symmetric"));
         }
 
-        let Some(wrapped_key) = wrapped_key else {
-            debug!(%key_name, "symmetric key data is missing");
+        let (Some(block_cipher), Some(key_bits), Some(mode), Some(wrapped_key)) =
+            (block_cipher, key_bits, mode, wrapped_key)
+        else {
+            debug!(%key_name, "symmetric key metadata is missing");
             return Err(Error::corrupted_store());
         };
+        let block_cipher = block_cipher_from_db(&block_cipher)?;
+        let key_bits = symmetric_key_bits_from_db(key_bits)?;
+        let mode = cipher_mode_from_db(&mode)?;
 
         let wrapping_key = match wrapping_key_id {
             Some(id) => {
@@ -534,13 +564,20 @@ impl MetadataStore {
                     public,
                     Some(private),
                     object_name,
-                    None,
+                    wrapping_policy_id.as_deref(),
                 )?)
             }
             None => WrappingKeyMeta::Shared,
         };
 
-        Ok(KeyMeta::symmetric(name, wrapped_key, wrapping_key))
+        Ok(KeyMeta::symmetric(
+            name,
+            block_cipher,
+            key_bits,
+            mode,
+            wrapped_key,
+            wrapping_key,
+        ))
     }
 
     fn load_tpm_key_meta(
@@ -638,7 +675,7 @@ impl MetadataStore {
                 r#"
                     SELECT kind, pcr_hash_alg, pcr_slots_mask, command, or_branch_digests
                     FROM policies
-                    WHERE id = ?
+                    WHERE id = ?1
                 "#,
                 [policy_id],
                 |row| {
@@ -720,7 +757,7 @@ impl MetadataStore {
                 r#"
                     SELECT child_index, child_id
                     FROM policy_branches
-                    WHERE parent_id = ?
+                    WHERE parent_id = ?1
                     ORDER BY child_index
                 "#,
             )?;
@@ -788,6 +825,366 @@ impl MetadataStore {
             handle: persistent_handle,
             obj_name,
         })
+    }
+
+    pub(crate) fn save_key_meta(&mut self, key_meta: &KeyMeta) -> Result<()> {
+        let tx = self.conn.transaction()?;
+
+        match key_meta {
+            KeyMeta::Tpm {
+                key_name,
+                hierarchy,
+                tpm_key_meta,
+                persistent_handle,
+                parent_name,
+            } => save_tpm_key_meta(
+                &tx,
+                key_name,
+                *hierarchy,
+                tpm_key_meta,
+                *persistent_handle,
+                parent_name.as_deref(),
+            )?,
+            KeyMeta::Symmetric {
+                key_name,
+                block_cipher,
+                key_bits,
+                mode,
+                wrapped_key,
+                wrapping_key,
+            } => save_sym_key_meta(
+                &tx,
+                key_name,
+                *block_cipher,
+                *key_bits,
+                *mode,
+                wrapped_key,
+                wrapping_key,
+            )?,
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+fn save_tpm_key_meta(
+    tx: &Transaction<'_>,
+    key_name: &str,
+    hierarchy: Option<Hierarchy>,
+    tpm_key_meta: &TpmKeyMeta,
+    persistent_handle: Option<TpmiDhPersistent>,
+    parent_name: Option<&str>,
+) -> Result<()> {
+    let kind = if hierarchy.is_some() { "primary" } else { "child" };
+    let hierarchy = hierarchy.map(|hierarchy| hierarchy.as_str());
+    let private = tpm_key_meta.private.as_ref().map(Tpm2bPrivate::as_bytes);
+    let policy_id = tpm_key_meta
+        .policy
+        .as_ref()
+        .map(|policy| save_policy(tx, policy))
+        .transpose()?;
+    let mut public = Vec::new();
+    tpm_key_meta.public.as_inner().marshal(&mut public)?;
+
+    tx.execute(
+        "INSERT INTO user_keys (key_name, kind) VALUES (?1, ?2)",
+        (key_name, kind),
+    )?;
+    tx.execute(
+        r#"
+            INSERT INTO tpm_keys (
+                key_name,
+                kind,
+                hierarchy,
+                public,
+                object_name,
+                private,
+                persistent_handle,
+                policy_id,
+                parent_key_name
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "#,
+        (
+            key_name,
+            kind,
+            hierarchy,
+            public,
+            tpm_key_meta.obj_name.as_bytes(),
+            private,
+            persistent_handle.map(|handle| handle.raw()),
+            policy_id.as_deref(),
+            parent_name,
+        ),
+    )?;
+
+    Ok(())
+}
+
+fn save_sym_key_meta(
+    tx: &Transaction<'_>,
+    key_name: &str,
+    block_cipher: BlockCipher,
+    key_bits: SymmetricKeyBits,
+    mode: CipherMode,
+    wrapped_key: &[u8],
+    wrapping_key: &WrappingKeyMeta,
+) -> Result<()> {
+    let wrapping_key_id = match wrapping_key {
+        WrappingKeyMeta::Shared => None,
+        WrappingKeyMeta::Dedicated(meta) => Some(save_dedicated_wrapping_key(tx, meta)?),
+    };
+
+    tx.execute(
+        "INSERT INTO user_keys (key_name, kind) VALUES (?1, 'symmetric')",
+        [key_name],
+    )?;
+    tx.execute(
+        r#"
+            INSERT INTO symmetric_keys (
+                key_name,
+                block_cipher,
+                key_bits,
+                mode,
+                wrapped_key,
+                wrapping_key_id
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "#,
+        (
+            key_name,
+            block_cipher_to_db(block_cipher),
+            symmetric_key_bits_to_db(key_bits),
+            cipher_mode_to_db(mode),
+            wrapped_key,
+            wrapping_key_id.as_deref(),
+        ),
+    )?;
+
+    Ok(())
+}
+
+fn save_dedicated_wrapping_key(tx: &Transaction<'_>, key_meta: &TpmKeyMeta) -> Result<String> {
+    let private = key_meta.private.as_ref().ok_or_else(|| {
+        Error::invalid_state("dedicated wrapping key metadata must contain private data")
+    })?;
+    let policy_id = key_meta
+        .policy
+        .as_ref()
+        .map(|policy| save_policy(tx, policy))
+        .transpose()?;
+
+    let mut public = Vec::new();
+    key_meta.public.as_inner().marshal(&mut public)?;
+
+    let id = generate_key_id()?;
+    tx.execute(
+        r#"
+            INSERT INTO wrapping_keys (id, public, private, object_name, policy_id)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+        "#,
+        (
+            id.as_str(),
+            public,
+            private.as_bytes(),
+            key_meta.obj_name.as_bytes(),
+            policy_id.as_deref(),
+        ),
+    )?;
+
+    Ok(id)
+}
+
+fn save_policy(tx: &Transaction<'_>, policy: &PolicyData) -> Result<String> {
+    let id = generate_key_id()?;
+
+    match policy {
+        PolicyData::AuthValue => {
+            tx.execute(
+                "INSERT INTO policies (id, kind) VALUES (?1, 'auth_value')",
+                [id.as_str()],
+            )?;
+        }
+        PolicyData::Password => {
+            tx.execute(
+                "INSERT INTO policies (id, kind) VALUES (?1, 'password')",
+                [id.as_str()],
+            )?;
+        }
+        PolicyData::Command(command) => {
+            tx.execute(
+                "INSERT INTO policies (id, kind, command) VALUES (?1, 'command', ?2)",
+                (id.as_str(), policy_command_to_db(*command)),
+            )?;
+        }
+        PolicyData::Pcr(selection) => {
+            tx.execute(
+                r#"
+                    INSERT INTO policies (id, kind, pcr_hash_alg, pcr_slots_mask)
+                    VALUES (?1, 'pcr', ?2, ?3)
+                "#,
+                (
+                    id.as_str(),
+                    hash_algorithm_to_db(selection.hash_alg()),
+                    pcr_slots_to_mask(selection),
+                ),
+            )?;
+        }
+        PolicyData::Sequence(steps) => {
+            tx.execute(
+                "INSERT INTO policies (id, kind) VALUES (?1, 'sequence')",
+                [id.as_str()],
+            )?;
+            save_policy_children(tx, id.as_str(), steps)?;
+        }
+        PolicyData::Or {
+            branches,
+            branch_digests,
+            ..
+        } => {
+            let digest_lists = marshal_policy_branch_digest_lists(branch_digests, branches.len())?;
+            tx.execute(
+                r#"
+                    INSERT INTO policies (id, kind, or_branch_digests)
+                    VALUES (?1, 'or', ?2)
+                "#,
+                (id.as_str(), digest_lists),
+            )?;
+            save_policy_children(tx, id.as_str(), branches)?;
+        }
+    }
+
+    Ok(id)
+}
+
+fn save_policy_children(
+    tx: &Transaction<'_>,
+    parent_id: &str,
+    children: &[PolicyData],
+) -> Result<()> {
+    for (child_index, child) in children.iter().enumerate() {
+        let child_id = save_policy(tx, child)?;
+        tx.execute(
+            r#"
+                INSERT INTO policy_branches (parent_id, child_index, child_id)
+                VALUES (?1, ?2, ?3)
+            "#,
+            (parent_id, child_index as i64, child_id.as_str()),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn marshal_policy_branch_digest_lists(
+    branch_digests: &[TpmlDigest],
+    branch_count: usize,
+) -> Result<Vec<u8>> {
+    if !(MIN_POLICY_OR_BRANCHES..=TpmlDigest::MAX_COUNT).contains(&branch_count) {
+        return Err(Error::invalid_state("PolicyOR branch count is invalid"));
+    }
+    if branch_digests.len() != branch_count {
+        return Err(Error::invalid_state(
+            "PolicyOR digest list count does not match branch count",
+        ));
+    }
+    if branch_digests
+        .iter()
+        .any(|digest_list| digest_list.len() != branch_count)
+    {
+        return Err(Error::invalid_state(
+            "PolicyOR digest count does not match branch count",
+        ));
+    }
+
+    let mut output = Vec::new();
+    (branch_count as u32).marshal(&mut output)?;
+    for digest_list in branch_digests {
+        digest_list.marshal(&mut output)?;
+    }
+
+    Ok(output)
+}
+
+fn policy_command_to_db(command: PolicyCommand) -> &'static str {
+    match command {
+        PolicyCommand::CreatePrimary => "create_primary",
+        PolicyCommand::Create => "create",
+        PolicyCommand::Load => "load",
+        PolicyCommand::Import => "import",
+        PolicyCommand::Duplicate => "duplicate",
+        PolicyCommand::Sign => "sign",
+        PolicyCommand::Decrypt => "decrypt",
+        PolicyCommand::Unseal => "unseal",
+    }
+}
+
+fn hash_algorithm_to_db(hash_alg: HashAlgorithm) -> &'static str {
+    match hash_alg {
+        HashAlgorithm::Sha1 => "sha1",
+        HashAlgorithm::Sha256 => "sha256",
+        HashAlgorithm::Sha384 => "sha384",
+        HashAlgorithm::Sha512 => "sha512",
+    }
+}
+
+fn pcr_slots_to_mask(selection: &PcrSelection) -> u32 {
+    selection
+        .slots()
+        .iter()
+        .fold(0, |mask, &slot| mask | (1 << slot as u8))
+}
+
+fn block_cipher_to_db(block_cipher: BlockCipher) -> &'static str {
+    match block_cipher {
+        BlockCipher::Aes => "aes",
+        BlockCipher::Camellia => "camellia",
+    }
+}
+
+fn block_cipher_from_db(block_cipher: &str) -> Result<BlockCipher> {
+    match block_cipher {
+        "aes" => Ok(BlockCipher::Aes),
+        "camellia" => Ok(BlockCipher::Camellia),
+        _ => {
+            debug!(%block_cipher, "invalid stored symmetric block cipher");
+            Err(Error::corrupted_store())
+        }
+    }
+}
+
+fn symmetric_key_bits_to_db(key_bits: SymmetricKeyBits) -> u32 {
+    match key_bits {
+        SymmetricKeyBits::Bits128 => 128,
+        SymmetricKeyBits::Bits256 => 256,
+    }
+}
+
+fn symmetric_key_bits_from_db(key_bits: u32) -> Result<SymmetricKeyBits> {
+    match key_bits {
+        128 => Ok(SymmetricKeyBits::Bits128),
+        256 => Ok(SymmetricKeyBits::Bits256),
+        _ => {
+            debug!(%key_bits, "invalid stored symmetric key size");
+            Err(Error::corrupted_store())
+        }
+    }
+}
+
+fn cipher_mode_to_db(mode: CipherMode) -> &'static str {
+    match mode {
+        CipherMode::Gcm => "gcm",
+    }
+}
+
+fn cipher_mode_from_db(mode: &str) -> Result<CipherMode> {
+    match mode {
+        "gcm" => Ok(CipherMode::Gcm),
+        _ => {
+            debug!(%mode, "invalid stored symmetric cipher mode");
+            Err(Error::corrupted_store())
+        }
     }
 }
 

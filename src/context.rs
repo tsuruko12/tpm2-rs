@@ -1,18 +1,14 @@
-use rand::{RngCore, rngs::OsRng};
 use tracing::debug;
-use zeroize::Zeroizing;
 
 use crate::{
-    generate_key_id, 
     backend::BackendContext, 
     cache::{AuthorizationTarget, Cache, TemporaryKey}, 
-    db::{KeyMeta, MetadataStore}, error::{Error, Result}, 
-    hierarchy::Hierarchy, 
-    public::KeyTemplate, 
+    db::{KeyMeta, MetadataStore, TpmKeyMeta, WrappingKeyMeta}, error::{Error, Result}, 
+    generate_key_id, hierarchy::Hierarchy, public::KeyTemplate, 
     types::{
-        Authorization, CreatedObject, HandleResource, Key, KeyData, KeyId, LoadedHandle, Policy, 
-        PolicyData, SymmetricKeyBits, Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, 
-        TpmiDhPersistent
+        Authorization, BackendObjectHandle, CreatedKeyData, HandleResource, Key, KeyData, KeyId, 
+        LoadedHandle, Policy, PolicyData, Tpm2bAuth, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, 
+        Tpm2bPublicKeyRsa, TpmiDhPersistent
     }
 };
 
@@ -43,6 +39,146 @@ enum ParentKeyData {
     },
 }
 
+enum CreatedKey {
+    Tpm(CreatedKeyData),
+    Symmetric {
+        key: Tpm2bPublicKeyRsa,
+        wrapping_key: Option<CreatedKeyData>,
+    },
+}
+
+impl CreatedKey {
+    fn into_temporary_key(
+        self,
+        template: &KeyTemplate,
+        policy: Option<PolicyData>,
+        parent: Option<KeyId>,
+    ) -> Result<TemporaryKey> {
+        match self {
+            Self::Tpm(key_data) => {
+                let handle_resource = HandleResource::Transient {
+                    public: key_data.public,
+                    private: key_data.private,
+                    obj_name: key_data.name,
+                };
+                let data = match template {
+                    KeyTemplate::Ecc(_) => KeyData::Ecc(handle_resource),
+                    KeyTemplate::Rsa(_) if template.is_storage_parent() => {
+                        KeyData::Srk(handle_resource)
+                    }
+                    KeyTemplate::Rsa(_) => KeyData::Rsa(handle_resource),
+                    KeyTemplate::Symmetric(_) => {
+                        return Err(Error::invalid_state(
+                            "created key type does not match its template",
+                        ));
+                    }
+                };
+
+                Ok(TemporaryKey {
+                    data,
+                    policy,
+                    parent,
+                })
+            }
+            Self::Symmetric {
+                key: wrapped_key,
+                wrapping_key,
+            } => {
+                let KeyTemplate::Symmetric(template) = template else {
+                    return Err(Error::invalid_state(
+                        "created key type does not match its template",
+                    ));
+                };
+                let wrapping_key = wrapping_key.map(|key| HandleResource::Transient {
+                    public: key.public,
+                    private: key.private,
+                    obj_name: key.name,
+                });
+
+                Ok(TemporaryKey {
+                    data: KeyData::Symmetric {
+                        template: *template,
+                        wrapping_key,
+                        wrapped_key,
+                    },
+                    policy,
+                    parent,
+                })
+            }
+        }
+    }
+
+    fn into_key_meta(
+        self,
+        template: &KeyTemplate,
+        key_name: String,
+        policy: Option<PolicyData>,
+        parent_name: Option<String>,
+    ) -> Result<KeyMeta> {
+        match (template, self) {
+            (KeyTemplate::Rsa(_), Self::Tpm(key_data)) => {
+                let tpm_key_meta = TpmKeyMeta {
+                    public: key_data.public,
+                    private: key_data.private,
+                    obj_name: key_data.name,
+                    policy,
+                };
+
+                if template.is_storage_parent() {
+                    Ok(KeyMeta::owner_primary(key_name, tpm_key_meta, None))
+                } else {
+                    Ok(KeyMeta::child(key_name, tpm_key_meta, None, parent_name))
+                }
+            }
+            (KeyTemplate::Ecc(_), Self::Tpm(key_data)) => Ok(KeyMeta::child(
+                key_name,
+                TpmKeyMeta {
+                    public: key_data.public,
+                    private: key_data.private,
+                    obj_name: key_data.name,
+                    policy,
+                },
+                None,
+                parent_name,
+            )),
+            (
+                KeyTemplate::Symmetric(template),
+                Self::Symmetric { key, wrapping_key },
+            ) => {
+                let wrapping_key = match wrapping_key {
+                    Some(key_data) => WrappingKeyMeta::Dedicated(TpmKeyMeta {
+                        public: key_data.public,
+                        private: key_data.private,
+                        obj_name: key_data.name,
+                        policy,
+                    }),
+                    None => {
+                        if policy.is_some() {
+                            return Err(Error::invalid_state(
+                                "symmetric key policy requires a dedicated wrapping key",
+                            ));
+                        }
+
+                        WrappingKeyMeta::Shared
+                    }
+                };
+
+                Ok(KeyMeta::symmetric(
+                    key_name,
+                    template.block_cipher(),
+                    template.key_bits(),
+                    template.mode(),
+                    key.as_bytes().to_vec(),
+                    wrapping_key,
+                ))
+            }
+            _ => Err(Error::invalid_state(
+                "created key type does not match its template",
+            )),
+        }
+    }
+}
+
 impl Context {
     pub fn connect() -> Result<Self> {
         Ok(Self {
@@ -61,7 +197,7 @@ impl Context {
         })
     }
 
-    pub fn create(
+    pub fn create_key(
         &mut self,
         template: KeyTemplate,
         key_name: Option<&str>,
@@ -71,56 +207,166 @@ impl Context {
     ) -> Result<Key> {
         if let Some(name) = key_name {
             self.store.ensure_unique_key_name(name)?;
+
+            if matches!(parent.map(Key::id), Some(KeyId::Temporary(_))) {
+                return Err(Error::invalid_param(
+                    "parent must be a stored key for a named key",
+                ));
+            }
+        }
+
+        if template.is_storage_parent() && parent.is_some() {
+            return Err(Error::invalid_param("storage root key cannot have a parent"));
+        }
+        if matches!(&template, KeyTemplate::Symmetric(_)) && parent.is_some() {
+            return Err(Error::invalid_param(
+                "parent cannot be specified for a symmetric key",
+            ));
         }
 
         let policy = policy.map(|policy| PolicyData::from(policy));
-        let auth_policy = match &policy {
-            Some(policy) => self.backend.compute_auth_policy(policy)?,
-            None => Tpm2bDigest::default(),
-        };
-        let in_public = Tpm2bPublic::from_template(&template, auth_policy);
-        let auth = match auth_value {
-            Some(value) => Tpm2bAuth::normalize_sha256(value),
-            None => Tpm2bAuth::default(),
-        };
-        let session_salt_key = self.load_session_salt_key()?;
+        let auth = auth_value
+            .map(Tpm2bAuth::normalize_sha256)
+            .unwrap_or_default();
+        let parent_id = parent.map(|key| key.id().clone());
 
-        let created_obj = if template.is_storage_parent() {
-            let owner_authorization = self.hierarchy_authorization(Hierarchy::Storage)?;
-
-            self.backend.create_srk(
-                in_public, 
-                auth, 
-                &owner_authorization, 
-                session_salt_key.handle()
+        let created_key = if template.is_storage_parent() {
+            self.create_key_from_template(
+                &template,
+                auth.clone(),
+                policy.clone(),
+                None,
             )?
         } else {
-            self.backend.create_child_key(
-                in_public, 
-                auth, 
-                self.load_parent(parent)?, 
-                session_salt_key.handle()
-            )?
+            let wrapping_parent = if matches!(&template, KeyTemplate::Symmetric(_)) {
+                self.load_shared_wrapping_handle()?
+            } else {
+                self.load_parent(parent)?
+            };
+
+            let result = self.create_key_from_template(
+                &template,
+                auth.clone(),
+                policy.clone(),
+                Some(&wrapping_parent),
+            );
+
+            match result {
+                Ok(created_key) => {
+                    self.backend.release_handle(wrapping_parent.handle())?;
+                    created_key
+                },
+                Err(e) => {
+                    let _ = self.backend.release_handle(wrapping_parent.handle());
+                    return Err(e);
+                }
+            }
+        };
+        let key_id = self.register_created_key(
+            &template,
+            created_key,
+            key_name,
+            policy,
+            parent_id,
+        )?;
+
+        self.cache.set_auth(AuthorizationTarget::Key(key_id.clone()), auth);
+
+        Ok(Key::new(key_id))
+    }
+
+    fn create_key_from_template(
+        &mut self,
+        template: &KeyTemplate,
+        auth: Tpm2bAuth,
+        policy: Option<PolicyData>,
+        parent: Option<&LoadedHandle>,
+    ) -> Result<CreatedKey> {
+        let Some(parent) = parent else {
+            let owner_authorization = self.hierarchy_authorization(Hierarchy::Storage)?;
+            let session_salt_handle = self.load_session_salt_handle()?;
+
+            return self
+                .backend
+                .create_srk_from_template(
+                    template,
+                    auth,
+                    policy.as_ref(),
+                    &owner_authorization,
+                    session_salt_handle,
+                )
+                .map(CreatedKey::Tpm);
         };
 
-        match key_name {
-            Some(name) => Ok(Key::new(KeyId::Stored(name))),
-            None => {
-                let temporary_key = TemporaryKey {
+        let session_salt_handle = self.load_session_salt_handle()?;
 
-                }
-                Ok(Key::new(self.register_temporary_key(key)))
+        match template {
+            KeyTemplate::Ecc(_) | KeyTemplate::Rsa(_) => self
+                .backend
+                .create_child_key_from_template(
+                    template,
+                    auth,
+                    policy.as_ref(),
+                    parent,
+                    session_salt_handle,
+                )
+                .map(CreatedKey::Tpm),
+            KeyTemplate::Symmetric(_) => {
+                let authorization = if auth.is_empty() && policy.is_none() {
+                    None
+                } else {
+                    Some(Authorization::new(auth, policy))
+                };
+
+                self
+                    .backend
+                    .create_sym_key_from_template(
+                        template,
+                        authorization.as_ref(),
+                        parent,
+                        session_salt_handle,
+                    )
+                    .map(|(key, wrapping_key)| {
+                        CreatedKey::Symmetric { key, wrapping_key }
+                    })
             }
         }
     }
 
-    fn store_key_meta(&mut self, created_obj: CreatedObject, template: &KeyTemplate) -> Result<()> {
-        let key_meta = match template {
-            KeyTemplate::Symmetric(sym_template) => {
-                let sym_key = generate_sym_key(sym_template.key_bits())?;
-                
+    fn register_created_key(
+        &mut self,
+        template: &KeyTemplate,
+        created_key: CreatedKey,
+        key_name: Option<&str>,
+        policy: Option<PolicyData>,
+        parent: Option<KeyId>,
+    ) -> Result<KeyId> {
+        let Some(key_name) = key_name else {
+            return self.register_temporary_key(
+                created_key.into_temporary_key(template, policy, parent)?,
+            );
+        };
+
+        let parent_name = match parent {
+            Some(KeyId::Stored(name)) => Some(name),
+            Some(KeyId::Temporary(_)) => {
+                return Err(Error::invalid_state(
+                    "stored key cannot have a temporary parent",
+                ));
             }
-        }
+            None => None,
+        };
+        let key_name = key_name.to_owned();
+        let key_meta = created_key.into_key_meta(
+            template,
+            key_name.clone(),
+            policy,
+            parent_name,
+        )?;
+
+        self.store.save_key_meta(&key_meta)?;
+
+        Ok(KeyId::Stored(key_name))
     }
 
     fn register_temporary_key(&mut self, key: TemporaryKey) -> Result<KeyId> {
@@ -164,11 +410,11 @@ impl Context {
             } => {
                 let handle = self.backend.resolve_persistent_handle(handle, &obj_name)?;
                 Ok(LoadedHandle::persistent(
-                    handle.into(),
+                    handle.inner(),
                     obj_name,
                     self.key_authorization(key_id, policy),
                 ))
-            }
+            },
             ParentKeyData::Primary {
                 hierarchy,
                 public,
@@ -177,17 +423,17 @@ impl Context {
             } => {
                 let authorization = self.key_authorization(key_id, policy);
                 let hierarchy_authorization = self.hierarchy_authorization(hierarchy)?;
-                let session_salt_key = self.load_session_salt_key()?;
+                let session_salt_handle = self.load_session_salt_handle()?;
 
                 self.backend.load_primary_key(
                     hierarchy.into(),
                     public,
                     authorization,
                     &hierarchy_authorization,
-                    session_salt_key.handle(),
+                    session_salt_handle,
                     &obj_name,
                 )
-            }
+            },
             ParentKeyData::Child {
                 public,
                 private,
@@ -199,14 +445,14 @@ impl Context {
                     Some(parent) => self.load_parent_by_id(&parent, ancestors)?,
                     None => self.load_internal_srk()?,
                 };
-                let session_salt_key = self.load_session_salt_key()?;
+                let session_salt_handle = self.load_session_salt_handle()?;
 
                 self.backend.load_temporary_key(
                     private,
                     public,
                     self.key_authorization(key_id, policy),
                     parent,
-                    session_salt_key.handle(),
+                    session_salt_handle,
                     &obj_name,
                 )
             }
@@ -311,13 +557,19 @@ impl Context {
                 public,
                 private,
                 obj_name,
-            }) => Ok(ParentKeyData::Child {
-                public: public.clone(),
-                private: Tpm2bPrivate::try_from(private.as_bytes())?,
-                obj_name: obj_name.clone(),
-                policy,
-                parent: temporary_key.parent.clone(),
-            }),
+            }) => {
+                let private = private.as_ref().ok_or_else(|| {
+                    Error::invalid_state("temporary child key private data is missing")
+                })?;
+
+                Ok(ParentKeyData::Child {
+                    public: public.clone(),
+                    private: Tpm2bPrivate::try_from(private.as_bytes())?,
+                    obj_name: obj_name.clone(),
+                    policy,
+                    parent: temporary_key.parent.clone(),
+                })
+            }
             KeyData::Symmetric { .. } => {
                 Err(Error::invalid_state("unexpected symmetric key as TPM parent"))
             }
@@ -347,7 +599,8 @@ impl Context {
         let key_meta = self.backend.create_internal_keys(&owner_authorization)?;
 
         self.store.init(&key_meta).inspect_err(|_| {
-            self.backend
+            self
+                .backend
                 .evict_persistent_handles(&owner_authorization, &key_meta, None)
         })
     }
@@ -357,34 +610,8 @@ impl Context {
             return Ok(Vec::new());
         }
 
-        let sesssion_salt_key = self.load_session_salt_key()?;
-        let mut buf = Vec::new();
-
-        buf.try_reserve_exact(num_bytes)
-            .map_err(|_| Error::resource_exhausted("failed to allocate random output buffer"))?;
-
-        while buf.len() < num_bytes {
-            let remaining = num_bytes - buf.len();
-            let chunk_size = remaining.min(u16::MAX as usize) as u16;
-
-            let chunk = self.backend.get_random(chunk_size, sesssion_salt_key.handle())?;
-
-            if chunk.is_empty() {
-                debug!("TPM returned no random bytes");
-                return Err(Error::InvalidData);
-            }
-
-            if chunk.len() > chunk_size as usize {
-                debug!("TPM returned more random bytes than requested");
-                return Err(Error::InvalidData);
-            }
-
-            buf.extend_from_slice(&chunk);
-        }
-
-        buf.truncate(num_bytes);
-
-        Ok(buf)
+        let session_salt_handle = self.load_session_salt_handle()?;
+        self.backend.get_random(num_bytes, session_salt_handle)
     }
 
     fn load_internal_srk(&mut self) -> Result<LoadedHandle> {
@@ -392,23 +619,16 @@ impl Context {
         self.backend.resolve_internal_key(key_meta)
     }
 
-    fn load_session_salt_key(&mut self) -> Result<LoadedHandle> {
+    fn load_session_salt_handle(&mut self) -> Result<BackendObjectHandle> {
         let key_meta = self.store.load_session_salt_key()?;
+        self
+            .backend
+            .resolve_internal_key(key_meta)
+            .map(|handle| handle.handle().inner())
+    }
+
+    fn load_shared_wrapping_handle(&mut self) -> Result<LoadedHandle> {
+        let key_meta = self.store.load_shared_wrapping_key()?;
         self.backend.resolve_internal_key(key_meta)
     }
 }
-
-fn generate_sym_key(key_bits: SymmetricKeyBits) -> Result<Zeroizing<Vec<u8>>> {
-    let key_len = match key_bits {
-        SymmetricKeyBits::Bits128 => 16,
-        SymmetricKeyBits::Bits256 => 32,
-    };
-
-    let mut key = Zeroizing::new(vec![0u8; key_len]);
-    OsRng
-        .try_fill_bytes(key.as_mut_slice())
-        .map_err(Error::random_generation)?;
-
-    Ok(key)
-}
-

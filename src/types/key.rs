@@ -7,15 +7,19 @@ use crate::types::{Tpm2bPublicKeyRsa, TpmiDhPersistent};
 
 #[cfg(target_os = "windows")]
 use super::tpm::TpmiDhObject;
-use super::{Authorization, tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic}};
+use super::{
+    Authorization,
+    public::SymmetricTemplate,
+    tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic},
+};
 
 #[cfg(target_os = "linux")]
-pub(crate) type LoadedObjectHandle = KeyHandle;
+pub(crate) type BackendObjectHandle = KeyHandle;
 #[cfg(target_os = "windows")]
-pub(crate) type LoadedObjectHandle = TpmiDhObject;
+pub(crate) type BackendObjectHandle = TpmiDhObject;
 
 pub(crate) struct CreatedObject {
-    pub(crate) handle: LoadedObjectHandle,
+    pub(crate) handle: BackendObjectHandle,
     pub(crate) public: Tpm2bPublic,
     pub(crate) private: Option<Tpm2bPrivate>,
     pub(crate) name: Tpm2bName,
@@ -31,8 +35,24 @@ impl Debug for CreatedObject {
     }
 }
 
+pub(crate) struct CreatedKeyData {
+    pub(crate) public: Tpm2bPublic,
+    pub(crate) private: Option<Tpm2bPrivate>,
+    pub(crate) name: Tpm2bName,
+}
+
+impl Debug for CreatedKeyData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> StdResult {
+        f.debug_struct("CreatedKeyData")
+            .field("public", &self.public)
+            .field("private", &self.private.is_some())
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
 pub(crate) struct LoadedHandle {
-    handle: TpmObjectHandle,
+    handle: LoadedObjectHandle,
     name: Tpm2bName,
     authorization: Authorization,
 }
@@ -46,62 +66,44 @@ impl Debug for LoadedHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TpmObjectHandle {
-    Transient(LoadedObjectHandle),
-    Persistent(LoadedObjectHandle),
-}
-
-impl TpmObjectHandle {
-    fn loaded_handle(&self) -> LoadedObjectHandle {
-        match self {
-            Self::Transient(handle) | Self::Persistent(handle) => *handle,
-        }
-    }
-
-    fn is_persistent(&self) -> bool {
-        matches!(self, Self::Persistent(_))
-    }
-}
-
 impl LoadedHandle {
     pub(crate) fn transient(
-        handle: LoadedObjectHandle,
+        handle: BackendObjectHandle,
         name: Tpm2bName,
         authorization: Authorization,
     ) -> Self {
         Self {
-            handle: TpmObjectHandle::Transient(handle),
+            handle: LoadedObjectHandle::Transient(handle),
             name,
             authorization,
         }
     }
 
     pub(crate) fn persistent(
-        handle: LoadedObjectHandle,
+        handle: BackendObjectHandle,
         name: Tpm2bName,
         authorization: Authorization,
     ) -> Self {
         Self {
-            handle: TpmObjectHandle::Persistent(handle),
+            handle: LoadedObjectHandle::Persistent(handle),
             name,
             authorization,
         }
     }
 
     pub(crate) fn internal_persistent(
-        handle: LoadedObjectHandle,
+        handle: BackendObjectHandle,
         name: Tpm2bName,
     ) -> Self {
         Self {
-            handle: TpmObjectHandle::Persistent(handle),
+            handle: LoadedObjectHandle::Persistent(handle),
             name,
             authorization: Authorization::default(),
         }
     }
 
     pub(crate) fn handle(&self) -> LoadedObjectHandle {
-        self.handle.loaded_handle()
+        self.handle
     }
 
     pub(crate) fn is_persistent(&self) -> bool {
@@ -118,6 +120,24 @@ impl LoadedHandle {
 
     pub(crate) fn into_authorization(self) -> Authorization {
         self.authorization
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LoadedObjectHandle {
+    Transient(BackendObjectHandle),
+    Persistent(BackendObjectHandle),
+}
+
+impl LoadedObjectHandle {
+    pub(crate) fn inner(&self) -> BackendObjectHandle {
+        match self {
+            Self::Transient(handle) | Self::Persistent(handle) => *handle,
+        }
+    }
+
+    pub(crate) fn is_persistent(&self) -> bool {
+        matches!(self, Self::Persistent(_))
     }
 }
 
@@ -147,14 +167,13 @@ impl KeyId {
     }
 }
 
-#[derive(Debug)]
 pub(crate) enum KeyData {
     Srk(HandleResource),
     Rsa(HandleResource),
     Ecc(HandleResource),
     Symmetric {
-        wrapping_key_resource: HandleResource,
-        wrapping_key_id: String,
+        template: SymmetricTemplate,
+        wrapping_key: Option<HandleResource>,
         wrapped_key: Tpm2bPublicKeyRsa,
     },
 }
@@ -162,7 +181,7 @@ pub(crate) enum KeyData {
 pub(crate) enum HandleResource {
     Transient {
         public: Tpm2bPublic,
-        private: Tpm2bPrivate,
+        private: Option<Tpm2bPrivate>,
         obj_name: Tpm2bName,
     },
     Persistent {

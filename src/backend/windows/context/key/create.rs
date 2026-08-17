@@ -16,15 +16,17 @@ use crate::{
     },
 };
 
+// TODO: implement single create method 
+
 impl Context {
     pub(crate) fn create_and_load(
         &mut self,
         in_public: &TpmtPublic,
         auth: Tpm2bAuth,
         parent: &LoadedHandle,
-        session_salt_key: Option<TpmiDhObject>,
+        session_salt_handle: Option<TpmiDhObject>,
     ) -> Result<CreatedObject> {
-        // use password session when session_salt_key is None
+        // use password session when session_salt_handle is None
         let mut request_params = Vec::new();
 
         marshal_tpm2b(&mut request_params, &TpmsSensitiveCreate::asymmetric(auth))?;
@@ -36,13 +38,13 @@ impl Context {
         let command_code = TpmCc::CREATE;
 
         let result = (|| {
-            let (out_private, out_public, hmac_session_state) = match session_salt_key {
+            let (out_private, out_public, hmac_session_state) = match session_salt_handle {
                 Some(_) => {
                     let mut sessions = self.prepare_sessions(
                         &mut resources,
                         TpmaSession::encrypt_decrypt().with_continue_session(),
                         Some(parent.authorization()),
-                        session_salt_key,
+                        session_salt_handle,
                         None,
                     )?;   
                     
@@ -107,7 +109,7 @@ impl Context {
                 &out_private,
                 &out_public,
                 parent,
-                session_salt_key,
+                session_salt_handle,
                 hmac_session_state,
                 Some(&mut resources),
             )?;
@@ -129,7 +131,7 @@ impl Context {
         in_public: &TpmtPublic,
         auth: Tpm2bAuth,
         primary_authorization: &Authorization,
-        session_salt_key: Option<TpmiDhObject>,
+        session_salt_handle: Option<TpmiDhObject>,
     ) -> Result<CreatedObject> {
         let mut request_params = Vec::new();
 
@@ -144,7 +146,7 @@ impl Context {
         let mut resources = CommandResources::default();
 
         let command_code = TpmCc::CREATE_PRIMARY;
-        let session_attrs = match session_salt_key {
+        let session_attrs = match session_salt_handle {
             Some(_) => TpmaSession::encrypt_decrypt(),
             None => TpmaSession::empty(),
         };
@@ -154,11 +156,11 @@ impl Context {
                 &mut resources,
                 session_attrs,
                 Some(primary_authorization),
-                session_salt_key,
+                session_salt_handle,
                 None,
             )?;
 
-            if session_salt_key.is_some() {
+            if session_salt_handle.is_some() {
                 let first_param = tpm2b_payload_mut(&mut request_params)?;
                 encrypt_command_parameter(&sessions, first_param)?;
             }
@@ -183,7 +185,7 @@ impl Context {
             let mut response = CreatePrimaryResponse::parse(&response_body, auth_contexts.len())?;
             resources.add_transient_handle(response.object_handle.try_into()?);
 
-            match session_salt_key {
+            match session_salt_handle {
                 Some(_) => {
                     decrypt_response_parameter(
                         command_code,

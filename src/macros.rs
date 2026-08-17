@@ -9,7 +9,7 @@ macro_rules! unknown_tpm_data {
     }};
 }
 
-macro_rules! tpm2b_bytes_type {
+macro_rules! tpm2b_type {
     ($name:ident,$max:expr) => {
         #[derive(Debug, Default, Clone)]
         pub(crate) struct $name(Vec<u8>);
@@ -251,6 +251,6 @@ macro_rules! newtype {
 }
 
 pub(crate) use {
-    impl_redacted_debug, impl_buffer_methods, impl_try_from_bytes, newtype, tpm_list_type,
-    tpm2b_bytes_type, tpm2b_zeroize_type, unknown_tpm_data,
+    impl_buffer_methods, impl_try_from_bytes, newtype, tpm_list_type,
+    tpm2b_type, tpm2b_zeroize_type, unknown_tpm_data,
 };

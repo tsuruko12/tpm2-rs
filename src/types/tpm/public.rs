@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 use crate::{
-    Error, Result, macros::{newtype, tpm2b_bytes_type}, public::RsaKeyBits, types::public::{
+    Error, Result, macros::{newtype, tpm2b_type, tpm2b_zeroize_type}, public::RsaKeyBits, types::public::{
         KeyTemplate,
         ecc::EccTemplate,
         rsa::{RsaScheme, RsaTemplate},
@@ -313,7 +313,7 @@ impl TpmaObject {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum TpmuPublicId {
     KeyedHash(Tpm2bDigest),
     Sym(Tpm2bDigest),
@@ -339,14 +339,15 @@ impl TpmuPublicId {
     }
 }
 
-tpm2b_bytes_type!(Tpm2bPublicKeyRsa, RsaKeyBits::MAX_BITS / 8); // TODO: consider zeroize type not to be debug
+tpm2b_zeroize_type!(Tpm2bPublicKeyRsa, RsaKeyBits::MAX_BITS / 8); 
 
-impl zeroize::Zeroize for Tpm2bPublicKeyRsa {
-    fn zeroize(&mut self) {
-        self.0.zeroize();
+impl Clone for Tpm2bPublicKeyRsa {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
-tpm2b_bytes_type!(Tpm2bName, TpmtHa::MAX_BYTES);
+
+tpm2b_type!(Tpm2bName, TpmtHa::MAX_BYTES);
 
 // size 4 -> handle (TPM_HANDLE)
 // size 0 -> no name

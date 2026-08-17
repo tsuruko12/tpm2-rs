@@ -24,7 +24,7 @@ impl Context {
         obj_handle: TpmiDhObject,
         persistent_handle: &mut TpmiDhPersistent,
         owner_authorization: &Authorization,
-        session_salt_key: Option<TpmiDhObject>,
+        session_salt_handle: Option<TpmiDhObject>,
         search_end: Option<TpmiDhPersistent>,
     ) -> Result<()> {
         let command_code = TpmCc::EVICT_CONTROL;
@@ -36,7 +36,7 @@ impl Context {
                 resources,
                 TpmaSession::empty(),
                 Some(owner_authorization),
-                session_salt_key,
+                session_salt_handle,
                 None,
             )?;
 

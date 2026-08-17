@@ -33,7 +33,7 @@ impl Context {
             .map_err(Error::esapi)
     }
 
-    fn read_object_public(&mut self, handle: KeyHandle) -> Result<(Public, Name, Name)> {
+    fn read_obj_public(&mut self, handle: KeyHandle) -> Result<(Public, Name, Name)> {
         self.ctx.read_public(handle).map_err(Error::from_tss_err)
     }
 }

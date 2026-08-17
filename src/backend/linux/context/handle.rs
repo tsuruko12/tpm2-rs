@@ -5,7 +5,7 @@ use tss_esapi::{
     interface_types::{resource_handles::Provision, session_handles::{AuthSession, PolicySession}},
 };
 
-use crate::{Error, Result, types::{Authorization, TpmaSession}};
+use crate::{Error, Result, types::{Authorization, LoadedObjectHandle, TpmaSession}};
 use super::{Context, CommandResources, SessionSlotArray};
 
 impl Context {
@@ -15,7 +15,7 @@ impl Context {
         obj_handle: ObjectHandle,
         persistent_handle: &mut PersistentTpmHandle,
         owner_authorization: &Authorization,
-        session_salt_key: Option<KeyHandle>,
+        session_salt_handle: Option<KeyHandle>,
         search_end: Option<PersistentTpmHandle>,
     ) -> Result<ObjectHandle> {
         let result = (|| {
@@ -23,7 +23,7 @@ impl Context {
                 resources,
                 Some((ObjectHandle::Owner, owner_authorization)),
                 TpmaSession::empty().with_continue_session(),
-                session_salt_key,
+                session_salt_handle,
             )?;
 
             loop {
@@ -81,7 +81,14 @@ impl Context {
         first_err.map_or(Ok(()), Err)
     }
 
-    pub(super) fn flush_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {
+    pub(crate) fn release_handle(&mut self, obj_handle: LoadedObjectHandle) -> Result<()> {
+        match obj_handle {
+            LoadedObjectHandle::Persistent(handle) => self.close_handle(&mut handle.into()),
+            LoadedObjectHandle::Transient(handle) => self.flush_handle(&mut handle.into()),
+        }
+    }
+
+    fn flush_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {
         if *handle == ObjectHandle::None {
             return Ok(());
         }
@@ -113,15 +120,13 @@ impl Context {
         for handle in handles.iter_mut() {
             if let Err(e) = self.close_handle(handle) {
                 first_err.get_or_insert(e);
-
-                debug!("failed to close ESAPI handle");
             }
         }
 
         first_err.map_or(Ok(()), Err)
     }
 
-    pub(super) fn close_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {
+    fn close_handle(&mut self, handle: &mut ObjectHandle) -> Result<()> {
         if *handle == ObjectHandle::None {
             return Ok(());
         }
@@ -157,16 +162,21 @@ impl Context {
 }
 
 impl CommandResources {
+    pub(super) fn release_all_handles(&mut self, ctx: &mut Context) -> Result<()> {
+        self.close_all_handles(ctx)?;
+        self.flush_all_handles(ctx)?;
+
+        Ok(())
+    }
+
     pub(super) fn release_handle(
         &mut self, 
         ctx: &mut Context, 
-        target: ObjectHandle, 
-        is_persistent: bool
+        target: LoadedObjectHandle, 
     ) -> Result<()> {
-        if is_persistent {
-            self.close_handle(ctx, target)
-        } else {
-            self.flush_handle(ctx, target)
+        match target {
+            LoadedObjectHandle::Persistent(handle) => self.close_handle(ctx, handle.into()),
+            LoadedObjectHandle::Transient(handle) => self.flush_handle(ctx, handle.into()),
         }
     }
 
@@ -206,23 +216,23 @@ impl CommandResources {
         ctx.flush_policy_session(&mut self.sessions)
     }
 
-    pub(super) fn flush_handles(&mut self, ctx: &mut Context) -> Result<()> {
+    pub(super) fn flush_all_handles(&mut self, ctx: &mut Context) -> Result<()> {
         ctx.flush_handles(&mut self.transient_handles)
     }
 
-    pub(super) fn close_handles(&mut self, ctx: &mut Context) -> Result<()> {
+    pub(super) fn close_all_handles(&mut self, ctx: &mut Context) -> Result<()> {
         ctx.close_handles(&mut self.persistent_handles)
     }
 
     pub(super) fn release(&mut self, ctx: &mut Context) -> Result<()> {
-        self.close_handles(ctx)?;
-        self.flush_handles(ctx)?;
+        self.close_all_handles(ctx)?;
+        self.flush_all_handles(ctx)?;
         ctx.flush_sessions(&mut self.sessions)
     }
 
     pub(super) fn cleanup(&mut self, ctx: &mut Context) {
-        let _ = self.close_handles(ctx);
-        let _ = self.flush_handles(ctx);
+        let _ = self.close_all_handles(ctx);
+        let _ = self.flush_all_handles(ctx);
         let _ = ctx.flush_sessions(&mut self.sessions);
     }
 }

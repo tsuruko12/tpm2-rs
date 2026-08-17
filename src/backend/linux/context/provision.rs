@@ -56,7 +56,7 @@ impl Context {
             key_meta.push(srk_meta);
             persistent_handles.push(srk_handle);
 
-            resources.flush_handles(self)?;
+            resources.flush_all_handles(self)?;
 
             let storage_first = PersistentTpmHandle::new(
                 TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.raw()
@@ -92,7 +92,7 @@ impl Context {
             key_meta.push(session_salt_key_meta);
             persistent_handles.push(session_salt_handle);
 
-            resources.flush_handles(self)?;
+            resources.flush_all_handles(self)?;
 
             let (shared_wrapping_key_meta, shared_wrapping_handle) = self.create_and_persist(
                 &mut resources,
@@ -114,7 +114,7 @@ impl Context {
             key_meta.push(shared_wrapping_key_meta);
             persistent_handles.push(shared_wrapping_handle);
 
-            resources.flush_handles(self)
+            resources.flush_all_handles(self)
         })();
 
         match result {
@@ -124,7 +124,7 @@ impl Context {
                         for handle in persistent_handles {
                             resources.add_persistent_handle(handle);
                         }
-                        let _ = resources.close_handles(self);
+                        let _ = resources.close_all_handles(self);
                         Ok(key_meta)
                     },
                     Err(e) => {
@@ -158,7 +158,7 @@ impl Context {
         mut persistent_handle: PersistentTpmHandle,
         owner_authorization: &Authorization,
         serch_end: Option<PersistentTpmHandle>,
-        session_salt_key: Option<KeyHandle>,
+        session_salt_handle: Option<KeyHandle>,
         create: F,
     ) -> Result<(InternalKeyMeta, ObjectHandle)>
     where
@@ -172,7 +172,7 @@ impl Context {
             created.handle.into(),
             &mut persistent_handle,
             owner_authorization,
-            session_salt_key,
+            session_salt_handle,
             serch_end,
         )?;
 
@@ -190,29 +190,29 @@ impl Context {
         &mut self, 
         owner_authorization: &Authorization,
         key_meta: &[InternalKeyMeta], 
-        persistent_handles: Option<&mut [ObjectHandle]>,
+        persistent_handles: Option<&[ObjectHandle]>,
     ) {
         let mut resources = CommandResources::default();
 
         match persistent_handles {
             Some(handles) => {
-                for (meta, loaded_handle) in key_meta
+                for (meta, obj_handle) in key_meta
                     .iter()
                     .rev()
-                    .zip(handles.iter_mut().rev())
+                    .zip(handles.iter().rev())
                 {
+                    resources.add_persistent_handle(*obj_handle);
                     let mut persistent_handle = PersistentTpmHandle::from(meta.handle);
 
                     if let Err(err) = self.evict_control(
                         &mut resources,
-                        *loaded_handle,
+                        *obj_handle,
                         &mut persistent_handle,
                         owner_authorization,
                         None,
                         None,
                     ) {
                         tracing::debug!(?err, "rollback failed");
-                        let _ = self.close_handle(loaded_handle);
                     }
                 }
             },
@@ -220,22 +220,22 @@ impl Context {
                 for meta in key_meta.iter().rev() {
                     let mut persistent_handle = PersistentTpmHandle::from(meta.handle);
                     
-                    let Ok(mut handle) =
+                    let Ok(loaded_handle) =
                         self.load_persistent_handle(persistent_handle.into())
                     else {
                         continue;
                     };
+                    resources.add_handle(loaded_handle);
 
                     if let Err(err) = self.evict_control(
                         &mut resources,
-                        handle,
+                        loaded_handle.inner().into(),
                         &mut persistent_handle,
                         owner_authorization,
                         None,
                         None,
                     ) {
                         tracing::debug!(?err, "rollback failed");
-                        let _ = self.close_handle(&mut handle);
                     }
                 }
             }

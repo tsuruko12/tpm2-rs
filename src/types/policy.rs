@@ -173,7 +173,7 @@ impl PcrSelection {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum PolicyData {
     Pcr(PcrSelection),
     Command(PolicyCommand),
@@ -185,6 +185,27 @@ pub(crate) enum PolicyData {
         selected_branch: Option<usize>,
     },
     Sequence(Vec<PolicyData>),
+}
+
+impl std::fmt::Debug for PolicyData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pcr(selection) => f.debug_tuple("Pcr").field(selection).finish(),
+            Self::Command(command) => f.debug_tuple("Command").field(command).finish(),
+            Self::AuthValue => f.write_str("AuthValue"),
+            Self::Password => f.write_str("Password"),
+            Self::Or {
+                branches,
+                selected_branch,
+                ..
+            } => f
+                .debug_struct("Or")
+                .field("branches", branches)
+                .field("selected_branch", selected_branch)
+                .finish_non_exhaustive(),
+            Self::Sequence(steps) => f.debug_tuple("Sequence").field(steps).finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

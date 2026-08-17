@@ -151,7 +151,7 @@ impl Context {
             .map_err(Error::esapi)
     }
 
-    pub(crate) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Tpm2bDigest> {
+    pub(super) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Tpm2bDigest> {
         let mut resources = CommandResources::default();
 
         let result = (|| {

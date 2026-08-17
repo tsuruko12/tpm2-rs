@@ -1,7 +1,7 @@
 use sha2::{Sha256, Digest};
 use zeroize::Zeroizing;
 
-use crate::{macros::{tpm2b_bytes_type, tpm2b_zeroize_type}};
+use crate::{macros::{tpm2b_type, tpm2b_zeroize_type}};
 use super::sensitive::Tpm2bSensitive;
 
 const TPM2B_SIZE_BYTES: usize = 2;
@@ -17,7 +17,13 @@ struct _Private {
     sensitive: Tpm2bSensitive,
 }
 
-tpm2b_bytes_type!(Tpm2bDigest, 64);
+tpm2b_zeroize_type!(Tpm2bDigest, 64);
+
+impl Clone for Tpm2bDigest {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 tpm2b_zeroize_type!(Tpm2bAuth, Tpm2bDigest::MAX_BYTES);
 
@@ -35,4 +41,4 @@ impl Tpm2bAuth {
     }
 }
 
-tpm2b_bytes_type!(Tpm2bLabel, 32); 
+tpm2b_type!(Tpm2bLabel, 32); 

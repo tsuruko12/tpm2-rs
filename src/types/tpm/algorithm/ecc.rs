@@ -1,7 +1,8 @@
 use super::{TpmAlgId, TpmiAlgHash, TpmsSchemeHash, TpmtKdfScheme, TpmtSymDefObject};
 use crate::{
     Error, Result,
-    macros::{newtype, tpm_list_type, tpm2b_bytes_type}, types::EccCurve,
+    macros::{newtype, tpm_list_type, tpm2b_type}, 
+    types::EccCurve,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -412,4 +413,4 @@ impl TpmsEccPoint {
     }
 }
 
-tpm2b_bytes_type!(Tpm2bEccParameter, EccCurve::MAX_BITS.div_ceil(8));
+tpm2b_type!(Tpm2bEccParameter, EccCurve::MAX_BITS.div_ceil(8));

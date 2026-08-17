@@ -131,7 +131,7 @@ impl Context {
         mut persistent_handle: TpmiDhPersistent,
         owner_authorization: &Authorization,
         serch_end: Option<TpmiDhPersistent>,
-        session_salt_key: Option<TpmiDhObject>,
+        session_salt_handle: Option<TpmiDhObject>,
         create: F,
     ) -> Result<InternalKeyMeta>
     where
@@ -145,7 +145,7 @@ impl Context {
             created.obj_handle,
             &mut persistent_handle,
             owner_authorization,
-            session_salt_key,
+            session_salt_handle,
             serch_end,
         )?;
 
@@ -159,7 +159,7 @@ impl Context {
         &mut self, 
         owner_authorization: &Authorization,
         key_meta: &[InternalKeyMeta], 
-        persistent_handles: Option<&mut [TpmiDhObject]>,
+        persistent_handles: Option<&mut [TpmiDhObject]>, // TODO: remove mut
     ) {
         let mut resources = CommandResources::default();
 

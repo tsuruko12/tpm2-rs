@@ -13,7 +13,7 @@ use tss_esapi::{
     structures::Auth,
 };
 
-use crate::{Error, Result};
+use crate::{Error, Result, types::LoadedObjectHandle};
 
 type SessionSlotArray = [Option<AuthSession>; 3];
 
@@ -56,11 +56,11 @@ impl CommandResources {
         Ok(())
     }
 
-    fn add_handle(&mut self, handle: ObjectHandle, is_persistent: bool) {
-        if is_persistent {
-            self.add_persistent_handle(handle);
+    fn add_handle(&mut self, loaded_handle: LoadedObjectHandle) {
+        if loaded_handle.is_persistent() {
+            self.add_persistent_handle(loaded_handle.inner().into());
         } else {
-            self.add_transient_handle(handle);
+            self.add_transient_handle(loaded_handle.inner().into());
         }
     }
 

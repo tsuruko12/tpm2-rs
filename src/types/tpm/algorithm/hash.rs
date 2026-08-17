@@ -112,7 +112,7 @@ enum TpmuHa {
     Null,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct TpmlDigest {
     items: Vec<Tpm2bDigest>,
 }

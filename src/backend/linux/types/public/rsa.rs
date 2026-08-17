@@ -102,7 +102,7 @@ impl TryFrom<TpmtRsaScheme> for TPMT_RSA_SCHEME {
 impl From<Tpm2bPublicKeyRsa> for PublicKeyRsa {
     fn from(public_key: Tpm2bPublicKeyRsa) -> Self {
         public_key
-            .into_bytes()
+            .as_bytes()
             .try_into()
             .expect("Tpm2bPublicKeyRsa must be valid for PublicKeyRsa")
     }

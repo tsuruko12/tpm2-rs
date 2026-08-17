@@ -1,5 +1,3 @@
-use zeroize::Zeroize;
-
 use crate::macros::tpm2b_zeroize_type;
 use super::{
     TpmiAlgPublic,Tpm2bAuth, Tpm2bDigest, 
