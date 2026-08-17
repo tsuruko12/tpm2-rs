@@ -205,24 +205,7 @@ impl Context {
         policy: Option<Policy>,
         parent: Option<&Key>,
     ) -> Result<Key> {
-        if let Some(name) = key_name {
-            self.store.ensure_unique_key_name(name)?;
-
-            if matches!(parent.map(Key::id), Some(KeyId::Temporary(_))) {
-                return Err(Error::invalid_param(
-                    "parent must be a stored key for a named key",
-                ));
-            }
-        }
-
-        if template.is_storage_parent() && parent.is_some() {
-            return Err(Error::invalid_param("storage root key cannot have a parent"));
-        }
-        if matches!(&template, KeyTemplate::Symmetric(_)) && parent.is_some() {
-            return Err(Error::invalid_param(
-                "parent cannot be specified for a symmetric key",
-            ));
-        }
+        self.validate_key_creation(&template, key_name, parent)?;
 
         let policy = policy.map(|policy| PolicyData::from(policy));
         let auth = auth_value
@@ -273,6 +256,34 @@ impl Context {
         self.cache.set_auth(AuthorizationTarget::Key(key_id.clone()), auth);
 
         Ok(Key::new(key_id))
+    }
+
+    fn validate_key_creation(
+        &self, 
+        template: &KeyTemplate, 
+        key_name: Option<&str>,
+        parent: Option<&Key>
+    ) -> Result<()> {
+        if let Some(name) = key_name {
+            self.store.ensure_unique_key_name(name)?;
+
+            if matches!(parent.map(|key| key.id()), Some(KeyId::Temporary(_))) {
+                return Err(Error::invalid_param(
+                    "parent must be a stored key for a named key",
+                ));
+            }
+        }
+
+        if template.is_storage_parent() && parent.is_some() {
+            return Err(Error::invalid_param("storage root key cannot have a parent"));
+        }
+        if matches!(&template, KeyTemplate::Symmetric(_)) && parent.is_some() {
+            return Err(Error::invalid_param(
+                "parent cannot be specified for a symmetric key",
+            ));
+        }
+
+        Ok(())
     }
 
     fn create_key_from_template(
@@ -632,3 +643,4 @@ impl Context {
         self.backend.resolve_internal_key(key_meta)
     }
 }
+
