@@ -5,11 +5,11 @@ use windows_sys::Win32::Foundation::{
     TBS_E_SERVICE_NOT_RUNNING, TBS_E_SERVICE_START_PENDING, TBS_E_TPM_NOT_FOUND,
 };
 
-use super::types::*;
+use super::TpmRc;
 use crate::error::{Error, InternalError};
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum TbsError {
+pub(super) enum TbsError {
     #[error("TBS service is disabled")]
     ServiceDisabled,
     #[error("TBS service is not running and could not be started")]
@@ -59,7 +59,7 @@ impl Error {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TpmError {
+pub(super) enum TpmError {
     FormatOne {
         rc: TpmRc,
         kind: FormatOneError,
@@ -77,7 +77,7 @@ pub(crate) enum TpmError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ErrorTarget {
+pub(super) enum ErrorTarget {
     Unspecified,
     Parameter(u8),
     Handle(u8),
@@ -85,7 +85,7 @@ pub(crate) enum ErrorTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FormatOneError {
+pub(super) enum FormatOneError {
     Asymmetric,
     Attributes,
     Hash,
@@ -130,7 +130,7 @@ pub(crate) enum FormatOneError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FormatZeroError {
+pub(super) enum FormatZeroError {
     Initialize,
     Failure,
     Sequence,
@@ -169,7 +169,7 @@ pub(crate) enum FormatZeroError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TpmWarning {
+pub(super) enum TpmWarning {
     ContextGap,
     ObjectMemory,
     SessionMemory,
@@ -190,13 +190,13 @@ pub(crate) enum TpmWarning {
 
 impl From<TpmRc> for TpmError {
     fn from(rc: TpmRc) -> Self {
-        let raw = rc.raw();
+        let value = rc.value();
 
-        if raw & TpmRc::FMT1 != 0 {
+        if value & TpmRc::FMT1 != 0 {
             return Self::format_one(rc).unwrap_or(Self::Unknown(rc));
         }
 
-        if (raw & TpmRc::WARN) == TpmRc::WARN {
+        if (value & TpmRc::WARN) == TpmRc::WARN {
             return Self::warning(rc).unwrap_or(Self::Unknown(rc));
         }
 
@@ -259,10 +259,10 @@ impl TpmError {
             _ => return None,
         };
 
-        let raw = rc.raw();
+        let value = rc.value();
 
-        let idx = ((raw & TpmRc::N_MASK) >> 8) as u8;
-        let target = if raw & TpmRc::P != 0 {
+        let idx = ((value & TpmRc::N_MASK) >> 8) as u8;
+        let target = if value & TpmRc::P != 0 {
             (idx != 0).then_some(ErrorTarget::Parameter(idx))
         } else {
             match idx {
@@ -355,7 +355,7 @@ impl TpmError {
         Some(Self::Warning { rc, kind })
     }
 
-    pub(crate) fn rc(&self) -> TpmRc {
+    pub(super) fn rc(&self) -> TpmRc {
         match self {
             Self::FormatOne { rc, .. }
             | Self::FormatZero { rc, .. }
@@ -366,7 +366,7 @@ impl TpmError {
 }
 
 impl Error {
-    pub(crate) fn from_rc(rc: TpmRc) -> Self {
+    pub(super) fn from_rc(rc: TpmRc) -> Self {
         let source = TpmError::from(rc);
         let base = rc.base();
 
@@ -402,10 +402,7 @@ impl Error {
             ),
             TpmRc::YIELDED
             | TpmRc::TESTING
-            | TpmRc::NEEDS_TEST
-            | TpmRc::NV_RATE
-            | TpmRc::RETRY
-            | TpmRc::NV_UNAVAILABLE => Self::busy(source),
+            | TpmRc::RETRY => Self::busy(source),
             TpmRc::DISABLED | TpmRc::COMMAND_CODE | TpmRc::UPGRADE | TpmRc::READ_ONLY => {
                 Self::unsupported_with_source(
                     "TPM does not support the requested operation",
@@ -456,7 +453,7 @@ impl Error {
             | TpmRc::REFERENCE_S3
             | TpmRc::REFERENCE_S4
             | TpmRc::REFERENCE_S5
-            | TpmRc::REFERENCE_S6 => Self::internal(InternalError::InvalidTpmCommand(rc.raw())),
+            | TpmRc::REFERENCE_S6 => Self::internal(InternalError::InvalidTpmCommand(rc.value())),
             _ => Self::failure(source),
         }
     }

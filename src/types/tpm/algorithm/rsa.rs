@@ -142,14 +142,6 @@ impl TpmiAlgRsaScheme {
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
 }
 
-impl TryFrom<u16> for TpmiAlgRsaScheme {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
-}
-
 impl TryFrom<TpmAlgId> for TpmiAlgRsaScheme {
     type Error = Error;
 

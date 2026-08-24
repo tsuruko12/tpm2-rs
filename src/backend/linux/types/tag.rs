@@ -11,7 +11,7 @@ use super::policy;
 use crate::{
     Error, Result,
     error::BoxError,
-    types::{
+    types::tpm::{
         TpmPt, TpmPtPcr, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsTaggedPcrSelect,
         TpmsTaggedProperty,
     },

@@ -1,7 +1,7 @@
 use crate::{
     Error, Result,
-    macros::{newtype, tpm_list_type},
-    types::{Tpm2bDigest, algorithm::HashAlgorithm},
+    macros::newtype,
+    types::{algorithm::HashAlgorithm, tpm::Tpm2bDigest},
 };
 
 use super::TpmAlgId;
@@ -44,14 +44,6 @@ impl TryFrom<TpmAlgId> for TpmiAlgHash {
             | TpmAlgId::Shake256_512 => Ok(Self(alg)),
             _ => Err(Error::conversion::<TpmAlgId, TpmiAlgHash>(Some(&alg))),
         }
-    }
-}
-
-impl TryFrom<u16> for TpmiAlgHash {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        Self::try_from(TpmAlgId::try_from(value)?)
     }
 }
 
@@ -115,6 +107,14 @@ enum TpmuHa {
 #[derive(Default, Clone)]
 pub(crate) struct TpmlDigest {
     items: Vec<Tpm2bDigest>,
+}
+
+impl std::fmt::Debug for TpmlDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TpmlDigest")
+            .field("len", &self.items.len())
+            .finish()
+    }
 }
 
 impl TpmlDigest {

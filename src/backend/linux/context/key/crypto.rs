@@ -2,10 +2,8 @@ use tss_esapi::{handles::KeyHandle, structures::{Data, RsaDecryptionScheme}};
 
 use crate::{
     Error, Result, 
-    types::{Authorization, Tpm2bPublicKeyRsa, LoadedObjectHandle, TpmaSession}};
-
-use super::Context;
-use super::super::CommandResources;
+    types::{Authorization, LoadedObjectHandle, tpm::{Tpm2bPublicKeyRsa, TpmaSession}}};
+use super::{Context, CommandResources};
 
 impl Context {
     pub(super) fn wrap_key(
@@ -20,8 +18,8 @@ impl Context {
         let result = (|| {
             self.prepare_sessions(
                 &mut resources, 
-                Some((rsa_handle.inner().into(), rsa_authorization)), 
                 TpmaSession::decrypt().with_continue_session(), 
+                Some((rsa_handle.inner().into(), rsa_authorization)), 
                 Some(session_salt_handle)
             )?;
 
@@ -29,7 +27,7 @@ impl Context {
                 ctx.rsa_encrypt(
                     rsa_handle.inner(), 
                     message.into(), 
-                    RsaDecryptionScheme::Null, 
+                    RsaDecryptionScheme::Oaep, 
                     Data::default()
                 )
             })

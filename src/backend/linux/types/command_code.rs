@@ -2,7 +2,7 @@ use tss_esapi::{constants::CommandCode, structures::CommandCodeList};
 
 use crate::{
     Error, Result,
-    types::{TpmCc, TpmlCc},
+    types::tpm::{TpmCc, TpmlCc},
 };
 
 impl TryFrom<CommandCodeList> for TpmlCc {
@@ -23,7 +23,7 @@ impl TryFrom<TpmCc> for CommandCode {
     type Error = Error;
 
     fn try_from(cc: TpmCc) -> Result<Self> {
-        cc.raw()
+        cc.value()
             .try_into()
             .map_err(|_| Error::conversion::<TpmCc, CommandCode>(None))
     }

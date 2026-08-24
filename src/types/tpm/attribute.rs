@@ -4,7 +4,7 @@ use crate::{
 };
 use bitflags::bitflags;
 
-tpm_list_type!(TpmlCca(TpmaCc););
+tpm_list_type!(TpmlCca(TpmaCc));
 
 newtype!(TpmaCc(u32));
 

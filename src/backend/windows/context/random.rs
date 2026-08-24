@@ -1,14 +1,12 @@
 use tracing::debug;
 
-use super::super::{codec::GetRandomResponse, commands::Command};
-use super::{
-    CommandResources, Context,
-    session::{decrypt_response_parameter, split_prepared_sessions, update_command_hmacs},
-};
+use super::{Command, CommandResources, Context, GetRandomResponse, TpmsAuthCommand};
 use crate::{
     error::{Error, Result},
-    types::{TpmCc, TpmaSession, TpmiDhObject},
+    types::tpm::{Tpm2bDigest, TpmCc, TpmaSession, TpmiDhObject},
 };
+
+const RESPONSE_HANDLE_COUNT: usize = 0;
 
 impl Context {
     pub(crate) fn get_random(
@@ -16,74 +14,58 @@ impl Context {
         num_bytes: usize,
         session_salt_handle: TpmiDhObject,
     ) -> Result<Vec<u8>> {
+        let mut resources = CommandResources::default();
+
         let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(num_bytes)
-            .map_err(|_| Error::resource_exhausted("failed to allocate random output buffer"))?;
 
-        while bytes.len() < num_bytes {
-            let remaining = num_bytes - bytes.len();
-            let bytes_requested = remaining.min(u16::MAX as usize) as u16;
-            let chunk = self.get_random_chunk(bytes_requested, session_salt_handle)?;
+        let result = (|| {
+            while bytes.len() < num_bytes {
+                let remaining = num_bytes - bytes.len();
+                let bytes_requested = remaining.min(u16::MAX as usize) as u16;
 
-            if chunk.is_empty() {
-                debug!("TPM returned no random bytes");
-                return Err(Error::InvalidData);
+                let authorization_area = self.prepare_sessions(
+                    &mut resources,
+                    TpmaSession::encrypt().with_continue_session(),
+                    None,
+                    Some(session_salt_handle),
+                )?;
+
+                let chunk =
+                    self.get_random_chunk(bytes_requested, authorization_area, &mut resources)?;
+                if chunk.is_empty() {
+                    debug!("TPM returned no random bytes");
+                    return Err(Error::InvalidData);
+                }
+
+                bytes
+                    .try_reserve(chunk.len())
+                    .map_err(|_| Error::resource_exhausted(
+                        "failed to allocate random output buffer"
+                    ))?;
+                bytes.extend_from_slice(chunk.as_bytes());
             }
 
-            if chunk.len() > bytes_requested as usize {
-                debug!("TPM returned more random bytes than requested");
-                return Err(Error::InvalidData);
-            }
+            resources.flush_sessions(self)?;
 
-            bytes.extend_from_slice(&chunk);
-        }
+            Ok(bytes)
+        })();
 
-        Ok(bytes)
+        self.cleanup_on_error(result, &mut resources)
     }
 
     fn get_random_chunk(
         &mut self,
         bytes_requested: u16,
-        session_salt_handle: TpmiDhObject,
-    ) -> Result<Vec<u8>> {
-        let request_params = bytes_requested.to_be_bytes();
+        authorization_area: Vec<TpmsAuthCommand>,
+        resources: &mut CommandResources,
+    ) -> Result<Tpm2bDigest> {
+        let mut command_params = bytes_requested.to_be_bytes();
+        let mut command = Command::new(TpmCc::GET_RANDOM)
+            .with_authorization_area(authorization_area)
+            .with_parameters(&mut command_params);
 
-        let mut resources = CommandResources::default();
-        let command_code = TpmCc::GET_RANDOM;
+        let response_body = self.submit(&mut command, RESPONSE_HANDLE_COUNT, resources)?;
 
-        let result = (|| {
-            let mut sessions = self.prepare_sessions(
-                &mut resources,
-                TpmaSession::encrypt(),
-                None,
-                Some(session_salt_handle),
-                None,
-            )?;
-
-            update_command_hmacs(&mut sessions, command_code, &[], &request_params)?;
-
-            let (authorizations, auth_contexts) = split_prepared_sessions(&sessions);
-
-            let command = Command::new(command_code)
-                .with_authorizations(&authorizations)
-                .with_parameters(&request_params);
-
-            let response_body = self.submit(command)?;
-            resources.clear_sessions();
-
-            let mut response = GetRandomResponse::parse(&response_body, auth_contexts.len())?;
-
-            decrypt_response_parameter(
-                command_code,
-                &mut response.parameters,
-                &auth_contexts,
-                &response.authorizations,
-            )?;
-
-            response.into_parts().map(|bytes| bytes.into_bytes())
-        })();
-
-        self.finish_command(result, &mut resources)
+        Ok(GetRandomResponse::try_from(response_body)?.random_bytes)
     }
 }

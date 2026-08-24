@@ -18,6 +18,7 @@ pub(crate) use self::rsa::{
 };
 pub(crate) use self::symmetric::{
     TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmsSymCipherParms, TpmtSymDefObject,
+    TpmuSymMode,
 };
 
 
@@ -26,7 +27,7 @@ use crate::{
     macros::{newtype, tpm_list_type},
 };
 
-tpm_list_type!(TpmlAlgProperty(TpmsAlgProperty););
+tpm_list_type!(TpmlAlgProperty(TpmsAlgProperty));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmsAlgProperty {
@@ -106,8 +107,21 @@ pub(crate) enum TpmAlgId {
 }
 
 impl TpmAlgId {
-    pub(crate) fn raw(self) -> u16 {
+    pub(crate) fn value(self) -> u16 {
         self as u16
+    }
+
+    pub(crate) fn digest_size(self) -> Option<usize> {
+        match self {
+            Self::Sha1 => Some(20),
+            Self::Sha256 | Self::Sha3_256 | Self::Sm3_256 => Some(32),
+            Self::Sha384 | Self::Sha3_384 => Some(48),
+            Self::Sha512 | Self::Sha3_512 => Some(64),
+            Self::Sha256_192 | Self::Shake256_192 => Some(24),
+            Self::Shake256_256 => Some(32),
+            Self::Shake256_512 => Some(64),
+            _ => None,
+        }
     }
 }
 
@@ -178,14 +192,6 @@ impl TpmiAlgKdf {
     pub(crate) const KDF1_SP800_56A: Self = Self(TpmAlgId::Kdf1Sp80056a);
     pub(crate) const KDF1_SP800_108: Self = Self(TpmAlgId::Kdf1Sp800108);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-}
-
-impl TryFrom<u16> for TpmiAlgKdf {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgKdf {

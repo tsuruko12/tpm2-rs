@@ -36,7 +36,7 @@ struct CommandResources {
 }
 
 impl CommandResources {
-    fn sessions(&self) -> &SessionSlotArray {
+    fn sessions(&self) -> SessionSlotArray {
         &self.sessions
     }
 

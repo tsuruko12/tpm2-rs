@@ -1,6 +1,6 @@
 use tss_esapi::structures::{Auth, Digest, Private};
 
-use crate::types::{Tpm2bAuth, Tpm2bDigest, Tpm2bPrivate};
+use crate::types::tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bPrivate};
 
 impl From<Tpm2bDigest> for Digest {
     fn from(digest: Tpm2bDigest) -> Self {
@@ -61,4 +61,3 @@ impl From<Auth> for Tpm2bAuth {
             .expect("Auth must be valid for Tpm2bAuth")
     }
 }
-

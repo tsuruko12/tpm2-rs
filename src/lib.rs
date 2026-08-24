@@ -12,7 +12,6 @@ pub mod error;
 mod macros;
 mod types;
 
-use crate::types::Tpm2bPublicKeyRsa;
 pub use crate::{
     context::Context,
     error::{Error, Result},
@@ -20,25 +19,6 @@ pub use crate::{
 };
 
 use rand::{RngCore, rngs::OsRng};
-
-use types::SymmetricKeyBits;
-
-fn generate_sym_key(key_bits: SymmetricKeyBits) -> Result<Tpm2bPublicKeyRsa> {
-    let key_len = match key_bits {
-        SymmetricKeyBits::Bits128 => 16,
-        SymmetricKeyBits::Bits256 => 32,
-    };
-
-    let mut key = vec![0u8; key_len];
-    OsRng
-        .try_fill_bytes(key.as_mut_slice())
-        .map_err(Error::random_generation)?;
-
-    Ok(key
-        .try_into()
-        .expect("generated symmetric key must fit within Tpm2bPublicKeyRsa::MAX_BYTES")
-    )
-}
 
 fn generate_key_id() -> Result<String> {
     Ok(hex::encode(generate_random_bytes(16)?))

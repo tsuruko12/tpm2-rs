@@ -7,8 +7,9 @@ use tss_esapi::{
 use crate::{
     Error, Result,
     types::{
-        EccCurve, TpmAlgId, TpmEccCurve, TpmlEccCurve, TpmsEccParms, TpmsSchemeEcdaa,
-        TpmtEccScheme, TpmuEccScheme, TpmuPublicParms,
+        EccCurve,
+        tpm::{TpmAlgId, TpmEccCurve, TpmlEccCurve, TpmsEccParms, TpmsSchemeEcdaa,
+            TpmtEccScheme, TpmuEccScheme, TpmuPublicParms},
     },
 };
 
@@ -108,7 +109,7 @@ impl TryFrom<TpmsEccParms> for TPMS_ECC_PARMS {
         Ok(Self {
             symmetric: ecc_params.symmetric().try_into()?,
             scheme: ecc_params.scheme().try_into()?,
-            curveID: ecc_params.curve_id().raw(),
+            curveID: ecc_params.curve_id().value(),
             kdf: ecc_params.kdf().try_into()?,
         })
     }
@@ -149,7 +150,7 @@ impl TryFrom<TpmtEccScheme> for TPMT_ECC_SCHEME {
 
     fn try_from(ecc_scheme: TpmtEccScheme) -> Result<Self> {
         let (scheme, details) = ecc_scheme.into_parts();
-        let raw_scheme = scheme.raw();
+        let raw_scheme = scheme.value();
         let details = match (TpmAlgId::try_from(raw_scheme)?, details) {
             (TpmAlgId::Ecdsa, TpmuEccScheme::Ecdsa(scheme_hash)) => TPMU_ASYM_SCHEME { 
                 ecdsa: scheme_hash.into() 
@@ -159,7 +160,7 @@ impl TryFrom<TpmtEccScheme> for TPMT_ECC_SCHEME {
             },
             (TpmAlgId::Ecdaa, TpmuEccScheme::Ecdaa(details)) => TPMU_ASYM_SCHEME {
                 ecdaa: TPMS_SCHEME_ECDAA {
-                    hashAlg: details.hash_alg.raw(),
+                    hashAlg: details.hash_alg.value(),
                     count: details.count,
                 },
             },

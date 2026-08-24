@@ -6,7 +6,7 @@ use tss_esapi::{
 
 use crate::{
     Error, Result,
-    types::{TpmHandle, TpmiDhPersistent, TpmiRhHierarchy, TpmlHandle},
+    types::tpm::{TpmHandle, TpmiDhPersistent, TpmiRhHierarchy, TpmlHandle},
 };
 
 impl From<HandleList> for TpmlHandle {
@@ -26,7 +26,7 @@ impl TryFrom<TpmHandle> for EsapiTpmHandle {
 
     fn try_from(handle: TpmHandle) -> Result<Self> {
         handle
-            .raw()
+            .value()
             .try_into()
             .map_err(|_| Error::conversion::<TpmHandle, EsapiTpmHandle>(None))
     }
@@ -42,7 +42,7 @@ impl From<PersistentTpmHandle> for TpmiDhPersistent {
 
 impl From<TpmiDhPersistent> for PersistentTpmHandle {
     fn from(persistent_handle: TpmiDhPersistent) -> Self {
-        PersistentTpmHandle::new(persistent_handle.raw())
+        PersistentTpmHandle::new(persistent_handle.value())
             .expect("TpmiDhPersistent must be valid for PersistentTpmHandle")
     }
 }

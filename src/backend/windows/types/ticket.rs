@@ -1,18 +1,21 @@
-use crate::types::Tpm2bDigest;
+use crate::types::tpm::{Tpm2bDigest, TpmiRhHierarchy};
 
-use super::super::{commands::TpmSt, types::TpmiRhHierarchy};
+use super::super::commands::TpmSt;
 
-#[derive(Debug, Clone)]
-pub(crate) struct TpmtTkCreation {
+#[derive(Clone)]
+pub(in crate::backend::windows) struct TpmtTkCreation {
     tag: TpmSt,
     hierarchy: TpmiRhHierarchy,
     digest: Tpm2bDigest,
 }
 
 impl TpmtTkCreation {
-    pub(crate) fn new(tag: TpmSt, hierarchy: TpmiRhHierarchy, digest: Tpm2bDigest) -> Self {
+    pub(in crate::backend::windows) fn new(
+        hierarchy: TpmiRhHierarchy, 
+        digest: Tpm2bDigest,
+    ) -> Self {
         Self {
-            tag,
+            tag: TpmSt::CREATION,
             hierarchy,
             digest,
         }

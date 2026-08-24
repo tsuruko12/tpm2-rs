@@ -4,7 +4,7 @@ use crate::{
     policy::PolicyCommand,
 };
 
-tpm_list_type!(TpmlCc(TpmCc););
+tpm_list_type!(TpmlCc(TpmCc));
 
 newtype!(TpmCc(u32));
 
@@ -28,11 +28,13 @@ impl TpmCc {
     pub(crate) const POLICY_COMMAND_CODE: Self = Self(0x0000_016C);
     pub(crate) const POLICY_OR: Self = Self(0x0000_0171);
     pub(crate) const READ_PUBLIC: Self = Self(0x0000_0173);
+    pub(crate) const RSA_ENCRYPT: Self = Self(0x0000_0174);
     pub(crate) const START_AUTH_SESSION: Self = Self(0x0000_0176);
     pub(crate) const GET_CAPABILITY: Self = Self(0x0000_017A);
     pub(crate) const GET_RANDOM: Self = Self(0x0000_017B);
     pub(crate) const PCR_READ: Self = Self(0x0000_017E);
     pub(crate) const POLICY_PCR: Self = Self(0x0000_017F);
+    pub(crate) const POLICY_GET_DIGEST: Self = Self(0x0000_0189);
     pub(crate) const POLICY_PASSWORD: Self = Self(0x0000_018C);
 }
 

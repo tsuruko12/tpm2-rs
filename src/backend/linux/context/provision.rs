@@ -6,8 +6,8 @@ use crate::{
     Error, Result, 
     db::{InternalKeyKind, InternalKeyMeta}, 
     types::{
-        Authorization, CreatedObject, LoadedHandle, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmiDhPersistent, 
-        TpmiRhHierarchy
+        Authorization, CreatedObject, LoadedHandle,
+        tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmiDhPersistent, TpmiRhHierarchy},
     }
 };
 use super::{Context, CommandResources};
@@ -23,9 +23,9 @@ impl Context {
 
         let empty_auth = Tpm2bAuth::default();
 
-        let srk_search_start = PersistentTpmHandle::new(TpmiDhPersistent::SRK_SEARCH_START.raw())
+        let srk_search_start = PersistentTpmHandle::new(TpmiDhPersistent::SRK_SEARCH_START.value())
             .expect("SRK_SEARCH_START must be in the persistent range");
-        let srk_search_end = PersistentTpmHandle::new(TpmiDhPersistent::SRK_SEARCH_END.raw())
+        let srk_search_end = PersistentTpmHandle::new(TpmiDhPersistent::SRK_SEARCH_END.value())
             .expect("SRK_SEARCH_END must be in the persistent range");
         let srk_authorization = Authorization::default();
 
@@ -59,11 +59,11 @@ impl Context {
             resources.flush_all_handles(self)?;
 
             let storage_first = PersistentTpmHandle::new(
-                TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.raw()
+                TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.value()
             )
             .expect("STORAGE_AVAILABLE_FIRST must be in the persistent range");
             let storage_last = PersistentTpmHandle::new(
-                TpmiDhPersistent::STORAGE_AVAILABLE_LAST.raw()
+                TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value()
             )
             .expect("STORAGE_AVAILABLE_LAST must be in the persistent range");
 
@@ -86,7 +86,7 @@ impl Context {
                 },
             )?;
 
-            let next_handle = PersistentTpmHandle::new(session_salt_key_meta.handle.raw() + 1)
+            let next_handle = PersistentTpmHandle::new(session_salt_key_meta.handle.value() + 1)
                 .map_err(|_| Error::resource_exhausted("no persistent handle is available"))?;
 
             key_meta.push(session_salt_key_meta);
@@ -131,7 +131,7 @@ impl Context {
                         self.evict_persistent_handles(
                             owner_authorization,
                             &key_meta, 
-                            Some(&mut persistent_handles),    
+                            Some(&persistent_handles),    
                         );
 
                         Err(e)
@@ -143,7 +143,7 @@ impl Context {
                 self.evict_persistent_handles(
                     owner_authorization,
                     &key_meta, 
-                    Some(&mut persistent_handles),    
+                    Some(&persistent_handles),    
                 );
 
                 Err(e)

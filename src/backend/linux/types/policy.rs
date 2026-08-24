@@ -7,7 +7,7 @@ use crate::error::BoxError;
 use crate::types::PolicyCommand;
 use crate::{
     Error, Result,
-    types::{PcrSlot, TpmiAlgHash, TpmlPcrSelection, TpmsPcrSelection},
+    types::{PcrSlot, tpm::{TpmiAlgHash, TpmlPcrSelection, TpmsPcrSelection}},
 };
 
 impl From<PolicyCommand> for CommandCode {
@@ -117,6 +117,7 @@ pub(super) fn pcr_select_to_slots(bytes: &[u8]) -> Result<Vec<EsapiPcrSlot>> {
     Ok(slots)
 }
 
+// TODO: use PcrSelection method
 pub(super) fn pcr_slots_to_select(
     slots: &[EsapiPcrSlot],
     size_of_select: PcrSelectSize,

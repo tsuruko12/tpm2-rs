@@ -7,8 +7,8 @@ use crate::{
     generate_key_id, hierarchy::Hierarchy, public::KeyTemplate, 
     types::{
         Authorization, BackendObjectHandle, CreatedKeyData, HandleResource, Key, KeyData, KeyId, 
-        LoadedHandle, Policy, PolicyData, Tpm2bAuth, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, 
-        Tpm2bPublicKeyRsa, TpmiDhPersistent
+        LoadedHandle, Policy, PolicyData,
+        tpm::{Tpm2bAuth, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, Tpm2bPublicKeyRsa, TpmiDhPersistent},
     }
 };
 
@@ -207,7 +207,7 @@ impl Context {
     ) -> Result<Key> {
         self.validate_key_creation(&template, key_name, parent)?;
 
-        let policy = policy.map(|policy| PolicyData::from(policy));
+        let policy = policy.map(PolicyData::try_from).transpose()?;
         let auth = auth_value
             .map(Tpm2bAuth::normalize_sha256)
             .unwrap_or_default();
@@ -236,11 +236,11 @@ impl Context {
 
             match result {
                 Ok(created_key) => {
-                    self.backend.release_handle(wrapping_parent.handle())?;
+                    self.backend.release_handle(wrapping_parent.handle)?;
                     created_key
                 },
                 Err(e) => {
-                    let _ = self.backend.release_handle(wrapping_parent.handle());
+                    let _ = self.backend.release_handle(wrapping_parent.handle);
                     return Err(e);
                 }
             }
@@ -419,7 +419,10 @@ impl Context {
                 obj_name,
                 policy,
             } => {
-                let handle = self.backend.resolve_persistent_handle(handle, &obj_name)?;
+                let handle = self.backend.resolve_persistent_handle(
+                    handle, 
+                    &obj_name,              
+                )?;
                 Ok(LoadedHandle::persistent(
                     handle.inner(),
                     obj_name,
@@ -452,11 +455,11 @@ impl Context {
                 policy,
                 parent,
             } => {
+                let session_salt_handle = self.load_session_salt_handle()?;
                 let parent = match parent {
                     Some(parent) => self.load_parent_by_id(&parent, ancestors)?,
                     None => self.load_internal_srk()?,
                 };
-                let session_salt_handle = self.load_session_salt_handle()?;
 
                 self.backend.load_temporary_key(
                     private,
@@ -635,7 +638,7 @@ impl Context {
         self
             .backend
             .resolve_internal_key(key_meta)
-            .map(|handle| handle.handle().inner())
+            .map(|loaded| loaded.handle.inner())
     }
 
     fn load_shared_wrapping_handle(&mut self) -> Result<LoadedHandle> {
@@ -643,4 +646,3 @@ impl Context {
         self.backend.resolve_internal_key(key_meta)
     }
 }
-

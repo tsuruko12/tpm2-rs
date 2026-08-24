@@ -15,7 +15,10 @@ use tss_esapi::{
 use super::{CommandResources, Context};
 use crate::{
     Error, Result,
-    types::{Authorization, PcrSelection, PolicyCommand, PolicyData, Tpm2bDigest, TpmaSession, TpmlDigest},
+    types::{
+        Authorization, PcrSelection, PolicyCommand, PolicyData,
+        tpm::{Tpm2bDigest, TpmaSession, TpmlDigest},
+    },
 };
 
 // policy + no-attrs -> policy authorization
@@ -28,8 +31,8 @@ impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
         resources: &mut CommandResources,
-        authorization: Option<(ObjectHandle, &Authorization)>,
         session_attrs: TpmaSession,
+        authorization: Option<(ObjectHandle, &Authorization)>,
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
         // tpm_key is only None before the handle is created
@@ -88,13 +91,13 @@ impl Context {
         policy: &PolicyData,
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
-        let policy_session = self.start_auth_session(resources, tpm_key, SessionType::Policy)?;
+        let policy_session = self.start_auth_session(resources, SessionType::Policy, tpm_key)?;
 
         self.set_session_attrs(policy_session, TpmaSession::continue_session())?;
         self.apply_policy(
             policy_session
                 .try_into()
-                .expect("session must be a policy session"),
+                .expect("expected policy session handle"),
             policy,
         )
     }
@@ -105,7 +108,7 @@ impl Context {
         session_attrs: TpmaSession,
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
-        let hmac_session = self.start_auth_session(resources, tpm_key, SessionType::Hmac)?;
+        let hmac_session = self.start_auth_session(resources, SessionType::Hmac, tpm_key)?;
         self.set_session_attrs(hmac_session, session_attrs)
     }
 
@@ -121,8 +124,8 @@ impl Context {
     fn start_auth_session(
         &mut self,
         resources: &mut CommandResources,
-        tpm_key: Option<KeyHandle>,
         session_type: SessionType,
+        tpm_key: Option<KeyHandle>,
     ) -> Result<AuthSession> {
         let session = self
             .ctx
@@ -151,12 +154,13 @@ impl Context {
             .map_err(Error::esapi)
     }
 
+    // TODO: it raises an error when OR is selected
     pub(super) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Tpm2bDigest> {
         let mut resources = CommandResources::default();
 
         let result = (|| {
             let policy_session = self
-                .start_auth_session(&mut resources, None, SessionType::Trial)
+                .start_auth_session(&mut resources, SessionType::Trial, None)
                 .map(|session| session.try_into().expect("session must be a policy session"))?;
             self.apply_policy(policy_session, policy)?;
 
@@ -268,6 +272,7 @@ impl Context {
                 .pcr_read(remaining.clone())
                 .map_err(Error::from_tss_err)?;
 
+            // use guard
             match update_counter {
                 Some(expected_counter) => {
                     if expected_counter != counter {

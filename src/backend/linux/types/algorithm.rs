@@ -8,7 +8,7 @@ use tss_esapi::{
 use crate::{
     Error, Result,
     algorithm::HashAlgorithm,
-    types::{
+    types::tpm::{
         TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmsAlgProperty, TpmsSchemeHash,
         TpmtKdfScheme, TpmuKdfScheme,
     },
@@ -18,7 +18,7 @@ impl TryFrom<TpmiAlgHash> for HashingAlgorithm {
     type Error = Error;
 
     fn try_from(hash_alg: TpmiAlgHash) -> Result<Self> {
-        hash_alg.raw()
+        hash_alg.value()
             .try_into()
             .map_err(|_| Error::conversion::<TpmiAlgHash, HashingAlgorithm>(Some(&hash_alg)))
     }
@@ -79,7 +79,7 @@ impl TryFrom<TpmAlgId> for AlgorithmIdentifier {
     type Error = Error;
 
     fn try_from(alg: TpmAlgId) -> Result<Self> {
-        alg.raw()
+        alg.value()
             .try_into()
             .map_err(|_| Error::conversion::<TpmAlgId, AlgorithmIdentifier>(Some(&alg)))
     }
@@ -140,7 +140,7 @@ impl TryFrom<TPMS_SCHEME_HASH> for TpmsSchemeHash {
 impl From<TpmsSchemeHash> for TPMS_SCHEME_HASH {
     fn from(scheme_hash: TpmsSchemeHash) -> Self {
         Self {
-            hashAlg: scheme_hash.hash_alg.raw(),
+            hashAlg: scheme_hash.hash_alg.value(),
         }
     }
 }
@@ -171,8 +171,8 @@ impl TryFrom<TpmtKdfScheme> for TPMT_KDF_SCHEME {
 
     fn try_from(kdf_scheme: TpmtKdfScheme) -> Result<Self> {
         let (scheme, details) = kdf_scheme.into_parts();
-        let raw_scheme = scheme.raw();
-        let details = match (TpmAlgId::try_from(raw_scheme)?, details) {
+        let value_scheme = scheme.value();
+        let details = match (TpmAlgId::try_from(value_scheme)?, details) {
             (TpmAlgId::Mgf1, TpmuKdfScheme::Mgf1(scheme_hash)) => TPMU_KDF_SCHEME { 
                 mgf1: scheme_hash.into() 
             },
@@ -190,7 +190,7 @@ impl TryFrom<TpmtKdfScheme> for TPMT_KDF_SCHEME {
         };
 
         Ok(Self {
-            scheme: raw_scheme,
+            scheme: value_scheme,
             details,
         })
     }

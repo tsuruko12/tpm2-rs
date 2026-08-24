@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    hierarchy::Hierarchy, policy::PolicyData, types::{KeyData, KeyId, Tpm2bAuth}
+    hierarchy::Hierarchy, policy::PolicyData, types::{KeyData, KeyId, tpm::Tpm2bAuth}
 };
 
 // TODO: consider pub(super)

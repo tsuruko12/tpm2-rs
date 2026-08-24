@@ -1,5 +1,5 @@
 use super::TpmAlgId;
-use crate::{Error, Result, macros::newtype};
+use crate::{Error, Result, macros::newtype, types::tpm::TpmsEmpty};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmsSymCipherParms {
@@ -22,14 +22,15 @@ impl TpmsSymCipherParms {
 pub(crate) struct TpmtSymDefObject {
     algorithm: TpmiAlgSymObject,
     key_bits: TpmKeyBits,
-    mode: TpmiAlgSymMode,
+    mode: TpmuSymMode,
 }
+// details field isn't used for now
 
 impl TpmtSymDefObject {
     pub(crate) fn new(
         algorithm: TpmiAlgSymObject,
         key_bits: TpmKeyBits,
-        mode: TpmiAlgSymMode,
+        mode: TpmuSymMode,
     ) -> Self {
         Self {
             algorithm,
@@ -42,7 +43,7 @@ impl TpmtSymDefObject {
         Self::new(
             TpmiAlgSymObject::AES,
             TpmKeyBits::AES_128,
-            TpmiAlgSymMode::CFB,
+            TpmuSymMode::Aes(TpmiAlgSymMode::CFB),
         )
     }
 
@@ -50,14 +51,14 @@ impl TpmtSymDefObject {
         Self::new(
             TpmiAlgSymObject::NULL,
             TpmKeyBits::NULL,
-            TpmiAlgSymMode::NULL,
+            TpmuSymMode::null(),
         )
     }
 
     pub(crate) fn is_null(&self) -> bool {
         self.algorithm == TpmiAlgSymObject::NULL
             && self.key_bits == TpmKeyBits::NULL
-            && self.mode == TpmiAlgSymMode::NULL
+            && self.mode == TpmuSymMode::null()
     }
 
     pub(crate) fn algorithm(&self) -> TpmiAlgSymObject {
@@ -68,7 +69,7 @@ impl TpmtSymDefObject {
         self.key_bits
     }
 
-    pub(crate) fn mode(&self) -> TpmiAlgSymMode {
+    pub(crate) fn mode(&self) -> TpmuSymMode {
         self.mode
     }
 }
@@ -80,14 +81,6 @@ impl TpmiAlgSymObject {
     pub(crate) const SM4: Self = Self(TpmAlgId::Sm4);
     pub(crate) const CAMELLIA: Self = Self(TpmAlgId::Camellia);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-}
-
-impl TryFrom<u16> for TpmiAlgSymObject {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgSymObject {
@@ -118,6 +111,20 @@ impl From<u16> for TpmKeyBits {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TpmuSymMode {
+    Aes(TpmiAlgSymMode),
+    Sm4(TpmiAlgSymMode),
+    Camellia(TpmiAlgSymMode),
+    Null(TpmsEmpty),
+}
+
+impl TpmuSymMode {
+    fn null() -> Self {
+        Self::Null(TpmsEmpty)
+    }
+}
+
 newtype!(TpmiAlgSymMode(TpmAlgId));
 
 impl TpmiAlgSymMode {
@@ -127,14 +134,6 @@ impl TpmiAlgSymMode {
     pub(crate) const CBC: Self = Self(TpmAlgId::Cbc);
     pub(crate) const ECB: Self = Self(TpmAlgId::Ecb);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-}
-
-impl TryFrom<u16> for TpmiAlgSymMode {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgSymMode {

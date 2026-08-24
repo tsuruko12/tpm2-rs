@@ -5,7 +5,7 @@ use tss_esapi::{
 
 use crate::{
     Error, Result,
-    types::{
+    types::tpm::{
         TpmAlgId, TpmsKeyedHashParms, TpmsSchemeHash, TpmsSchemeXor, TpmtKeyedHashScheme,
         TpmuPublicParms, TpmuSchemeKeyedHash,
     },
@@ -66,7 +66,7 @@ impl TryFrom<TpmtKeyedHashScheme> for TPMT_KEYEDHASH_SCHEME {
 
     fn try_from(keyed_hash_scheme: TpmtKeyedHashScheme) -> Result<Self> {
         let (scheme, details) = keyed_hash_scheme.into_parts();
-        let raw_scheme = scheme.raw();
+        let raw_scheme = scheme.value();
         let details = match (TpmAlgId::try_from(raw_scheme)?, details) {
             (TpmAlgId::Hmac, TpmuSchemeKeyedHash::Hmac(scheme_hash)) => TPMU_SCHEME_KEYEDHASH { 
                 hmac: scheme_hash.into() 
@@ -99,8 +99,8 @@ impl TryFrom<TPMS_SCHEME_XOR> for TpmsSchemeXor {
 impl From<TpmsSchemeXor> for TPMS_SCHEME_XOR {
     fn from(scheme_xor: TpmsSchemeXor) -> Self {
         Self {
-            hashAlg: scheme_xor.hash_alg.raw(),
-            kdf: scheme_xor.kdf.raw(),
+            hashAlg: scheme_xor.hash_alg.value(),
+            kdf: scheme_xor.kdf.value(),
         }
     }
 }

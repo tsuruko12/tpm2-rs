@@ -8,21 +8,15 @@ use rusqlite::{Connection, OptionalExtension, Transaction};
 use tracing::debug;
 
 use crate::{
-    Error, Result, generate_key_id,
-    hierarchy::Hierarchy,
-    policy::{PcrSelection, PcrSlot, PolicyCommand},
-    types::{
-        PolicyData, SymmetricKeyBits, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal,
-        TpmUnmarshal, TpmiDhPersistent, TpmlDigest, TpmtPublic,
-        algorithm::HashAlgorithm,
-        public::{BlockCipher, CipherMode},
-        read_u32,
+    Error, Result, generate_key_id, hierarchy::Hierarchy, policy::{PcrSelection, PcrSlot, PolicyCommand}, types::{
+        PolicyData, SymmetricKeyBits, algorithm::HashAlgorithm, public::{BlockCipher, CipherMode},
+        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal, TpmUnmarshal, TpmiDhPersistent, TpmlDigest, TpmtPublic, read_u32},
     },
 };
 
-const DB_FILE: &str = "store.db"; // will change later
-const STORE_PATH_ENV: &str = "TPM_STORE_PATH"; // will change later
-const PROJECT_APPLICATION: &str = "tpm-tool"; // will change later
+const DB_FILE: &str = "tpm2-rs.db";
+const STORE_PATH_ENV: &str = "TPM2_RS_STORE_PATH";
+const APP_NAME: &str = "tpm2-rs";
 const FILE_VERSION: u8 = 1;
 
 const HANDLE_SRK: &str = "srk";
@@ -339,7 +333,7 @@ impl MetadataStore {
             (HANDLE_SESSION_SALT_KEY, session_salt_key),
             (HANDLE_SHARED_WRAPPING_KEY, shared_wrapping_key),
         ] {
-            tx.execute(stmt, (kind, meta.handle.raw(), meta.obj_name.as_bytes()))?;
+            tx.execute(stmt, (kind, meta.handle.value(), meta.obj_name.as_bytes()))?;
         }
 
         tx.commit()?;
@@ -598,7 +592,6 @@ impl MetadataStore {
             );
             return Err(Error::corrupted_store());
         }
-
         let private = private
             .map(|private| {
                 Tpm2bPrivate::try_from(private).map_err(|_| {
@@ -800,7 +793,7 @@ impl MetadataStore {
 
     fn load_internal_key_meta(&self, kind: InternalKeyKind) -> Result<InternalKeyMeta> {
         let stmt = r#"
-            SELECT handle, object_name 
+            SELECT handle, object_name
             FROM internal_persistent_keys 
             WHERE kind = ?1
         "#;
@@ -808,7 +801,10 @@ impl MetadataStore {
         let (handle, obj_name) = self
             .conn
             .query_row(stmt, [kind.as_str()], |row| {
-                Ok((row.get::<_, u32>(0)?, row.get::<_, Vec<u8>>(1)?))
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                ))
             })
             .optional()?
             .ok_or_else(|| {
@@ -818,6 +814,7 @@ impl MetadataStore {
 
         let persistent_handle =
             TpmiDhPersistent::try_from(handle).map_err(Error::corrupted_store_with_source)?;
+
         let obj_name = Tpm2bName::try_from(obj_name).map_err(Error::corrupted_store_with_source)?;
 
         Ok(InternalKeyMeta {
@@ -913,7 +910,7 @@ fn save_tpm_key_meta(
             public,
             tpm_key_meta.obj_name.as_bytes(),
             private,
-            persistent_handle.map(|handle| handle.raw()),
+            persistent_handle.map(|handle| handle.value()),
             policy_id.as_deref(),
             parent_name,
         ),
@@ -1259,7 +1256,7 @@ fn store_path_from_env() -> Option<PathBuf> {
 }
 
 fn default_dir_path() -> Result<PathBuf> {
-    ProjectDirs::from("", "", PROJECT_APPLICATION)
+    ProjectDirs::from("", "", APP_NAME)
         .map(|dirs| dirs.data_local_dir().to_path_buf())
         .ok_or(Error::StorePathUnavailable)
 }

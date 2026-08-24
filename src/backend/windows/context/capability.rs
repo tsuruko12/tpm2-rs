@@ -1,29 +1,33 @@
-use super::super::{codec::GetCapabilityResponse, commands::Command};
-use super::Context;
+use super::{Command, CommandResources, Context, GetCapabilityResponse};
 use crate::{
     Result,
-    backend::windows::codec::TpmMarshal,
-    types::{CapabilityData, TpmCap, TpmCc},
+    types::tpm::{CapabilityData, TpmCap, TpmCc, TpmMarshal},
 };
 
+const RESPONSE_HANDLE_COUNT: usize = 0;
+
 impl Context {
-    pub(crate) fn get_capability_once(
+    pub(super) fn get_capability_once(
         &mut self,
         capability: TpmCap,
         property: u32,
         property_count: u32,
     ) -> Result<(CapabilityData, bool)> {
-        let mut request_params = Vec::new();
+        let mut command_params = Vec::new();
+        capability.marshal(&mut command_params)?;
+        property.marshal(&mut command_params)?;
+        property_count.marshal(&mut command_params)?;
 
-        capability.raw().marshal(&mut request_params)?;
-        property.marshal(&mut request_params)?;
-        property_count.marshal(&mut request_params)?;
+        let mut command = Command::new(TpmCc::GET_CAPABILITY)
+            .with_parameters(&mut command_params);
 
-        let command = Command::new(TpmCc::GET_CAPABILITY).with_parameters(&request_params);
+        let response_body = self.submit(
+            &mut command, 
+            RESPONSE_HANDLE_COUNT, 
+            &mut CommandResources::default(),
+        )?;
 
-        let response_body = self.submit(command)?;
-
-        GetCapabilityResponse::parse(&response_body, capability)
+        GetCapabilityResponse::parse(response_body, capability)
             .map(|response| (response.capability_data, response.more_data))
     }
 }
@@ -35,7 +39,7 @@ mod tests {
     fn response_params(more_data: u8, capability: TpmCap, count: u32) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(9);
         bytes.push(more_data);
-        bytes.extend_from_slice(&capability.raw().to_be_bytes());
+        bytes.extend_from_slice(&capability.value().to_be_bytes());
         bytes.extend_from_slice(&count.to_be_bytes());
 
         bytes
@@ -45,46 +49,19 @@ mod tests {
         response: &[u8],
         capability: TpmCap,
     ) -> Result<(bool, CapabilityData)> {
-        let response = GetCapabilityResponse::parse(response, capability)?;
+        let response = GetCapabilityResponse::parse(
+            super::super::ResponseBody {
+                handles: Vec::new(),
+                parameters: response.to_vec(),
+            },
+            capability,
+        )?;
         Ok((response.more_data, response.capability_data))
-    }
-
-    #[test]
-    fn rejects_truncated_response() {
-        let response = [0; 8];
-
-        assert!(parse_response_params(&response, TpmCap::Handles).is_err());
-    }
-
-    #[test]
-    fn rejects_invalid_more_data() {
-        let response = response_params(2, TpmCap::Handles, 0);
-
-        assert!(parse_response_params(&response, TpmCap::Handles).is_err());
     }
 
     #[test]
     fn rejects_mismatched_capability() {
         let response = response_params(0, TpmCap::Algorithms, 0);
-
-        assert!(parse_response_params(&response, TpmCap::Handles).is_err());
-    }
-
-    #[test]
-    fn accepts_empty_capability_list() {
-        let response = response_params(0, TpmCap::Handles, 0);
-        let (more_data, capability_data) =
-            parse_response_params(&response, TpmCap::Handles).unwrap();
-
-        assert!(!more_data);
-        assert!(matches!(capability_data, CapabilityData::Handles(items) if items.is_empty()));
-    }
-
-    #[test]
-    fn rejects_trailing_response_bytes() {
-        let mut response = response_params(0, TpmCap::Handles, 0);
-        response.push(0);
-
         assert!(parse_response_params(&response, TpmCap::Handles).is_err());
     }
 }

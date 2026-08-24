@@ -4,7 +4,7 @@ use tss_esapi::{
     structures::{Name, Public},
 };
 
-use crate::{Error, Result, types::Tpm2bName};
+use crate::{Error, Result, types::tpm::Tpm2bName};
 use super::Context;
 
 impl Context {
@@ -46,3 +46,5 @@ fn validate_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
 
     Ok(())
 }
+
+// TODO: publish validate_name that's a function

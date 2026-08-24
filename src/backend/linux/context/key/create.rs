@@ -5,16 +5,17 @@ use tss_esapi::{
 };
 
 use crate::{
-    Error, Result, generate_sym_key, 
+    Error, Result, backend::generate_sym_key,
     types::{
-        Authorization, CreatedKeyData, CreatedObject, KeyTemplate, LoadedHandle, LoadedObjectHandle, 
-        PolicyData, Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, Tpm2bPublicKeyRsa, 
-        TpmaSession, TpmiRhHierarchy
+        Authorization, CreatedKeyData, CreatedObject, KeyTemplate, LoadedHandle, LoadedObjectHandle,
+        PolicyData,
+        tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, Tpm2bPublicKeyRsa, TpmaSession, TpmiRhHierarchy},
     }
 };
 
-use super::Context;
-use super::super::CommandResources;
+use super::{Context, CommandResources};
+
+// TODO: implement single create method
 
 impl Context {
     pub(crate) fn create_child_key_from_template(
@@ -104,7 +105,7 @@ impl Context {
             };
 
             let key_bits = sym_template.key_bits();
-            let (rsa_handle, created) = match authorization {
+            let (rsa_handle, created_key_data) = match authorization {
                 Some(authorization) => {
                     let auth_policy = self.get_auth_policy(authorization.policy())?;
                     let in_public = Tpm2bPublic::from_template(template, auth_policy);
@@ -132,14 +133,14 @@ impl Context {
             let sym_key = generate_sym_key(key_bits)?;
             let wrapped_sym_key = self.wrap_key(
                 rsa_handle, 
-                authorization.unwrap_or_else(|| parent.authorization()),
+                authorization.unwrap_or(&parent.authorization),
                 sym_key, 
                 session_salt_handle
             )?;
 
             resources.release_all_handles(self)?;
 
-            Ok((wrapped_sym_key, created))
+            Ok((wrapped_sym_key, created_key_data))
         })();
 
         self.finish_command(result, &mut resources)
@@ -170,8 +171,8 @@ impl Context {
                 Some(_) => {
                     self.prepare_sessions(
                         &mut resources,
-                        Some((parent_handle.inner().into(), parent.authorization())),
                         TpmaSession::encrypt_decrypt().with_continue_session(),
+                        Some((parent_handle.inner().into(), parent.authorization())),
                         session_salt_handle,
                     )?; 
                 },
@@ -238,8 +239,8 @@ impl Context {
         let result = (|| {
             self.prepare_sessions(
                 &mut resources,
-                Some((primary_handle.into(), primary_authorization)),
                 session_attrs,
+                Some((primary_handle.into(), primary_authorization)),
                 session_salt_handle,
             )?;
 

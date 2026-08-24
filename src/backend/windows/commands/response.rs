@@ -1,139 +1,79 @@
+use tracing::debug;
+
 use super::super::{
-    codec::{TpmUnmarshal, read_vec},
-    types::{Tpm2bNonce, TpmRc, TpmaSession},
+    TpmRc,
+    types::Tpm2bNonce,
 };
 use super::TpmiStCommandTag;
 use crate::{
     Error, Result,
-    types::{Tpm2bAuth, TpmHandle},
+    types::tpm::{Tpm2bAuth, TpmHandle, TpmUnmarshal, TpmaSession, read_vec},
 };
 
-pub(crate) struct Response {
-    header: ResponseHeader,
-    body: ResponseBody,
+pub(in crate::backend::windows) struct Response {
+    pub(in crate::backend::windows) header: ResponseHeader,
+    pub(in crate::backend::windows) body: ResponseBody,
+    pub(in crate::backend::windows) authorization_area: Vec<TpmsAuthResponse>,
 }
 
 impl Response {
-    pub(crate) fn new(header: ResponseHeader, body: ResponseBody) -> Self {
-        Self { header, body }
-    }
-
-    pub(crate) fn header(&self) -> ResponseHeader {
-        self.header
-    }
-
-    pub(crate) fn into_body(self) -> ResponseBody {
-        self.body
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ResponseHeader {
-    tag: TpmiStCommandTag,
-    response_size: u32,
-    response_code: TpmRc,
-}
-
-impl ResponseHeader {
-    pub(crate) fn new(tag: TpmiStCommandTag, response_size: u32, response_code: TpmRc) -> Self {
-        Self {
-            tag,
-            response_size,
-            response_code,
+    pub(in crate::backend::windows) fn parse(input: &mut &[u8], response_handle_count: usize) -> Result<Self> {
+        let response_size = input.len();
+        let header = ResponseHeader::unmarshal(input)?;
+        if header.response_size as usize != response_size {
+            debug!(
+                declared_size = header.response_size,
+                response_size,
+                "response size mismatch"
+            );
+            return Err(Error::InvalidData);
         }
-    }
 
-    pub(crate) fn tag(&self) -> TpmiStCommandTag {
-        self.tag
-    }
+        if header.response_code != TpmRc::SUCCESS {
+            return Err(Error::from_rc(header.response_code));
+        }
 
-    pub(crate) fn response_size(&self) -> u32 {
-        self.response_size
-    }
-
-    pub(crate) fn response_code(&self) -> TpmRc {
-        self.response_code
-    }
-}
-
-// auth_area is present only for session responses
-pub(crate) struct ResponseBody {
-    handles: Vec<TpmHandle>,
-    params: Vec<u8>,
-    auth_area: Option<TpmsAuthResponse>,
-}
-
-impl ResponseBody {
-    fn parse(input: &mut &[u8], response_handle_count: usize, uses_sessions: bool) -> Result<Self> {
         let mut handles = Vec::with_capacity(response_handle_count);
-
         for _ in 0..response_handle_count {
             handles.push(TpmHandle::unmarshal(input)?);
         }
 
-        let (params, auth_area) = if uses_sessions {
+        let (authorization_area, body) = if header.tag == TpmiStCommandTag::SESSIONS {
             let param_size =
                 usize::try_from(u32::unmarshal(input)?).map_err(|_| Error::InvalidData)?;
-            let params = read_vec(input, param_size)?;
+            let parameters = read_vec(input, param_size)?;
 
-            let auth_area = if input.is_empty() {
-                None
-            } else {
-                Some(TpmsAuthResponse::unmarshal(input)?)
-            };
+            let mut authorization_area = Vec::new();
+            while !input.is_empty() {
+                authorization_area.push(TpmsAuthResponse::unmarshal(input)?);
+            }
 
-            (params, auth_area)
+            (authorization_area, ResponseBody { handles, parameters })
         } else {
             let params_len = input.len();
-            let params = read_vec(input, params_len)?;
+            let parameters = read_vec(input, params_len)?;
 
-            (params, None)
+            (Vec::new(), ResponseBody { handles, parameters })
         };
 
-        Ok(Self {
-            handles,
-            params,
-            auth_area,
-        })
-    }
-
-    pub(crate) fn handles(&self) -> &[TpmHandle] {
-        &self.handles
-    }
-
-    pub(crate) fn params(&self) -> &[u8] {
-        &self.params
-    }
-
-    pub(crate) fn auth_area(&self) -> Option<&TpmsAuthResponse> {
-        self.auth_area.as_ref()
+        Ok(Self { header, authorization_area, body })
     }
 }
 
-pub(crate) struct TpmsAuthResponse {
-    nonce: Tpm2bNonce,
-    session_attributes: TpmaSession,
-    hmac: Tpm2bAuth,
+#[derive(Debug, Clone, Copy)]
+pub(in crate::backend::windows) struct ResponseHeader {
+    pub(in crate::backend::windows) tag: TpmiStCommandTag,
+    pub(in crate::backend::windows) response_size: u32,
+    pub(in crate::backend::windows) response_code: TpmRc,
 }
 
-impl TpmsAuthResponse {
-    pub(crate) fn new(nonce: Tpm2bNonce, session_attributes: TpmaSession, hmac: Tpm2bAuth) -> Self {
-        Self {
-            nonce,
-            session_attributes,
-            hmac,
-        }
-    }
+pub(in crate::backend::windows) struct ResponseBody {
+    pub(in crate::backend::windows) handles: Vec<TpmHandle>,
+    pub(in crate::backend::windows) parameters: Vec<u8>,
+}
 
-    pub(crate) fn into_nonce(self) -> Tpm2bNonce {
-        self.nonce
-    }
-
-    pub(crate) fn nonce(&self) -> &Tpm2bNonce {
-        &self.nonce
-    }
-
-    pub(crate) fn as_parts(&self) -> (&Tpm2bNonce, TpmaSession, &Tpm2bAuth) {
-        (&self.nonce, self.session_attributes, &self.hmac)
-    }
+pub(in crate::backend::windows) struct TpmsAuthResponse {
+    pub(in crate::backend::windows) nonce: Tpm2bNonce,
+    pub(in crate::backend::windows) session_attributes: TpmaSession,
+    pub(in crate::backend::windows) hmac: Tpm2bAuth,
 }

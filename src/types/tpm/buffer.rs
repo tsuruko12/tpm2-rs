@@ -4,7 +4,7 @@ use zeroize::Zeroizing;
 use crate::{macros::{tpm2b_type, tpm2b_zeroize_type}};
 use super::sensitive::Tpm2bSensitive;
 
-const TPM2B_SIZE_BYTES: usize = 2;
+pub(crate) const TPM2B_SIZE_BYTES: usize = 2;
 
 tpm2b_zeroize_type!(
     Tpm2bPrivate,

@@ -1,8 +1,6 @@
 use super::{TpmAlgId, TpmiAlgHash, TpmsSchemeHash, TpmtKdfScheme, TpmtSymDefObject};
 use crate::{
-    Error, Result,
-    macros::{newtype, tpm_list_type, tpm2b_type}, 
-    types::EccCurve,
+    Error, Result, macros::{newtype, tpm_list_type, tpm2b_type}, types::EccCurve,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -54,7 +52,7 @@ impl TpmsEccParms {
     }
 }
 
-tpm_list_type!(TpmlEccCurve(TpmEccCurve););
+tpm_list_type!(TpmlEccCurve(TpmEccCurve));
 
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +74,7 @@ pub(crate) enum TpmEccCurve {
 }
 
 impl TpmEccCurve {
-    pub(crate) fn raw(self) -> u16 {
+    pub(crate) fn value(self) -> u16 {
         self as u16
     }
 }
@@ -277,14 +275,6 @@ impl TpmiAlgSigScheme {
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
 }
 
-impl TryFrom<u16> for TpmiAlgSigScheme {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
-}
-
 impl TryFrom<TpmAlgId> for TpmiAlgSigScheme {
     type Error = Error;
 
@@ -317,14 +307,6 @@ impl TpmiAlgEccScheme {
     pub(crate) const EC_SCHNORR: Self = Self(TpmAlgId::EcSchnorr);
     pub(crate) const EC_MQV: Self = Self(TpmAlgId::EcMqv);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-}
-
-impl TryFrom<u16> for TpmiAlgEccScheme {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgEccScheme {
@@ -401,6 +383,8 @@ impl Default for TpmsEccPoint {
 }
 
 impl TpmsEccPoint {
+    pub(crate) const MAX_SIZE: usize = 2 * Tpm2bEccParameter::MAX_SIZE;
+
     pub(crate) fn new(x: Vec<u8>, y: Vec<u8>) -> Result<Self> {
         Ok(Self {
             x: x.try_into()?,

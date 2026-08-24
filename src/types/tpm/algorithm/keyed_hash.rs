@@ -55,9 +55,9 @@ impl TryFrom<TpmAlgId> for TpmiAlgKeyedHashScheme {
     fn try_from(alg: TpmAlgId) -> Result<Self> {
         match alg {
             TpmAlgId::Hmac | TpmAlgId::Xor | TpmAlgId::Null => Ok(Self(alg)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgKeyedHashScheme>(Some(
-                &alg,
-            ))),
+            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgKeyedHashScheme>(
+                Some(&alg)
+            )),
         }
     }
 }

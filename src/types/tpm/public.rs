@@ -242,14 +242,6 @@ impl TryFrom<TpmAlgId> for TpmiAlgPublic {
     }
 }
 
-impl TryFrom<u16> for TpmiAlgPublic {
-    type Error = Error;
-
-    fn try_from(value: u16) -> Result<Self> {
-        TpmAlgId::try_from(value)?.try_into()
-    }
-}
-
 bitflags! {
     #[derive(Debug, Clone, Copy)]
     pub(crate) struct TpmaObject: u32 {

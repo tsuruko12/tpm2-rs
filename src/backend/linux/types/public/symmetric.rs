@@ -6,7 +6,7 @@ use tss_esapi::{
 
 use crate::{
     Error, Result,
-    types::{
+    types::tpm::{
         TpmAlgId, TpmiAlgSymMode, TpmiAlgSymObject, TpmtSymDefObject, TpmuPublicParms,
     },
 };
@@ -84,23 +84,23 @@ impl TryFrom<TpmtSymDefObject> for TPMT_SYM_DEF_OBJECT {
 
     fn try_from(sym_def: TpmtSymDefObject) -> Result<Self> {
         let algorithm = sym_def.algorithm();
-        let alg = TpmAlgId::try_from(algorithm.raw())?;
+        let alg = TpmAlgId::try_from(algorithm.value())?;
         let (key_bits, mode) = match alg {
             TpmAlgId::Tdes => (
-                TPMU_SYM_KEY_BITS { sym: sym_def.key_bits().raw() },
-                TPMU_SYM_MODE { sym: sym_def.mode().raw() },
+                TPMU_SYM_KEY_BITS { sym: sym_def.key_bits().value() },
+                TPMU_SYM_MODE { sym: sym_def.mode().value() },
             ),
             TpmAlgId::Aes => (
-                TPMU_SYM_KEY_BITS { aes: sym_def.key_bits().raw() },
-                TPMU_SYM_MODE { aes: sym_def.mode().raw() },
+                TPMU_SYM_KEY_BITS { aes: sym_def.key_bits().value() },
+                TPMU_SYM_MODE { aes: sym_def.mode().value() },
             ),
             TpmAlgId::Sm4 => (
-                TPMU_SYM_KEY_BITS { sm4: sym_def.key_bits().raw() },
-                TPMU_SYM_MODE { sm4: sym_def.mode().raw() },
+                TPMU_SYM_KEY_BITS { sm4: sym_def.key_bits().value() },
+                TPMU_SYM_MODE { sm4: sym_def.mode().value() },
             ),
             TpmAlgId::Camellia => (
-                TPMU_SYM_KEY_BITS { camellia: sym_def.key_bits().raw() },
-                TPMU_SYM_MODE { camellia: sym_def.mode().raw() },
+                TPMU_SYM_KEY_BITS { camellia: sym_def.key_bits().value() },
+                TPMU_SYM_MODE { camellia: sym_def.mode().value() },
             ),
             TpmAlgId::Null => {
                 if !sym_def.is_null() {
@@ -115,7 +115,7 @@ impl TryFrom<TpmtSymDefObject> for TPMT_SYM_DEF_OBJECT {
         };
 
         Ok(Self {
-            algorithm: algorithm.raw(),
+            algorithm: algorithm.value(),
             keyBits: key_bits,
             mode,
         })

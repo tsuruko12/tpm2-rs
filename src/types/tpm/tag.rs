@@ -1,6 +1,6 @@
 use crate::{Error, Result, macros::tpm_list_type};
 
-tpm_list_type!(TpmlTaggedTpmProperty(TpmsTaggedProperty););
+tpm_list_type!(TpmlTaggedTpmProperty(TpmsTaggedProperty));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmsTaggedProperty {
@@ -22,7 +22,7 @@ impl TpmsTaggedProperty {
     }
 }
 
-tpm_list_type!(TpmlTaggedPcrProperty(TpmsTaggedPcrSelect););
+tpm_list_type!(TpmlTaggedPcrProperty(TpmsTaggedPcrSelect));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TpmsTaggedPcrSelect {

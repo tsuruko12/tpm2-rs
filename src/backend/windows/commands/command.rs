@@ -1,68 +1,82 @@
-use crate::types::{Tpm2bAuth, TpmCc, TpmHandle};
+use crate::types::tpm::{Tpm2bAuth, TpmCc, TpmHandle, TpmaSession};
 
-use super::super::types::{Tpm2bNonce, TpmaSession, TpmiShAuthSession};
+use super::super::types::{Tpm2bNonce, TpmiShAuthSession};
 use super::TpmiStCommandTag;
 
-pub(crate) struct Command<'a> {
+pub(in crate::backend::windows) struct Command<'p> {
     header: CommandHeader,
     handles: Vec<TpmHandle>,
-    authorizations: &'a [&'a TpmsAuthCommand],
-    parameters: &'a [u8], // marshaled parameters
+    authorization_area: Vec<TpmsAuthCommand>,
+    parameters: &'p mut [u8], // marshaled parameters
 }
 
-impl<'a> Command<'a> {
-    pub(crate) fn new(command_code: TpmCc) -> Self {
+impl<'p> Command<'p> {
+    pub(in crate::backend::windows) fn new(command_code: TpmCc) -> Self {
         Self {
             header: CommandHeader::no_sessions(command_code),
             handles: Vec::new(),
-            authorizations: &[],
-            parameters: &[],
+            authorization_area: Vec::new(),
+            parameters: &mut [],
         }
     }
 
-    pub(crate) fn with_handles(mut self, handles: impl Into<Vec<TpmHandle>>) -> Self {
-        self.handles = handles.into();
+    pub(in crate::backend::windows) fn with_handles<T, I>(mut self, handles: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<TpmHandle>,
+    {
+        self.handles = handles.into_iter().map(Into::into).collect();
         self
     }
 
-    pub(crate) fn with_authorizations(mut self, authorizations: &'a [&'a TpmsAuthCommand]) -> Self {
-        if !authorizations.is_empty() {
-            self.authorizations = authorizations;
+    pub(in crate::backend::windows) fn with_authorization_area(mut self, authorization_area: Vec<TpmsAuthCommand>) -> Self {
+        if !authorization_area.is_empty() {
+            self.authorization_area = authorization_area;
             self.header.use_sessions();
         }
 
         self
     }
 
-    pub(crate) fn with_parameters(mut self, parameters: &'a [u8]) -> Self {
+    pub(in crate::backend::windows) fn with_parameters(mut self, parameters: &'p mut [u8]) -> Self {
         self.parameters = parameters;
         self
     }
 
-    pub(crate) fn header(&self) -> CommandHeader {
+    pub(in crate::backend::windows) fn header(&self) -> CommandHeader {
         self.header
     }
 
-    pub(crate) fn handles(&self) -> &[TpmHandle] {
+    pub(in crate::backend::windows) fn handles(&self) -> &[TpmHandle] {
         &self.handles
     }
 
-    pub(crate) fn authorizations(&self) -> &'a [&'a TpmsAuthCommand] {
-        self.authorizations
+    pub(in crate::backend::windows) fn authorization_area(&self) -> &[TpmsAuthCommand] {
+        &self.authorization_area
     }
 
-    pub(crate) fn parameters(&self) -> &[u8] {
+    pub(in crate::backend::windows) fn authorization_area_mut(&mut self) -> &mut [TpmsAuthCommand] {
+        &mut self.authorization_area
+    }
+
+    pub(in crate::backend::windows) fn parameters(&self) -> &[u8] {
         &self.parameters
+    }
+
+    pub(in crate::backend::windows) fn parameters_mut(&mut self) -> &mut [u8] {
+        self.parameters
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CommandHeader {
+pub(in crate::backend::windows) struct CommandHeader {
     tag: TpmiStCommandTag,
     command_code: TpmCc,
 }
 
 impl CommandHeader {
+    pub(in crate::backend::windows) const SIZE: usize = 10;
+
     fn no_sessions(command_code: TpmCc) -> Self {
         Self {
             tag: TpmiStCommandTag::NO_SESSIONS,
@@ -74,16 +88,16 @@ impl CommandHeader {
         self.tag = TpmiStCommandTag::SESSIONS;
     }
 
-    pub(crate) fn tag(&self) -> TpmiStCommandTag {
+    pub(in crate::backend::windows) fn tag(&self) -> TpmiStCommandTag {
         self.tag
     }
 
-    pub(crate) fn command_code(&self) -> TpmCc {
+    pub(in crate::backend::windows) fn command_code(&self) -> TpmCc {
         self.command_code
     }
 }
 
-pub(crate) struct TpmsAuthCommand {
+pub(in crate::backend::windows) struct TpmsAuthCommand {
     session_handle: TpmiShAuthSession,
     nonce: Tpm2bNonce,
     session_attributes: TpmaSession,
@@ -91,7 +105,7 @@ pub(crate) struct TpmsAuthCommand {
 }
 
 impl TpmsAuthCommand {
-    pub(crate) fn new(
+    pub(in crate::backend::windows) fn new(
         session_handle: TpmiShAuthSession,
         nonce: Tpm2bNonce,
         session_attributes: TpmaSession,
@@ -105,37 +119,32 @@ impl TpmsAuthCommand {
         }
     }
 
-    pub(crate) fn password() -> Self {
+    pub(in crate::backend::windows) fn password(session_attributes: TpmaSession) -> Self {
         Self {
             session_handle: TpmiShAuthSession::RS_PW,
             nonce: Tpm2bNonce::default(),
-            session_attributes: TpmaSession::empty(),
+            session_attributes,
             hmac: Tpm2bAuth::default(),
         }
     }
 
-    pub(crate) fn set_hmac(&mut self, hmac: Tpm2bAuth) {
+    pub(in crate::backend::windows) fn set_hmac(&mut self, hmac: Tpm2bAuth) {
         self.hmac = hmac;
     }
 
-    pub(crate) fn session_handle(&self) -> TpmiShAuthSession {
+    pub(in crate::backend::windows) fn session_handle(&self) -> TpmiShAuthSession {
         self.session_handle
     }
 
-    pub(crate) fn nonce(&self) -> &Tpm2bNonce {
+    pub(in crate::backend::windows) fn nonce(&self) -> &Tpm2bNonce {
         &self.nonce
     }
 
-    pub(crate) fn session_attributes(&self) -> TpmaSession {
+    pub(in crate::backend::windows) fn session_attributes(&self) -> TpmaSession {
         self.session_attributes
     }
 
-    pub(crate) fn as_parts(&self) -> (TpmiShAuthSession, &Tpm2bNonce, TpmaSession, &Tpm2bAuth) {
-        (
-            self.session_handle,
-            &self.nonce,
-            self.session_attributes,
-            &self.hmac,
-        )
+    pub(in crate::backend::windows) fn hmac(&self) -> &Tpm2bAuth {
+        &self.hmac
     }
 }

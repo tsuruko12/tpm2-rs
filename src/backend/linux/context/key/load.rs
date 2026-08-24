@@ -8,11 +8,11 @@ use crate::{
     Error, Result, 
     db::InternalKeyMeta, 
     types::{
-        Authorization, BackendObjectHandle, LoadedHandle, LoadedObjectHandle, Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmaSession, TpmiDhPersistent, TpmiRhHierarchy
+        Authorization, BackendObjectHandle, LoadedHandle, LoadedObjectHandle,
+        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmaSession, TpmiDhPersistent, TpmiRhHierarchy},
     }
 };
-use super::Context;
-use super::super::CommandResources;
+use super::{Context, CommandResources};
 
 impl Context {
     pub(super) fn load_handle(
@@ -28,16 +28,15 @@ impl Context {
 
         let parent_handle = parent.handle().inner();
 
+        // TODO: re-compute policy session when it's reused
         let result = (|| {
             match session_salt_handle {
-                Some(_) => {
-                    self.prepare_sessions(
-                        resources, 
-                        Some((parent_handle.into(), parent.authorization())),
-                        TpmaSession::decrypt().with_continue_session(), 
-                        session_salt_handle,
-                    )?
-                },
+                Some(_) => self.prepare_sessions(
+                    resources, 
+                    TpmaSession::decrypt().with_continue_session(), 
+                    Some((parent_handle.into(), parent.authorization())),                   
+                    session_salt_handle,
+                )?,
                 None => resources.add_session(AuthSession::Password)?,
             }
 
@@ -47,7 +46,6 @@ impl Context {
                     ctx.load(parent_handle, in_private, in_public)
                 })
                 .map_err(Error::from_tss_err)?;
-            resources.add_transient_handle(obj_handle.into());
 
             Ok((obj_handle, self.read_obj_name(obj_handle.into())?))
         })();
@@ -109,7 +107,7 @@ impl Context {
     ) -> Result<LoadedHandle> {
         let mut resources = CommandResources::default();
         resources.add_persistent_handle(session_salt_handle.into());
-        resources.add_handle(parent.handle());
+        resources.add_handle(parent.handle);
 
         let result = (|| {
             let (obj_handle, obj_name) = self.load_handle(
@@ -119,11 +117,13 @@ impl Context {
                 Some(session_salt_handle), 
                 Some(&mut resources)
             )?;
+            // TODO: flush/close parent handle
+            resources.add_transient_handle(obj_handle.inner().into());
             resources.close_all_handles(self)?;
 
-            self.validate_obj_name(obj_handle.into(), expected_name, Some(&obj_name))?;
+            self.validate_obj_name(obj_handle.inner(), expected_name, Some(&obj_name))?;
 
-            Ok(LoadedHandle::transient(
+            Ok(LoadedHandle::new(
                 obj_handle, 
                 obj_name, 
                 authorization

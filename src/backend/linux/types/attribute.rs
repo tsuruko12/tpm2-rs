@@ -5,7 +5,7 @@ use tss_esapi::{
 
 use crate::{
     Error, Result,
-    types::{TpmaObject, TpmaSession, TpmlCca},
+    types::tpm::{TpmaObject, TpmaSession, TpmlCca},
 };
 
 impl TryFrom<CommandCodeAttributesList> for TpmlCca {

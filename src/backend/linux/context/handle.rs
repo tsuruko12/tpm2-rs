@@ -5,7 +5,7 @@ use tss_esapi::{
     interface_types::{resource_handles::Provision, session_handles::{AuthSession, PolicySession}},
 };
 
-use crate::{Error, Result, types::{Authorization, LoadedObjectHandle, TpmaSession}};
+use crate::{Error, Result, types::{Authorization, LoadedObjectHandle, tpm::TpmaSession}};
 use super::{Context, CommandResources, SessionSlotArray};
 
 impl Context {
@@ -21,8 +21,8 @@ impl Context {
         let result = (|| {
             self.prepare_sessions(
                 resources,
-                Some((ObjectHandle::Owner, owner_authorization)),
                 TpmaSession::empty().with_continue_session(),
+                Some((ObjectHandle::Owner, owner_authorization)),
                 session_salt_handle,
             )?;
 
@@ -33,13 +33,13 @@ impl Context {
                     Ok(handle) => break Ok(handle),
                     Err(e) => {
                         if is_nv_defined_err(e) {
-                            let handle_raw = u32::from(*persistent_handle);
+                            let handle_value = u32::from(*persistent_handle);
 
                             if let Some(end) = search_end {
-                                let next_handle = handle_raw + 1;
+                                let next_handle = handle_value + 1;
 
                                 if next_handle > end.into() {
-                                    break Err(Error::PersistentHandleInUse(handle_raw));
+                                    break Err(Error::PersistentHandleInUse(handle_value));
                                 }
 
                                 *persistent_handle = PersistentTpmHandle::new(next_handle)
@@ -47,7 +47,7 @@ impl Context {
 
                                 continue;
                             }
-                            break Err(Error::PersistentHandleInUse(handle_raw));
+                            break Err(Error::PersistentHandleInUse(handle_value));
                         }
                         break Err(Error::from_tss_err(e));
                     }

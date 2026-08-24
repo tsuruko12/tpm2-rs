@@ -3,4 +3,4 @@ mod crypto;
 mod load;
 mod read_public;
 
-use super::Context;
+use super::{Context, CommandResources};

@@ -1,120 +1,136 @@
 use crate::{
-    Error, Result,
-    macros::newtype,
-    types::{TpmHandle, TpmiDhObject},
+    Error, Result, macros::newtype_in_win, types::tpm::{TpmHandle, TpmiDhObject},
 };
 
-newtype!(TpmiDhEntity(TpmHandle));
+newtype_in_win!(TpmiDhEntity(TpmHandle));
 
-impl TpmiDhEntity {
-    pub(crate) const RH_NULL: Self = Self(TpmHandle::RH_NULL);
-}
-
-newtype!(TpmiShAuthSession(TpmHandle));
-
-impl TpmiShAuthSession {
-    pub(crate) const RS_PW: Self = Self(TpmHandle::new(0x40000009));
-
-    pub(crate) fn is_policy_session(&self) -> bool {
-        (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&self.raw())
-    }
-
-    pub(crate) fn is_hmac_session(&self) -> bool {
-        (TpmiShHmac::FIRST..=TpmiShHmac::LAST).contains(&self.raw())
-    }
-}
-
-impl TryFrom<u32> for TpmiShAuthSession {
+impl TryFrom<TpmHandle> for TpmiDhEntity {
     type Error = Error;
 
-    fn try_from(value: u32) -> Result<Self> {
-        if (TpmiShPolicy::FIRST..=TpmiShPolicy::LAST).contains(&value) 
-        || (TpmiShHmac::FIRST..=TpmiShHmac::LAST).contains(&value) {
-            Ok(Self(value.into()))
-        } else {
-            Err(Error::conversion::<u32, TpmiShAuthSession>(None))
+    fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
+        let value = tpm_handle.value();
+
+        match tpm_handle {
+            TpmHandle::RH_OWNER
+            | TpmHandle::RH_ENDORSEMENT
+            | TpmHandle::RH_PLATFORM
+            | TpmHandle::RH_LOCKOUT
+            | TpmHandle::RH_NULL => Ok(Self(tpm_handle)),
+            _ if TpmiDhObject::try_from(tpm_handle).is_ok()
+                || (TpmHandle::NV_INDEX_FIRST..=TpmHandle::NV_INDEX_LAST).contains(&value)
+                || (TpmHandle::PCR_FIRST..=TpmHandle::PCR_LAST).contains(&value)
+                || (TpmHandle::RH_AUTH_00..=TpmHandle::RH_AUTH_FF)
+                    .contains(&value) => Ok(Self(tpm_handle)),
+            _ => Err(Error::conversion::<TpmHandle, TpmiDhEntity>(Some(&tpm_handle))),
         }
     }
 }
 
-newtype!(TpmiShPolicy(TpmHandle));
+newtype_in_win!(TpmiShAuthSession(TpmHandle));
 
-impl TpmiShPolicy {
-    pub(crate) const FIRST: u32 = 0x0300_0000;
-    pub(crate) const LAST: u32 = 0x03ff_ffff;
+impl TpmiShAuthSession {
+    pub(in crate::backend::windows) const RS_PW: Self = Self(TpmHandle::RS_PW);
 }
 
 impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
     type Error = Error;
 
     fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
-        let handle_raw = session_handle.raw();
-
-        if session_handle.is_policy_session() {
-            Ok(Self(handle_raw.into()))
-        } else {
-            Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
-        }
+        let tpm_handle = TpmHandle::from(session_handle);
+        if TpmiShPolicy::try_from(tpm_handle).is_ok(){
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
+            }
     }
-}
-
-newtype!(TpmiShHmac(TpmHandle));
-
-impl TpmiShHmac {
-    pub(crate) const FIRST: u32 = 0x0200_0000;
-    pub(crate) const LAST: u32 = 0x02FF_FFFF;
 }
 
 impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
     type Error = Error;
 
     fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
-        let handle_raw = session_handle.raw();
-
-        if session_handle.is_hmac_session() {
-            Ok(Self(handle_raw.into()))
-        } else {
-            Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
-        }
+        let tpm_handle = TpmHandle::from(session_handle);
+        if TpmiShHmac::try_from(tpm_handle).is_ok(){
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
+            }
     }
 }
 
-newtype!(TpmiDhContext(TpmHandle));
+impl TryFrom<TpmHandle> for TpmiShAuthSession {
+    type Error = Error;
+
+    fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
+        if TpmiShPolicy::try_from(tpm_handle).is_ok()
+            || TpmiShHmac::try_from(tpm_handle).is_ok() {
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmHandle, TpmiShAuthSession>(Some(&tpm_handle)))
+            }
+    }
+} 
+
+newtype_in_win!(TpmiShPolicy(TpmHandle));
+
+impl TryFrom<TpmHandle> for TpmiShPolicy {
+    type Error = Error;
+
+    fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
+        if (TpmHandle::POLICY_SESSION_FIRST..=TpmHandle::POLICY_SESSION_LAST)
+            .contains(&tpm_handle.value()) {
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
+            }
+    }
+}
+
+newtype_in_win!(TpmiShHmac(TpmHandle));
+
+impl TryFrom<TpmHandle> for TpmiShHmac {
+    type Error = Error;
+
+    fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
+        if (TpmHandle::HMAC_SESSION_FIRST..=TpmHandle::HMAC_SESSION_LAST)
+            .contains(&tpm_handle.value()) {
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmHandle, TpmiShHmac>(Some(&tpm_handle)))
+            }
+    }
+}
+
+newtype_in_win!(TpmiDhContext(TpmHandle));
 
 impl From<TpmiShAuthSession> for TpmiDhContext {
-    fn from(session: TpmiShAuthSession) -> Self {
-        Self(session.0)
+    fn from(session_handle: TpmiShAuthSession) -> Self {
+        Self(session_handle.0)
     }
 }
 
 impl TryFrom<TpmiDhObject> for TpmiDhContext {
     type Error = Error;
 
-    fn try_from(handle: TpmiDhObject) -> Result<Self> {
-        if handle.is_transient() {
-            return Ok(Self(handle.into()));
+    fn try_from(obj_handle: TpmiDhObject) -> Result<Self> {
+        if obj_handle.is_transient() {
+            return Ok(Self(obj_handle.into()));
         }
 
         Err(Error::conversion::<TpmiDhObject, TpmiDhContext>(None))
     }
 }
 
-// 必要なかったら消す
-newtype!(TpmHt(u8));
+impl TryFrom<TpmHandle> for TpmiDhContext {
+    type Error = Error;
 
-impl TpmHt {
-    pub(crate) const PCR: Self = Self(0x00);
-    pub(crate) const NV_INDEX: Self = Self(0x01);
-
-    pub(crate) const HMAC_SESSION: Self = Self(0x02);
-    pub(crate) const LOADED_SESSION: Self = Self(0x02);
-    pub(crate) const POLICY_SESSION: Self = Self(0x03);
-    pub(crate) const SAVED_SESSION: Self = Self(0x03);
-
-    pub(crate) const EXTERNAL_NV: Self = Self(0x11);
-    pub(crate) const PERMANENT_NV: Self = Self(0x12);
-    pub(crate) const PERMANENT: Self = Self(0x40);
-    pub(crate) const TRANSIENT: Self = Self(0x80);
-    pub(crate) const PERSISTENT: Self = Self(0x81);
-    pub(crate) const AC: Self = Self(0x90);
+    fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
+        if TpmiShAuthSession::try_from(tpm_handle).is_ok()
+            || (TpmHandle::TRANSIENT_FIRST..=TpmHandle::TRANSIENT_LAST)
+                .contains(&tpm_handle.value()) {
+                    Ok(Self(tpm_handle))
+                } else {
+                    Err(Error::conversion::<TpmHandle, TpmiDhContext>(Some(&tpm_handle)))
+                }
+    }
 }

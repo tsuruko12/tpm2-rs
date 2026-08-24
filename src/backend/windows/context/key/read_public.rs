@@ -1,57 +1,57 @@
 use tracing::debug;
 
-use super::{Context, codec::ReadPublicResponse, commands::Command};
+use super::{Command, CommandResources, Context};
+use super::super::ReadPublicResponse;
 use crate::{
     Error, Result,
-    types::{TpmCc, TpmiDhObject, TpmuPublicId, Tpm2bName},
+    types::tpm::{Tpm2bName, Tpm2bPublicKeyRsa, TpmCc, TpmiDhObject, TpmuPublicId},
 };
 
+const RESPONSE_HANDLE_COUNT: usize = 0;
+
 impl Context {
-    pub(crate) fn read_rsa_public_unique(&mut self, obj_handle: TpmiDhObject) -> Result<Vec<u8>> {
-        let response = self.read_object_public(obj_handle)?;
-        into_rsa_public_unique(response.out_public.unique())
-    }
-
-    pub(crate) fn validate_obj_name(
+    pub(in super::super) fn read_rsa_public_unique(
         &mut self,
-        obj_handle: impl Into<TpmiDhObject>,
-        expected_name: &Tpm2bName,
-        name: Option<&Tpm2bName>,
-    ) -> Result<()> {
-        match name {
-            Some(name) => validate_name(name.as_bytes(), expected_name.as_bytes()),
-            None => {
-                let name = self.read_obj_name(obj_handle.into())?;
-                validate_name(name.as_bytes(), expected_name.as_bytes())
-            }
-        }
+        obj_handle: TpmiDhObject,
+    ) -> Result<Tpm2bPublicKeyRsa> {
+        let response = self.read_obj_public(obj_handle)?;
+        into_rsa_public_unique(response.out_public.into_inner().unique().clone())
     }
 
-    pub(crate) fn read_obj_name(&mut self, obj_handle: TpmiDhObject) -> Result<Vec<u8>> {
-        self.read_object_public(obj_handle)
-            .map(|response| response.name.into_bytes())
+    pub(in super::super) fn read_obj_name(
+        &mut self,
+        obj_handle: TpmiDhObject,
+    ) -> Result<Tpm2bName> {
+        self.read_obj_public(obj_handle)
+            .map(|response| response.name)
     }
 
-    fn read_obj_public(&mut self, obj_handle: TpmiDhObject) -> Result<ReadPublicResponse> {
-        let command = Command::new(TpmCc::READ_PUBLIC)
-            .with_handles(vec![obj_handle.into()]);
-        let response_body = self.submit(command)?;
+    pub(super) fn read_obj_public(
+        &mut self,
+        obj_handle: TpmiDhObject,
+    ) -> Result<ReadPublicResponse> {
+        let mut command = Command::new(TpmCc::READ_PUBLIC).with_handles([obj_handle]);
 
-        ReadPublicResponse::parse(&response_body)
+        self.submit(
+            &mut command,
+            RESPONSE_HANDLE_COUNT,
+            &mut CommandResources::default(),
+        )
+        .and_then(ReadPublicResponse::try_from)
     }
 }
 
-fn into_rsa_public_unique(unique: &TpmuPublicId) -> Result<Vec<u8>> {
+fn into_rsa_public_unique(unique: TpmuPublicId) -> Result<Tpm2bPublicKeyRsa> {
     match unique {
-        TpmuPublicId::Rsa(public_key) => Ok(public_key.clone().into_bytes()),
+        TpmuPublicId::Rsa(public_key) => Ok(public_key),
         _ => Err(Error::invalid_state("expected RSA public unique")),
     }
 }
 
-fn validate_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
+pub(super) fn validate_obj_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
     if name != expected_name {
         debug!("stored TPM object name does not match");
-        return Err(Error::corrupted_store());
+        return Err(Error::corrupted_store())
     }
 
     Ok(())

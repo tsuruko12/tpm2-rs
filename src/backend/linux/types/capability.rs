@@ -2,7 +2,7 @@ use tss_esapi::{constants::CapabilityType, structures::CapabilityData as EsapiCa
 
 use crate::{
     Error, Result,
-    types::{CapabilityData, TpmCap},
+    types::tpm::{CapabilityData, TpmCap},
 };
 
 impl From<TpmCap> for CapabilityType {

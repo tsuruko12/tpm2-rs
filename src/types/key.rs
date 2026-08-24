@@ -3,7 +3,7 @@ use std::fmt::{Debug, Formatter, Result as StdResult};
 #[cfg(target_os = "linux")]
 use tss_esapi::handles::KeyHandle;
 
-use crate::types::{Tpm2bPublicKeyRsa, TpmiDhPersistent};
+use crate::types::tpm::{Tpm2bPublicKeyRsa, TpmiDhPersistent};
 
 #[cfg(target_os = "windows")]
 use super::tpm::TpmiDhObject;
@@ -52,9 +52,9 @@ impl Debug for CreatedKeyData {
 }
 
 pub(crate) struct LoadedHandle {
-    handle: LoadedObjectHandle,
-    name: Tpm2bName,
-    authorization: Authorization,
+    pub(crate) handle: LoadedObjectHandle,
+    pub(crate) name: Tpm2bName,
+    pub(crate) authorization: Authorization,
 }
 
 impl Debug for LoadedHandle {
@@ -67,6 +67,18 @@ impl Debug for LoadedHandle {
 }
 
 impl LoadedHandle {
+    pub(crate) fn new(
+        handle: LoadedObjectHandle,
+        name: Tpm2bName,
+        authorization: Authorization,
+    ) -> Self {
+        Self {
+            handle,
+            name,
+            authorization,
+        }
+    }
+
     pub(crate) fn transient(
         handle: BackendObjectHandle,
         name: Tpm2bName,
@@ -102,24 +114,8 @@ impl LoadedHandle {
         }
     }
 
-    pub(crate) fn handle(&self) -> LoadedObjectHandle {
-        self.handle
-    }
-
     pub(crate) fn is_persistent(&self) -> bool {
         self.handle.is_persistent()
-    }
-
-    pub(crate) fn name(&self) -> &Tpm2bName {
-        &self.name
-    }
-
-    pub(crate) fn authorization(&self) -> &Authorization {
-        &self.authorization
-    }
-
-    pub(crate) fn into_authorization(self) -> Authorization {
-        self.authorization
     }
 }
 

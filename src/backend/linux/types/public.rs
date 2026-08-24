@@ -14,8 +14,10 @@ use tss_esapi::{
 
 use crate::{
     Error, Result,
-    types::{
-        Tpm2bDigest, Tpm2bName, Tpm2bPublic, Tpm2bPublicKeyRsa, TpmAlgId, TpmaObject, TpmiAlgHash, TpmiAlgPublic, TpmsEccPoint, TpmtPublic, TpmuPublicId, TpmuPublicParms
+    types::tpm::{
+        Tpm2bDigest, Tpm2bEccParameter, Tpm2bName, Tpm2bPublic, Tpm2bPublicKeyRsa, TpmAlgId,
+        TpmaObject, TpmiAlgHash, TpmiAlgPublic, TpmsEccPoint, TpmtPublic, TpmuPublicId,
+        TpmuPublicParms,
     },
 };
 
@@ -97,14 +99,14 @@ impl TryFrom<TpmtPublic> for TPMT_PUBLIC {
 
     fn try_from(public: TpmtPublic) -> Result<Self> {
         let alg_type = public.alg_type();
-        let alg = TpmAlgId::try_from(alg_type.raw())?;
+        let alg = TpmAlgId::try_from(alg_type.value())?;
         let (parameters, unique) = match (alg, public.parameters(), public.unique()) {
             (TpmAlgId::Rsa, TpmuPublicParms::RsaDetail(params), TpmuPublicId::Rsa(unique)) => (
                 TPMU_PUBLIC_PARMS {
                     rsaDetail: params.try_into()?,
                 },
                 TPMU_PUBLIC_ID {
-                    rsa: tpm2b_public_key_rsa(unique.as_bytes())?,
+                    rsa: tpm2b_public_key_rsa(unique)?,
                 },
             ),
             (
@@ -130,8 +132,8 @@ impl TryFrom<TpmtPublic> for TPMT_PUBLIC {
                     },
                     TPMU_PUBLIC_ID {
                         ecc: TPMS_ECC_POINT {
-                            x: tpm2b_ecc_parameter(x.as_bytes())?,
-                            y: tpm2b_ecc_parameter(y.as_bytes())?,
+                            x: tpm2b_ecc_parameter(x)?,
+                            y: tpm2b_ecc_parameter(y)?,
                         },
                     },
                 )
@@ -156,8 +158,8 @@ impl TryFrom<TpmtPublic> for TPMT_PUBLIC {
         };
 
         Ok(Self {
-            type_: alg_type.raw(),
-            nameAlg: public.name_alg().raw(),
+            type_: alg_type.value(),
+            nameAlg: public.name_alg().value(),
             objectAttributes: public.object_attributes().bits(),
             authPolicy: public.auth_policy().try_into()?,
             parameters,
@@ -180,7 +182,8 @@ impl TryFrom<&Tpm2bDigest> for TPM2B_DIGEST {
 
     fn try_from(digest: &Tpm2bDigest) -> Result<Self> {
         let mut raw = Self::default();
-        raw.size = write_tpm2b(&mut raw.buffer, digest.as_bytes())?;
+        raw.size = digest.size();
+        write_tpm2b(&mut raw.buffer, digest.as_bytes())?;
 
         Ok(raw)
     }
@@ -205,28 +208,28 @@ fn tpm2b_bytes(buffer: &[u8], size: u16) -> Result<Vec<u8>> {
     Ok(buffer[..size].to_vec())
 }
 
-fn tpm2b_public_key_rsa(bytes: &[u8]) -> Result<TPM2B_PUBLIC_KEY_RSA> {
+fn tpm2b_public_key_rsa(value: &Tpm2bPublicKeyRsa) -> Result<TPM2B_PUBLIC_KEY_RSA> {
     let mut raw = TPM2B_PUBLIC_KEY_RSA::default();
-    raw.size = write_tpm2b(&mut raw.buffer, bytes)?;
+    raw.size = value.size();
+    write_tpm2b(&mut raw.buffer, value.as_bytes())?;
 
     Ok(raw)
 }
 
-fn tpm2b_ecc_parameter(bytes: &[u8]) -> Result<TPM2B_ECC_PARAMETER> {
+fn tpm2b_ecc_parameter(value: &Tpm2bEccParameter) -> Result<TPM2B_ECC_PARAMETER> {
     let mut raw = TPM2B_ECC_PARAMETER::default();
-    raw.size = write_tpm2b(&mut raw.buffer, bytes)?;
+    raw.size = value.size();
+    write_tpm2b(&mut raw.buffer, value.as_bytes())?;
 
     Ok(raw)
 }
 
-fn write_tpm2b(buffer: &mut [u8], bytes: &[u8]) -> Result<u16> {
-    if bytes.len() > buffer.len() {
+fn write_tpm2b(buf: &mut [u8], bytes: &[u8]) -> Result<()> {
+    if bytes.len() > buf.len() {
         return Err(Error::invalid_state("TPM2B value exceeds its buffer"));
     }
 
-    let size = u16::try_from(bytes.len())
-        .map_err(|_| Error::invalid_state("TPM2B value length exceeds u16"))?;
-    buffer[..bytes.len()].copy_from_slice(bytes);
+    buf[..bytes.len()].copy_from_slice(bytes);
 
-    Ok(size)
+    Ok(())
 }

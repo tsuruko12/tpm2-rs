@@ -5,7 +5,7 @@ use tss_esapi::{
 
 use crate::{
     Error, Result,
-    types::{
+    types::tpm::{
         Tpm2bPublicKeyRsa, TpmAlgId, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuPublicParms, TpmuRsaScheme
     },
 };
@@ -42,7 +42,7 @@ impl TryFrom<TpmsRsaParms> for TPMS_RSA_PARMS {
         Ok(Self {
             symmetric: rsa_params.symmetric().try_into()?,
             scheme: rsa_params.scheme().try_into()?,
-            keyBits: rsa_params.key_bits().raw(),
+            keyBits: rsa_params.key_bits().value(),
             exponent: rsa_params.exponent(),
         })
     }
@@ -74,7 +74,7 @@ impl TryFrom<TpmtRsaScheme> for TPMT_RSA_SCHEME {
 
     fn try_from(rsa_scheme: TpmtRsaScheme) -> Result<Self> {
         let (scheme, details) = rsa_scheme.into_parts();
-        let raw_scheme = scheme.raw();
+        let raw_scheme = scheme.value();
         let details = match (TpmAlgId::try_from(raw_scheme)?, details) {
             (TpmAlgId::RsaSsa, TpmuRsaScheme::RsaSsa(scheme_hash)) => TPMU_ASYM_SCHEME {
                 rsassa: scheme_hash.into(),

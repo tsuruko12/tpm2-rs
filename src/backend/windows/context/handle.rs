@@ -1,21 +1,16 @@
 use tracing::debug;
 
+use super::super::{TpmRc, types::{TpmiDhContext, TpmiShAuthSession}};
+use super::{Command, CommandResources, Context, SessionSlots, response::ensure_no_response_body};
 use crate::{
     Error, Result,
-    types::{Authorization, TpmCc, TpmHandle, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision},
-};
-use super::{
-    Context, CommandResources, SessionSlots,
-    session::{
-        authorization_commands, response_auth_contexts, update_command_hmacs,
+    types::{
+        Authorization, LoadedObjectHandle,
+        tpm::{TpmCc, TpmaSession, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision, TpmHandle},
     },
 };
-use super::super::{
-    codec::parse_response_params_and_authorizations,
-    commands::Command,
-    macros::reject_trailing_bytes,
-    types::{TpmRc, TpmaSession, TpmiDhContext},
-};
+
+const RESPONSE_HANDLE_COUNT: usize = 0;
 
 impl Context {
     pub(super) fn evict_control(
@@ -29,147 +24,179 @@ impl Context {
     ) -> Result<()> {
         let command_code = TpmCc::EVICT_CONTROL;
         let owner_handle = TpmiRhProvision::OWNER;
-        let handle_name = self.read_object_name(obj_handle)?;
+
+        let mut command_params = persistent_handle.value().to_be_bytes();
 
         let result = (|| {
-            let mut sessions = self.prepare_sessions(
+            let authorization_area = self.prepare_sessions(
                 resources,
                 TpmaSession::empty(),
                 Some(owner_authorization),
                 session_salt_handle,
-                None,
             )?;
 
-            let response_body = loop {
-                let request_parameter = persistent_handle.raw().to_be_bytes();
-                let owner_name = owner_handle.raw().to_be_bytes();
+            let mut command = Command::new(command_code)
+                .with_handles([
+                    TpmHandle::from(owner_handle),
+                    TpmHandle::from(obj_handle),
+                ])
+                .with_authorization_area(authorization_area)
+                .with_parameters(&mut command_params);
 
-                update_command_hmacs(
-                    &mut sessions,
-                    command_code,
-                    &[&owner_name, &handle_name],
-                    &request_parameter,
-                )?;
-
-                let authorizations = authorization_commands(&sessions);
-
-                let command = Command::new(command_code)
-                    .with_handles(vec![owner_handle.into(), obj_handle.into()])
-                    .with_parameters(&request_parameter)
-                    .with_authorizations(&authorizations);
-
-                match self.submit(command) {
+            loop {
+                match self.submit(&mut command, RESPONSE_HANDLE_COUNT, resources) {
                     Ok(response_body) => {
-                        resources.clear_sessions();
-                        break response_body;
-                    },
+                        break ensure_no_response_body(&response_body);
+                    }
                     Err(err) => {
-                        let raw_handle = persistent_handle.raw();
+                        let handle_value = persistent_handle.value();
 
                         if err.tpm_rc() == Some(TpmRc::NV_DEFINED) {
                             if let Some(end) = search_end {
-                                let next_handle = raw_handle + 1;
-
-                                if next_handle > end.raw() {
-                                    return Err(Error::PersistentHandleInUse(raw_handle));
+                                let next_handle = handle_value + 1;
+                                if next_handle > end.value() {
+                                    return Err(Error::PersistentHandleInUse(handle_value));
                                 }
-
                                 *persistent_handle = TpmiDhPersistent::try_from(next_handle)?;
+
+                                command
+                                    .parameters_mut()
+                                    .copy_from_slice(&next_handle.to_be_bytes());
+
                                 continue;
                             }
-                            return Err(Error::PersistentHandleInUse(raw_handle));
+                            return Err(Error::PersistentHandleInUse(handle_value));
                         }
                         return Err(err);
                     }
                 }
-            };
-
-            let auth_contexts = response_auth_contexts(&sessions);
-            let (returned_params, auth_responses) = parse_response_params_and_authorizations(
-                &mut response_body.as_slice(),
-                auth_contexts.len(),
-            )?;
-
-            if !returned_params.is_empty() {
-                reject_trailing_bytes!(returned_params.len());
             }
-
-            auth_contexts
-                .iter()
-                .zip(auth_responses.iter())
-                .filter(|(auth_context, _)| auth_context.requires_hmac())
-                .try_for_each(|(auth_context, auth_response)| {
-                    auth_context.verify_hmac(command_code, &returned_params, auth_response)
-                })
         })();
 
-        self.finish_command(result, resources)
+        self.cleanup_on_error(result, resources)
     }
 
-    pub(super) fn release_resources(&mut self, resources: &mut CommandResources) -> Result<()> {
-        self.flush_sessions(&mut resources.sessions)?;
-        self.flush_handles(&mut resources.transient_handles)?;
-
-        Ok(())
-    }
-
-    pub(super) fn cleanup_resources(&mut self, resources: &mut CommandResources) {
-        let _ = self.flush_sessions(&mut resources.sessions);
-        let _ = self.flush_handles(&mut resources.transient_handles);
-    }
-
-    pub(super) fn flush_sessions(&mut self, sessions: &mut SessionSlots) -> Result<()> {
+    fn flush_sessions(&mut self, sessions: &mut SessionSlots) -> Result<()> {
         let mut first_err = None;
 
         for session in sessions {
             let Some(handle) = *session else {
                 continue;
-            }; 
+            };
 
-            match self.flush_context(handle) {
-                Ok(()) => *session = None,
-                Err(e) => {
+            if handle != TpmiShAuthSession::RS_PW {
+                if let Err(e) = self.flush_context(handle.into()) {
                     first_err.get_or_insert(e);
                     debug!(?handle, "failed to flush TPM session");
+
+                    continue;
                 }
             }
+
+            *session = None;
         }
 
         first_err.map_or(Ok(()), Err)
     }
 
-    // memo: assign NULL for flushed handles
-    pub(super) fn flush_handles(&mut self, handles: &mut Vec<TpmiDhObject>) -> Result<()> {
+    pub(crate) fn release_handle(&mut self, obj_handle: LoadedObjectHandle) -> Result<()> {
+        match obj_handle {
+            LoadedObjectHandle::Persistent(_) => Ok(()),
+            LoadedObjectHandle::Transient(handle) => self.flush_handle(&mut handle.into()),
+        }
+    }
+
+    pub(super) fn flush_handle(&mut self, handle: &mut TpmiDhObject) -> Result<()> {
+        if *handle == TpmiDhObject::RH_NULL {
+            return Ok(());
+        }
+
+        let context_handle = TpmiDhContext::try_from(*handle)?;
+
+        self.flush_context(context_handle)
+            .inspect_err(|_| debug!("failed to flush TPM handle"))?;
+
+        *handle = TpmiDhObject::RH_NULL;
+
+        Ok(())
+    }
+
+    fn flush_handles(&mut self, handles: &mut Vec<TpmiDhObject>) -> Result<()> {
         let mut first_err = None;
-        let mut remaining = Vec::new();
 
-        while let Some(obj_handle) = handles.pop() {
-            let handle = TpmiDhContext::try_from(obj_handle)
-                .expect("handle must be a transient object handle");
-
-            if let Err(e) = self.flush_context(handle) {
+        for handle in handles.iter_mut() {
+            if let Err(e) = self.flush_handle(handle) {
                 first_err.get_or_insert(e);
-                remaining.push(obj_handle);
-
-                debug!(?handle, "failed to flush TPM handle");
             }
         }
 
-        *handles = remaining;
-
         first_err.map_or(Ok(()), Err)
     }
 
-    fn flush_context(&mut self, handle: impl Into<TpmiDhContext>) -> Result<()> {
-        let command =
-            Command::new(TpmCc::FLUSH_CONTEXT).with_handles([TpmHandle::from(handle.into())]);
+    fn flush_context(&mut self, flush_handle: TpmiDhContext) -> Result<()> {
+        let mut command =
+            Command::new(TpmCc::FLUSH_CONTEXT).with_handles([flush_handle]);
 
-        let response_body = self.submit(command)?;
+        self.submit(
+            &mut command,
+            RESPONSE_HANDLE_COUNT,
+            &mut CommandResources::default(),
+        )
+        .and_then(|response_body| ensure_no_response_body(&response_body))
+    }
+}
 
-        if !response_body.is_empty() {
-            reject_trailing_bytes!(response_body.len());
+impl CommandResources {
+    pub(super) fn release_handle(
+        &mut self,
+        ctx: &mut Context,
+        target: LoadedObjectHandle,
+    ) -> Result<()> {
+        match target {
+            LoadedObjectHandle::Persistent(_) => Ok(()),
+            LoadedObjectHandle::Transient(handle) => self.flush_handle(ctx, handle),
+        }
+    }
+
+    pub(super) fn flush_handle(&mut self, ctx: &mut Context, target: TpmiDhObject) -> Result<()> {
+        let Some(handle) = self
+            .transient_handles
+            .iter_mut()
+            .find(|handle| **handle == target)
+        else {
+            return Ok(());
+        };
+
+        ctx.flush_handle(handle)
+    }
+
+    pub(super) fn flush_sessions(&mut self, ctx: &mut Context) -> Result<()> {
+        let result = ctx.flush_sessions(&mut self.session_handles);
+
+        for (handle, state) in self
+            .session_handles
+            .iter()
+            .zip(self.session_states.iter_mut())
+        {
+            if handle.is_none() {
+                *state = None;
+            }
         }
 
-        Ok(())
+        result
+    }
+
+    pub(super) fn flush_all_handles(&mut self, ctx: &mut Context) -> Result<()> {
+        ctx.flush_handles(&mut self.transient_handles)
+    }
+
+    pub(super) fn release(&mut self, ctx: &mut Context) -> Result<()> {
+        self.flush_all_handles(ctx)?;
+        self.flush_sessions(ctx)
+    }
+
+    pub(super) fn cleanup(&mut self, ctx: &mut Context) {
+        let _ = self.flush_all_handles(ctx);
+        let _ = self.flush_sessions(ctx);
     }
 }

@@ -19,7 +19,7 @@ pub(crate) enum TpmCap {
 }
 
 impl TpmCap {
-    pub(crate) fn raw(self) -> u32 {
+    pub(crate) fn value(self) -> u32 {
         self as u32
     }
 }
