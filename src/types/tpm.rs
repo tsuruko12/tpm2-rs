@@ -27,7 +27,7 @@ pub(crate) use self::tag::{
     TpmsTaggedProperty,
 };
 pub(crate) use self::wire::{
-    TpmMarshal, TpmUnmarshal, ensure_consumed, marshal_tpm2b, read_tpm2b, read_u32,
+    TpmMarshal, TpmUnmarshal, ensure_consumed, marshal_tpm2b, read_tpm2b,
     read_vec,
 };
 #[cfg(target_os = "windows")]

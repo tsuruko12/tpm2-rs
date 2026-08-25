@@ -137,7 +137,7 @@ impl Context {
             let created = self.create_primary(
                 primary_handle,
                 &public,
-                authorization.auth().clone(),
+                authorization.auth.clone(),
                 primary_authorization,
                 Some(session_salt_handle),
             )?;

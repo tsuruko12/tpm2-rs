@@ -11,7 +11,7 @@ use super::algorithm::HashAlgorithm;
 
 use crate::{Error, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyTemplate {
     Rsa(RsaTemplate),
     Ecc(EccTemplate),

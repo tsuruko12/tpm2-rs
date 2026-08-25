@@ -313,7 +313,8 @@ impl Context {
             PolicyData::Password => self.apply_policy_password(session),
             PolicyData::Or { .. } => {
                 let (digests, selected_branch) = policy.selected_or_branch()?;
-                self.apply_policy_or(session, digests, selected_branch)
+                let selected_branch = PolicyData::try_from(selected_branch.clone())?;
+                self.apply_policy_or(session, digests, &selected_branch)
             }
             PolicyData::Sequence(steps) => self.apply_sequence_steps(session, steps),
         }

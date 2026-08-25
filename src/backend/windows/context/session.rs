@@ -14,8 +14,10 @@ use crate::{
     Error, Result, 
     types::{
         Authorization, PolicyAuthKind, PolicyData,
-        tpm::{Tpm2bAuth, TpmCc, TpmHandle, TpmaSession, TpmiAlgHash, TpmMarshal, TpmiDhObject,
-            TpmtSymDefObject},
+        tpm::{
+            Tpm2bAuth, TpmCc, TpmHandle, TpmaSession, TpmiAlgHash, TpmMarshal, TpmiDhObject,
+            TpmtSymDefObject
+        },
     },
 };
 
@@ -63,10 +65,9 @@ impl Context {
 
         match authorization {
             Some(authorization) => {
-                let (auth, policy) = authorization.as_parts();
-
-                if let Some(policy) = policy {
-                    let required_auth = policy.auth_kind()?.map(|kind| (kind, auth));
+                if let Some(policy) = &authorization.policy {
+                    let required_auth = policy.auth_kind()?
+                        .map(|kind| (kind, &authorization.auth));
 
                     auth_commands.push(self.prepare_policy_session(
                         resources,
@@ -90,7 +91,7 @@ impl Context {
                     }
                 } else if (session_attrs.is_empty()
                     || session_attrs == TpmaSession::CONTINUE_SESSION)
-                    && auth.is_empty()
+                    && authorization.auth.is_empty()
                 {
                     auth_commands.push(TpmsAuthCommand::password(session_attrs));
                 } else {
@@ -98,7 +99,7 @@ impl Context {
                         resources,
                         session_attrs,
                         salt_key.as_ref(),
-                        Some(auth),
+                        Some(&authorization.auth),
                     )?);
                 }
             }

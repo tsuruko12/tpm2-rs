@@ -50,7 +50,7 @@ enum CreatedKey {
 impl CreatedKey {
     fn into_temporary_key(
         self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         policy: Option<PolicyData>,
         parent: Option<KeyId>,
     ) -> Result<TemporaryKey> {
@@ -97,7 +97,7 @@ impl CreatedKey {
 
                 Ok(TemporaryKey {
                     data: KeyData::Symmetric {
-                        template: *template,
+                        template,
                         wrapping_key,
                         wrapped_key,
                     },
@@ -110,7 +110,7 @@ impl CreatedKey {
 
     fn into_key_meta(
         self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         key_name: String,
         policy: Option<PolicyData>,
         parent_name: Option<String>,
@@ -205,9 +205,9 @@ impl Context {
         policy: Option<Policy>,
         parent: Option<&Key>,
     ) -> Result<Key> {
-        self.validate_key_creation(&template, key_name, parent)?;
+        self.validate_key_creation(template, key_name, parent)?;
 
-        let policy = policy.map(PolicyData::try_from).transpose()?;
+        let mut policy = policy.map(PolicyData::try_from).transpose()?;
         let auth = auth_value
             .map(Tpm2bAuth::normalize_sha256)
             .unwrap_or_default();
@@ -215,9 +215,9 @@ impl Context {
 
         let created_key = if template.is_storage_parent() {
             self.create_key_from_template(
-                &template,
+                template,
                 auth.clone(),
-                policy.clone(),
+                &mut policy,
                 None,
             )?
         } else {
@@ -228,9 +228,9 @@ impl Context {
             };
 
             let result = self.create_key_from_template(
-                &template,
+                template,
                 auth.clone(),
-                policy.clone(),
+                &mut policy,
                 Some(&wrapping_parent),
             );
 
@@ -246,7 +246,7 @@ impl Context {
             }
         };
         let key_id = self.register_created_key(
-            &template,
+            template,
             created_key,
             key_name,
             policy,
@@ -260,7 +260,7 @@ impl Context {
 
     fn validate_key_creation(
         &self, 
-        template: &KeyTemplate, 
+        template: KeyTemplate, 
         key_name: Option<&str>,
         parent: Option<&Key>
     ) -> Result<()> {
@@ -288,9 +288,9 @@ impl Context {
 
     fn create_key_from_template(
         &mut self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         auth: Tpm2bAuth,
-        policy: Option<PolicyData>,
+        policy: &mut Option<PolicyData>,
         parent: Option<&LoadedHandle>,
     ) -> Result<CreatedKey> {
         let Some(parent) = parent else {
@@ -302,7 +302,7 @@ impl Context {
                 .create_srk_from_template(
                     template,
                     auth,
-                    policy.as_ref(),
+                    policy.as_mut(),
                     &owner_authorization,
                     session_salt_handle,
                 )
@@ -317,36 +317,39 @@ impl Context {
                 .create_child_key_from_template(
                     template,
                     auth,
-                    policy.as_ref(),
+                    policy.as_mut(),
                     parent,
                     session_salt_handle,
                 )
                 .map(CreatedKey::Tpm),
             KeyTemplate::Symmetric(_) => {
-                let authorization = if auth.is_empty() && policy.is_none() {
+                let mut authorization = if auth.is_empty() && policy.is_none() {
                     None
                 } else {
-                    Some(Authorization::new(auth, policy))
+                    Some(Authorization {
+                        auth,
+                        policy: policy.take(),
+                    })
                 };
 
-                self
+                let result = self
                     .backend
                     .create_sym_key_from_template(
                         template,
-                        authorization.as_ref(),
+                        authorization.as_mut(),
                         parent,
                         session_salt_handle,
-                    )
-                    .map(|(key, wrapping_key)| {
-                        CreatedKey::Symmetric { key, wrapping_key }
-                    })
+                    );
+                *policy = authorization.and_then(|authorization| authorization.policy);
+
+                result.map(|(key, wrapping_key)| CreatedKey::Symmetric { key, wrapping_key })
             }
         }
     }
 
     fn register_created_key(
         &mut self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         created_key: CreatedKey,
         key_name: Option<&str>,
         policy: Option<PolicyData>,
@@ -591,19 +594,17 @@ impl Context {
     }
 
     fn key_authorization(&self, key_id: &KeyId, policy: Option<PolicyData>) -> Authorization {
-        Authorization::new(
-            self.cache
-                .auth(&AuthorizationTarget::Key(key_id.clone())),
+        Authorization {
+            auth: self.cache.auth(&AuthorizationTarget::Key(key_id.clone())),
             policy,
-        )
+        }
     }
 
     fn hierarchy_authorization(&self, hierarchy: Hierarchy) -> Result<Authorization> {
-        Ok(Authorization::new(
-            self.cache
-                .auth(&AuthorizationTarget::Hierarchy(hierarchy)),
-            self.store.load_hierarchy_policy(hierarchy)?,
-        ))
+        Ok(Authorization {
+            auth: self.cache.auth(&AuthorizationTarget::Hierarchy(hierarchy)),
+            policy: self.store.load_hierarchy_policy(hierarchy)?,
+        })
     }
 
     pub fn provision(&mut self) -> Result<()> {

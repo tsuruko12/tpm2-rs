@@ -10,14 +10,13 @@ use tracing::debug;
 use crate::{
     Error, Result, generate_key_id, hierarchy::Hierarchy, policy::{PcrSelection, PcrSlot, PolicyCommand}, types::{
         PolicyData, SymmetricKeyBits, algorithm::HashAlgorithm, public::{BlockCipher, CipherMode},
-        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal, TpmUnmarshal, TpmiDhPersistent, TpmlDigest, TpmtPublic, read_u32},
+        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal, TpmUnmarshal, TpmiDhPersistent, TpmlDigest, TpmtPublic, ensure_consumed},
     },
 };
 
 const DB_FILE: &str = "tpm2-rs.db";
 const STORE_PATH_ENV: &str = "TPM2_RS_STORE_PATH";
 const APP_NAME: &str = "tpm2-rs";
-const FILE_VERSION: u8 = 1;
 
 const HANDLE_SRK: &str = "srk";
 const HANDLE_SESSION_SALT_KEY: &str = "session_salt_key";
@@ -717,13 +716,13 @@ impl MetadataStore {
             )),
             "or" => {
                 let bytes = or_branch_digests.as_deref().ok_or_else(|| {
-                    debug!(%policy_id, "stored digest lists is missing");
+                    debug!(%policy_id, "stored PolicyOR digests are missing");
                     Error::corrupted_store()
                 })?;
                 let branches = self.load_policy_children(policy_id, ancestors)?;
                 let branch_digests =
-                    unmarshal_policy_branch_digest_lists(bytes, branches.len()).map_err(|_| {
-                        debug!(%policy_id, "stored digest lists are invalid");
+                    unmarshal_policy_or_digests(bytes, branches.len()).map_err(|_| {
+                        debug!(%policy_id, "stored PolicyOR digests are invalid");
                         Error::corrupted_store()
                     })?;
 
@@ -1040,13 +1039,13 @@ fn save_policy(tx: &Transaction<'_>, policy: &PolicyData) -> Result<String> {
             branch_digests,
             ..
         } => {
-            let digest_lists = marshal_policy_branch_digest_lists(branch_digests, branches.len())?;
+            let digests = marshal_policy_or_digests(branch_digests, branches.len())?;
             tx.execute(
                 r#"
                     INSERT INTO policies (id, kind, or_branch_digests)
                     VALUES (?1, 'or', ?2)
                 "#,
-                (id.as_str(), digest_lists),
+                (id.as_str(), digests),
             )?;
             save_policy_children(tx, id.as_str(), branches)?;
         }
@@ -1074,32 +1073,21 @@ fn save_policy_children(
     Ok(())
 }
 
-fn marshal_policy_branch_digest_lists(
-    branch_digests: &[TpmlDigest],
+fn marshal_policy_or_digests(
+    branch_digests: &TpmlDigest,
     branch_count: usize,
 ) -> Result<Vec<u8>> {
-    if !(MIN_POLICY_OR_BRANCHES..=TpmlDigest::MAX_COUNT).contains(&branch_count) {
+    if branch_count < MIN_POLICY_OR_BRANCHES {
         return Err(Error::invalid_state("PolicyOR branch count is invalid"));
     }
-    if branch_digests.len() != branch_count {
+    if branch_digests.len() < MIN_POLICY_OR_BRANCHES {
         return Err(Error::invalid_state(
-            "PolicyOR digest list count does not match branch count",
-        ));
-    }
-    if branch_digests
-        .iter()
-        .any(|digest_list| digest_list.len() != branch_count)
-    {
-        return Err(Error::invalid_state(
-            "PolicyOR digest count does not match branch count",
+            "PolicyOR digest count is invalid",
         ));
     }
 
     let mut output = Vec::new();
-    (branch_count as u32).marshal(&mut output)?;
-    for digest_list in branch_digests {
-        digest_list.marshal(&mut output)?;
-    }
+    branch_digests.marshal(&mut output)?;
 
     Ok(output)
 }
@@ -1201,52 +1189,25 @@ fn pcr_slots_from_mask(mask: u32) -> Result<Vec<PcrSlot>> {
     Ok(slots)
 }
 
-fn unmarshal_policy_branch_digest_lists(
+fn unmarshal_policy_or_digests(
     input: &[u8],
     branch_count: usize,
-) -> Result<Vec<TpmlDigest>> {
+) -> Result<TpmlDigest> {
     let mut input = input;
 
-    if !(MIN_POLICY_OR_BRANCHES..=TpmlDigest::MAX_COUNT).contains(&branch_count) {
+    if branch_count < MIN_POLICY_OR_BRANCHES {
         debug!(branch_count, "stored PolicyOR branch count is invalid");
         return Err(Error::corrupted_store());
     }
 
-    let item_count = read_u32(&mut input)? as usize;
-    if item_count != branch_count {
-        debug!(
-            digest_count = item_count,
-            branch_count,
-            "stored PolicyOR digest list count does not match branch count"
-        );
+    let branch_digests = TpmlDigest::unmarshal(&mut input)?;
+    if branch_digests.len() < MIN_POLICY_OR_BRANCHES {
+        debug!(digest_count = branch_digests.len(), "stored PolicyOR digest count is invalid");
         return Err(Error::corrupted_store());
     }
+    ensure_consumed(input)?;
 
-    let mut digest_lists = Vec::with_capacity(item_count);
-
-    for _ in 0..item_count {
-        let digest_list = TpmlDigest::unmarshal(&mut input)?;
-        if digest_list.len() != branch_count {
-            debug!(
-                digest_count = digest_list.len(),
-                branch_count,
-                "stored PolicyOR digest count does not match branch count"
-            );
-            return Err(Error::corrupted_store());
-        }
-
-        digest_lists.push(digest_list);
-    }
-
-    if !input.is_empty() {
-        debug!(
-            remaining = input.len(),
-            "stored PolicyOR digest lists have trailing bytes"
-        );
-        return Err(Error::corrupted_store());
-    }
-
-    Ok(digest_lists)
+    Ok(branch_digests)
 }
 
 fn store_path_from_env() -> Option<PathBuf> {

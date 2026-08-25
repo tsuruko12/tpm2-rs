@@ -35,7 +35,7 @@ impl From<TpmtPublic> for Tpm2bPublic {
 }
 
 impl Tpm2bPublic {
-    pub(crate) fn from_template(template: &KeyTemplate, auth_policy: impl Into<Tpm2bDigest>) -> Self {
+    pub(crate) fn from_template(template: KeyTemplate, auth_policy: impl Into<Tpm2bDigest>) -> Self {
         let auth_policy = auth_policy.into();
 
         match template {
@@ -138,7 +138,7 @@ impl TpmtPublic {
         }
     }
 
-    fn ecc(template: &EccTemplate, auth_policy: Tpm2bDigest) -> Self {
+    fn ecc(template: EccTemplate, auth_policy: Tpm2bDigest) -> Self {
         let parameters = TpmuPublicParms::EccDetail(
             TpmsEccParms::ecdsa(
                 template.curve().into(), 
@@ -156,7 +156,7 @@ impl TpmtPublic {
         }
     }
 
-    fn rsa(template: &RsaTemplate, auth_policy: Tpm2bDigest) -> Self {
+    fn rsa(template: RsaTemplate, auth_policy: Tpm2bDigest) -> Self {
         let duplicable = template.exportable();
         let (rsa_params, object_attributes) = match template.scheme() {
             Some(scheme) => {

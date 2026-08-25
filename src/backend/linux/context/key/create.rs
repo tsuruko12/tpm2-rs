@@ -20,7 +20,7 @@ use super::{Context, CommandResources};
 impl Context {
     pub(crate) fn create_child_key_from_template(
         &mut self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         auth: Tpm2bAuth,
         policy: Option<&PolicyData>,
         parent: &LoadedHandle,
@@ -55,7 +55,7 @@ impl Context {
 
     pub(crate) fn create_srk_from_template(
         &mut self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         auth: Tpm2bAuth,
         policy: Option<&PolicyData>,
         owner_authorization: &Authorization,
@@ -91,7 +91,7 @@ impl Context {
 
     pub(crate) fn create_sym_key_from_template(
         &mut self, 
-        template: &KeyTemplate,
+        template: KeyTemplate,
         authorization: Option<&Authorization>,
         parent: &LoadedHandle,
         session_salt_handle: KeyHandle,

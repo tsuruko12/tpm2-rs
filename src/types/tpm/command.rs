@@ -34,6 +34,7 @@ impl TpmCc {
     pub(crate) const GET_RANDOM: Self = Self(0x0000_017B);
     pub(crate) const PCR_READ: Self = Self(0x0000_017E);
     pub(crate) const POLICY_PCR: Self = Self(0x0000_017F);
+    pub(crate) const POLICY_RESTART: Self = Self(0x0000_0180);
     pub(crate) const POLICY_GET_DIGEST: Self = Self(0x0000_0189);
     pub(crate) const POLICY_PASSWORD: Self = Self(0x0000_018C);
 }

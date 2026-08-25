@@ -22,12 +22,12 @@ impl Context {
         policy_session: TpmiShPolicy, 
         policy: &PolicyData
     ) -> Result<()> {
-        self.apply_policy_step(policy_session, TpmSe::Policy, policy)
+        self.apply_policy_step(policy_session, policy)
     }
 
     pub(in super::super) fn compute_auth_policy(
         &mut self,
-        policy: &PolicyData,
+        policy: &mut PolicyData,
     ) -> Result<Tpm2bDigest> {
         let nonce_caller = generate_caller_nonce()?;
         let encrypted_salt = Tpm2bEncryptedSecret::default();
@@ -49,29 +49,43 @@ impl Context {
                         .try_into()
                         .expect("session must be a policy session")
                 })?;
-            self.apply_trial_policy(policy_session, policy, &mut Vec::new())?;
+            let mut prefix = Vec::new();
 
-            let digest = self.get_policy_digest(policy_session)?;
+            self.apply_trial_policy(policy_session, policy, &mut prefix)?;
+            
+            let auth_policy = self.get_policy_digest(policy_session)?;
             resources.flush_sessions(self)?;
 
-            Ok(digest)
+            Ok(auth_policy)
         })();
 
         self.cleanup_on_error(result, &mut resources)
     }
 
-    fn get_policy_digest(&mut self, policy_session: TpmiShPolicy) -> Result<Tpm2bDigest> {
-            let mut command = Command::new(TpmCc::POLICY_GET_DIGEST)
-                .with_handles([policy_session]);
+    fn restart_policy(&mut self, session_handle: TpmiShPolicy) -> Result<()> {
+        let mut command = Command::new(TpmCc::POLICY_RESTART)
+            .with_handles([session_handle]);
 
-            let response_body = self.submit(
-                &mut command, 
-                RESPONSE_HANDLE_COUNT, 
-                &mut CommandResources::default(),
-            )?;
-            
-            PolicyGetDigestResponse::try_from(response_body)
-                .map(|response| response.policy_digest)
+        self.submit(
+            &mut command, 
+            RESPONSE_HANDLE_COUNT, 
+            &mut CommandResources::default(),
+        )
+        .and_then(|response_body| ensure_no_response_body(&response_body))
+    }
+
+    fn get_policy_digest(&mut self, policy_session: TpmiShPolicy) -> Result<Tpm2bDigest> {
+        let mut command = Command::new(TpmCc::POLICY_GET_DIGEST)
+            .with_handles([policy_session]);
+
+        let response_body = self.submit(
+            &mut command, 
+            RESPONSE_HANDLE_COUNT, 
+            &mut CommandResources::default(),
+        )?;
+        
+        PolicyGetDigestResponse::try_from(response_body)
+            .map(|response| response.policy_digest)
     }
 
     fn apply_policy_pcr(
@@ -146,12 +160,10 @@ impl Context {
     fn apply_policy_or(
         &mut self,
         policy_session: TpmiShPolicy,
-        session_type: TpmSe,
         p_hash_list: &TpmlDigest,
         selected_branch: &PolicyData,
     ) -> Result<()> {
-        self.apply_policy_step(policy_session, session_type, selected_branch)?;
-
+        self.apply_policy_step(policy_session, selected_branch)?;
         self.submit_policy_or(policy_session, p_hash_list)
     }
 
@@ -178,14 +190,13 @@ impl Context {
     fn apply_sequence_steps(
         &mut self, 
         policy_session: TpmiShPolicy, 
-        session_type: TpmSe,
         steps: &[PolicyData]
     ) -> Result<()> {
         for step in steps {
             if matches!(step, PolicyData::Sequence(_)) {
                 return Err(Error::invalid_state("unexpected nested policy sequence"));
             }
-            self.apply_policy_step(policy_session, session_type, step)?;
+            self.apply_policy_step(policy_session, step)?;
         }
 
         Ok(())
@@ -259,7 +270,6 @@ impl Context {
     fn apply_policy_step(
         &mut self, 
         policy_session: TpmiShPolicy,
-        session_type: TpmSe,
         policy: &PolicyData
     ) -> Result<()> {
         match policy {
@@ -270,23 +280,19 @@ impl Context {
             PolicyData::AuthValue => self.apply_policy_auth(policy_session),
             PolicyData::Password => self.apply_policy_password(policy_session),
             PolicyData::Or { .. } => {
-                if session_type == TpmSe::Trial {
-                    self.apply_trial_policy(policy_session, policy, &mut Vec::new())
-                } else {
-                    let (digests, selected_branch) = policy.selected_or_branch()?;
-                    self.apply_policy_or(policy_session, session_type, digests, selected_branch)
-                }
+                let (digests, selected_branch) = policy.selected_or_branch()?;
+                let selected_branch = PolicyData::try_from(selected_branch.clone())?;
+                
+                self.apply_policy_or(policy_session, digests, &selected_branch)
             }
-            PolicyData::Sequence(steps) => {
-                self.apply_sequence_steps(policy_session, session_type, steps)
-            }
+            PolicyData::Sequence(steps) => self.apply_sequence_steps(policy_session, steps),
         }
     }
 
     fn apply_trial_policy(
         &mut self,
         policy_session: TpmiShPolicy,
-        policy: &PolicyData,
+        policy: &mut PolicyData,
         prefix: &mut Vec<PolicyData>,
     ) -> Result<()> {
         match policy {
@@ -295,12 +301,13 @@ impl Context {
                     self.apply_trial_policy(policy_session, step, prefix)?;
                 }
             }
-            PolicyData::Or { .. } => {
-                self.policy_or_for_trial(policy_session, policy, prefix)?;
+            PolicyData::Or { branches, branch_digests, .. } => {
+                *branch_digests = self.policy_or_for_trial(policy_session, branches, prefix)?;
+                self.submit_policy_or(policy_session, branch_digests)?;
                 prefix.push(policy.clone());
             }
             _ => {
-                self.apply_policy_step(policy_session, TpmSe::Trial, policy)?;
+                self.apply_policy_step(policy_session, policy)?;
                 prefix.push(policy.clone());
             }
         }
@@ -311,21 +318,51 @@ impl Context {
     fn policy_or_for_trial(
         &mut self, 
         policy_session: TpmiShPolicy, 
-        policy: &PolicyData,
+        branches: &mut [PolicyData],
         prefix: &[PolicyData],
-    ) -> Result<()> {
-        let PolicyData::Or { branches, .. } = policy else {
-            return Err(Error::invalid_state("expected PolicyOR"));
-        };
+    ) -> Result<TpmlDigest> {
+        let (first_branch, remaining_branches) = branches
+            .split_first_mut()
+            .expect("normalized PolicyOR must contain at least two branches");
+        let mut branch_prefix = prefix.to_vec();
+        self.apply_trial_policy(policy_session, first_branch, &mut branch_prefix)?;
 
-        let mut digests = Vec::with_capacity(branches.len());
-        for branch in branches {
+        let mut digests = vec![self.get_policy_digest(policy_session)?];
+        for branch in remaining_branches {
             let mut branch_path = prefix.to_vec();
             branch_path.push(branch.clone());
-            digests.push(self.compute_auth_policy(&PolicyData::Sequence(branch_path))?);
+            let mut branch_path = PolicyData::Sequence(branch_path);
+
+            digests.push(self.compute_auth_policy(&mut branch_path)?);
+
+            let PolicyData::Sequence(mut steps) = branch_path else {
+                unreachable!("branch path must be a policy sequence");
+            };
+            *branch = steps
+                .pop()
+                .expect("branch path must contain the branch policy");
         }
 
-        let p_hash_list = TpmlDigest::try_from(digests)?;
-        self.submit_policy_or(policy_session, &p_hash_list)
+        let mut remaining_digests = digests.into_iter();
+        let mut p_hash_list = TpmlDigest::try_from(
+            remaining_digests
+                .by_ref()
+                .take(TpmlDigest::MAX_COUNT)
+                .collect::<Vec<_>>(),
+        )?;
+
+        while remaining_digests.len() != 0 {
+            self.submit_policy_or(policy_session, &p_hash_list)?;
+
+            let mut next = vec![self.get_policy_digest(policy_session)?];
+            next.extend(
+                remaining_digests
+                    .by_ref()
+                    .take(TpmlDigest::MAX_COUNT - 1),
+            );
+            p_hash_list = TpmlDigest::try_from(next)?;
+        }
+
+        Ok(p_hash_list)
     }
 }

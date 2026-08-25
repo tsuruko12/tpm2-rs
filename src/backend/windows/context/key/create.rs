@@ -20,9 +20,9 @@ const CREATE_PRIMARY_RESPONSE_HANDLE_COUNT: usize = 1;
 impl Context {
     pub(crate) fn create_child_key_from_template(
         &mut self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         auth: Tpm2bAuth,
-        policy: Option<&PolicyData>,
+        policy: Option<&mut PolicyData>,
         parent: &LoadedHandle,
         session_salt_handle: TpmiDhObject,
     ) -> Result<CreatedKeyData> {
@@ -40,9 +40,9 @@ impl Context {
 
     pub(crate) fn create_srk_from_template(
         &mut self,
-        template: &KeyTemplate,
+        template: KeyTemplate,
         auth: Tpm2bAuth,
-        policy: Option<&PolicyData>,
+        policy: Option<&mut PolicyData>,
         owner_authorization: &Authorization,
         session_salt_handle: TpmiDhObject,
     ) -> Result<CreatedKeyData> {
@@ -67,8 +67,8 @@ impl Context {
 
     pub(crate) fn create_sym_key_from_template(
         &mut self,
-        template: &KeyTemplate,
-        authorization: Option<&Authorization>,
+        template: KeyTemplate,
+        mut authorization: Option<&mut Authorization>,
         parent: &LoadedHandle,
         session_salt_handle: TpmiDhObject,
     ) -> Result<(Tpm2bPublicKeyRsa, Option<CreatedKeyData>)> {
@@ -80,14 +80,14 @@ impl Context {
         let mut resources = CommandResources::default();
 
         let result = (|| {
-            let (rsa_handle, created_key_data) = match authorization {
+            let (rsa_handle, created_key_data) = match authorization.as_deref_mut() {
                 Some(authorization) => {
-                    let auth_policy = self.get_auth_policy(authorization.policy())?;
+                    let auth_policy = self.get_auth_policy(authorization.policy.as_mut())?;
                     let in_public = Tpm2bPublic::from_template(template, auth_policy);
 
                     let created = self.create_and_load(
                         &in_public,
-                        authorization.auth().clone(),
+                        authorization.auth.clone(),
                         parent,
                         Some(session_salt_handle),
                     )?;
@@ -106,9 +106,13 @@ impl Context {
             };
 
             let sym_key = generate_sym_key(key_bits)?;
+            let rsa_authorization = authorization
+                .as_deref()
+                .unwrap_or(&parent.authorization);
+
             let wrapped_sym_key = self.wrap_key(
                 rsa_handle,
-                authorization.unwrap_or(&parent.authorization),
+                rsa_authorization,
                 sym_key,
                 session_salt_handle,
             )?;
@@ -120,7 +124,7 @@ impl Context {
         self.cleanup_on_error(result, &mut resources)
     }
 
-    fn get_auth_policy(&mut self, policy: Option<&PolicyData>) -> Result<Tpm2bDigest> {
+    fn get_auth_policy(&mut self, policy: Option<&mut PolicyData>) -> Result<Tpm2bDigest> {
         match policy {
             Some(policy) => self.compute_auth_policy(policy),
             None => Ok(Tpm2bDigest::default()),

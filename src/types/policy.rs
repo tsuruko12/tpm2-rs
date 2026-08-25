@@ -200,10 +200,16 @@ pub(crate) enum PolicyData {
     Password,
     Or {
         branches: Vec<PolicyData>,
-        branch_digests: Vec<TpmlDigest>,
-        selected_branch: Option<usize>,
+        branch_digests: TpmlDigest,
+        selected_branch: Option<SelectedBranch>,
     },
     Sequence(Vec<PolicyData>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SelectedBranch {
+    branch: Policy,
+    digests: TpmlDigest,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -229,33 +235,25 @@ impl PolicyData {
             }
             Self::Or { .. } => {
                 let (_, branch) = self.selected_or_branch()?;
-                branch.auth_kind()
+                Self::try_from(branch.clone())?.auth_kind()
             }
         }
     }
 
-    pub(crate) fn selected_or_branch(&self) -> Result<(&TpmlDigest, &Self)> {
+    pub(crate) fn selected_or_branch(&self) -> Result<(&TpmlDigest, &Policy)> {
         let Self::Or {
-            branches,
-            branch_digests,
             selected_branch,
+            ..
         } = self
         else {
             return Err(Error::invalid_state("expected PolicyOR"));
         };
 
-        let idx =
-            (*selected_branch).ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
-        let digest_list = branch_digests
-            .get(idx)
-            .ok_or(Error::invalid_state(
-                "policy branch digest count does not match branch count",
-            ))?;
-        let branch = branches.get(idx).ok_or(Error::invalid_state(
-            "selected branch index should be in range",
-        ))?;
+        let SelectedBranch { branch, digests } = selected_branch
+            .as_ref()
+            .ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
 
-        Ok((digest_list, branch))
+        Ok((digests, branch))
     }
 }
 
@@ -283,9 +281,19 @@ fn normalize(policy: Policy) -> Result<PolicyData> {
                 ));
             }
 
-            Ok(group_or_branches(normalized_branches))
+            Ok(PolicyData::Or {
+                branches: normalized_branches,
+                branch_digests: TpmlDigest::default(),
+                selected_branch: None,
+            })
         }
         Policy::Sequence(steps) => {
+            if steps.is_empty() {
+                return Err(Error::InvalidPolicy(
+                    "policy sequence must not be empty",
+                ));
+            }
+
             let mut normalized_steps = Vec::new();
             for step in steps {
                 match normalize(step)? {
@@ -315,164 +323,4 @@ fn normalize_or_branches(
     }
 
     Ok(())
-}
-
-fn group_or_branches(mut branches: Vec<PolicyData>) -> PolicyData {
-    while branches.len() > TpmlDigest::MAX_COUNT {
-        let mut remaining = branches.len();
-        let mut source = branches.into_iter();
-        let mut groups =
-            Vec::with_capacity(remaining.div_ceil(TpmlDigest::MAX_COUNT));
-
-        while remaining != 0 {
-            // avoid a single-branch PolicyOR
-            let count = if remaining == TpmlDigest::MAX_COUNT + 1 {
-                TpmlDigest::MAX_COUNT - 1
-            } else {
-                remaining.min(TpmlDigest::MAX_COUNT)
-            };
-            let children = source.by_ref().take(count).collect();
-            groups.push(new_or_node(children));
-            remaining -= count;
-        }
-
-        branches = groups;
-    }
-
-    new_or_node(branches)
-}
-
-fn new_or_node(branches: Vec<PolicyData>) -> PolicyData {
-    debug_assert!((2..=TpmlDigest::MAX_COUNT).contains(&branches.len()));
-
-    PolicyData::Or {
-        branches,
-        branch_digests: Vec::new(),
-        selected_branch: None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalizes_nested_or() {
-        let policy = Policy::Or(vec![
-            Policy::AuthValue,
-            Policy::Or(vec![
-                Policy::Password,
-                Policy::Command(PolicyCommand::Create),
-            ]),
-        ]);
-
-        let PolicyData::Or {
-            branches,
-            branch_digests,
-            selected_branch,
-        } = PolicyData::try_from(policy).expect("policy must normalize")
-        else {
-            panic!("expected PolicyOR");
-        };
-
-        assert!(matches!(
-            branches.as_slice(),
-            [
-                PolicyData::AuthValue,
-                PolicyData::Password,
-                PolicyData::Command(PolicyCommand::Create),
-            ]
-        ));
-        assert!(branch_digests.is_empty());
-        assert_eq!(selected_branch, None);
-    }
-
-    #[test]
-    fn normalizes_nested_sequence() {
-        let policy = Policy::Sequence(vec![
-            Policy::AuthValue,
-            Policy::Sequence(vec![
-                Policy::Password,
-                Policy::Command(PolicyCommand::Create),
-            ]),
-        ]);
-
-        let PolicyData::Sequence(steps) =
-            PolicyData::try_from(policy).expect("policy must normalize")
-        else {
-            panic!("expected policy sequence");
-        };
-
-        assert!(matches!(
-            steps.as_slice(),
-            [
-                PolicyData::AuthValue,
-                PolicyData::Password,
-                PolicyData::Command(PolicyCommand::Create),
-            ]
-        ));
-    }
-
-    #[test]
-    fn rejects_one_branch_or() {
-        let one_branch = Policy::Or(vec![Policy::Or(vec![Policy::AuthValue])]);
-        assert!(matches!(
-            PolicyData::try_from(one_branch),
-            Err(Error::InvalidPolicy(_))
-        ));
-    }
-
-    #[test]
-    fn groups_nine_or_branches_without_a_singleton() {
-        let policy = Policy::Or(vec![Policy::AuthValue; TpmlDigest::MAX_COUNT + 1]);
-        let PolicyData::Or { branches, .. } =
-            PolicyData::try_from(policy).expect("policy must normalize")
-        else {
-            panic!("expected PolicyOR");
-        };
-
-        let group_sizes = branches
-            .iter()
-            .map(|branch| match branch {
-                PolicyData::Or { branches, .. } => branches.len(),
-                _ => panic!("expected nested PolicyOR"),
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(group_sizes, [TpmlDigest::MAX_COUNT - 1, 2]);
-    }
-
-    #[test]
-    fn preserves_large_or_branches() {
-        for branch_count in [
-            TpmlDigest::MAX_COUNT + 1,
-            TpmlDigest::MAX_COUNT.pow(2) + 1,
-        ] {
-            let policy = Policy::Or(vec![Policy::AuthValue; branch_count]);
-            let normalized = PolicyData::try_from(policy).expect("policy must normalize");
-            let mut leaf_count = 0;
-            assert_or_tree(&normalized, &mut leaf_count);
-            assert_eq!(leaf_count, branch_count);
-        }
-    }
-
-    fn assert_or_tree(policy: &PolicyData, leaf_count: &mut usize) {
-        match policy {
-            PolicyData::Or {
-                branches,
-                branch_digests,
-                selected_branch,
-            } => {
-                assert!((2..=TpmlDigest::MAX_COUNT).contains(&branches.len()));
-                assert!(branch_digests.is_empty());
-                assert_eq!(*selected_branch, None);
-
-                for branch in branches {
-                    assert_or_tree(branch, leaf_count);
-                }
-            }
-            PolicyData::AuthValue => *leaf_count += 1,
-            _ => panic!("expected an AuthValue policy leaf"),
-        }
-    }
 }

@@ -153,21 +153,6 @@ impl Error {
         Self::Internal
     }
 
-    pub(crate) fn insufficient_bytes<T: ?Sized>(required: usize, remaining: usize) -> Self {
-        Self::internal(InternalError::InsufficientBytes {
-            target: type_name::<T>(),
-            required,
-            remaining,
-        })
-    }
-
-    pub(crate) fn trailing_bytes<T: ?Sized>(remaining: usize) -> Self {
-        Self::internal(InternalError::TrailingBytes {
-            target: type_name::<T>(),
-            remaining,
-        })
-    }
-
     pub(crate) fn conversion<From: ?Sized, To: ?Sized>(
         value: Option<&dyn std::fmt::Debug>,
     ) -> Self {
@@ -206,20 +191,8 @@ impl Error {
     }
 }
 
-// TODO: remove InsufficientBytes and TrailingBytes
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum InternalError {
-    #[error("target: {target}, required: {required}, remaining: {remaining}")]
-    InsufficientBytes {
-        target: &'static str,
-        required: usize,
-        remaining: usize,
-    },
-    #[error("target: {target}, remaining: {remaining}")]
-    TrailingBytes {
-        target: &'static str,
-        remaining: usize,
-    },
     #[error("failed to convert {from} to {to}")]
     Conversion { from: String, to: &'static str },
     #[error("{0:?}")]
