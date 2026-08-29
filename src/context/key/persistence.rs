@@ -24,13 +24,18 @@ impl Context {
 
         let owner_authorization = self.owner_authorization()?;
         let (persistent_handle, search_end) = match persistent_handle {
-            Some(handle) => (
-                TpmiDhPersistent::try_from(handle)
-                    .map_err(|_| Error::invalid_param(
-                        "persistent handle must be in the range 0x8100_0000 to 0x81FF_FFFF"
-                    ))?, 
-                None
-            ),
+            Some(handle) => {
+                let handle = TpmiDhPersistent::try_from(handle)
+                    .ok()
+                    .filter(|handle| handle.value() <= TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value())
+                    .ok_or_else(|| {
+                        Error::invalid_param(
+                            "persistent handle must be in the range 0x8100_0000 to 0x81FF_FFFF",
+                        )
+                    })?;
+                    
+                (handle, None)
+            },
             None => {
                 let start_value = TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.value() + 2;
                 (

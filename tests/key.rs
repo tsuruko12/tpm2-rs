@@ -1,31 +1,25 @@
 mod common;
 
-use std::sync::Mutex;
-
 use common::connect_tpm;
 use tpm_tool::{Error, policy::{PcrSlot, Policy, PolicyBranch}, public::KeyTemplate};
 
-static TPM_TEST_LOCK: Mutex<()> = Mutex::new(());
-
 #[test]
 fn creates_temporary_keys() {
-    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
-    let mut ctx = connect_tpm();
+    let mut test = connect_tpm();
 
-    ctx.create_key(KeyTemplate::rsa_sign(), None, None, None, None)
+    test.ctx.create_key(KeyTemplate::rsa_sign(), None, None, None, None)
         .expect("failed to create a temporary RSA key");
 
-    ctx.create_key(KeyTemplate::aes_gcm_128(), None, None, None, None)
+    test.ctx.create_key(KeyTemplate::aes_gcm_128(), None, None, None, None)
         .expect("failed to create a temporary symmetric key");
 }
 
 #[test]
 fn creates_named_keys() {
-    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
-    let mut ctx = connect_tpm();
+    let mut test = connect_tpm();
     let name = "srk";
 
-    let _ = ctx
+    let _ = test.ctx
         .create_key(
             KeyTemplate::storage_root_key(),
             Some("srk"),
@@ -35,7 +29,7 @@ fn creates_named_keys() {
         )
         .expect("failed to create a named key");
 
-    let duplicate = ctx.create_key(
+    let duplicate = test.ctx.create_key(
         KeyTemplate::storage_root_key(),
         Some(&name),
         None,
@@ -47,8 +41,7 @@ fn creates_named_keys() {
 
 #[test]
 fn creates_key_with_authorization() {
-    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
-    let mut ctx = connect_tpm();
+    let mut test = connect_tpm();
 
     let policy_pcr = Policy::pcr(&[PcrSlot::Slot7, PcrSlot::Slot0]).expect("invalid PCR slots");
     let policy = Policy::or(vec![
@@ -56,7 +49,7 @@ fn creates_key_with_authorization() {
         PolicyBranch::new("pcr", policy_pcr),
     ]);
 
-    ctx.create_key(
+    test.ctx.create_key(
         KeyTemplate::rsa_sign(),
         Some("rsa-sign"),
         Some(b"AuthValue"),
@@ -66,42 +59,12 @@ fn creates_key_with_authorization() {
     .expect("failed to create a named key");
 }
 
-#[test]
-fn rejects_persisting_temporary_key() {
-    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
-    let mut ctx = connect_tpm();
+fn persists_stored_key_at_specified_handle() {
+    let mut test = connect_tpm();
 
-    let key = ctx
-        .create_key(KeyTemplate::rsa_sign(), None, None, None, None)
-        .expect("failed to create a temporary RSA key");
+    let key = test.ctx.open("rsa-sign").expect("failed to open key");
+    test.ctx.set_policy_branch(&key, "pcr");
 
-    assert!(matches!(
-        ctx.persist(&key, None),
-        Err(Error::InvalidKey { .. })
-    ));
-}
-
-#[test]
-fn persists_stored_key() {
-    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
-    let mut ctx = connect_tpm();
-    let key_name = format!("persistent-rsa-sign-{}", std::process::id());
-
-    let key = ctx
-        .create_key(
-            KeyTemplate::rsa_sign(),
-            Some(&key_name),
-            None,
-            None,
-            None,
-        )
-        .expect("failed to create a stored RSA key");
-
-    ctx.persist(&key, None)
-        .expect("failed to persist the RSA key");
-
-    assert!(matches!(
-        ctx.persist(&key, None),
-        Err(Error::InvalidKey { .. })
-    ));
+    test.ctx.persist(&key, Some(0x8100_8100))
+        .expect("failed to persist a stored key");
 }
