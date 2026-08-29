@@ -8,8 +8,6 @@ use crate::macros::newtype_in_win;
 
 pub(crate) use self::context::Context;
 
-// sessions are flushed in submit when CONTINUE_SESSION is set, otherwise call explicitly
-
 newtype_in_win!(TpmRc(u32));
 
 impl TpmRc {

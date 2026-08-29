@@ -102,5 +102,3 @@ fn is_internal_err(kind: Tss2ResponseCodeKind) -> bool {
 // TpmBusy => Yielded, Testing, NvRate, Retry
 // TpmFailure => others
 
-// アルゴリズムなど対応してない場合、互換性あるものでフォールバック
-// Binding, Integrity, EccPointはimport時はInvalidparameterにする
