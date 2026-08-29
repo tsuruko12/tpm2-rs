@@ -42,15 +42,13 @@ impl CommandResources {
     }
 
     fn has_no_sessions(&self) -> bool {
-        self
-            .sessions
+        self.sessions
             .iter()
             .all(|session| session.is_none())
     }
 
     fn add_session(&mut self, session: AuthSession) -> Result<()> {
-        let slot = self
-            .sessions
+        let slot = self.sessions
             .iter_mut()
             .find(|slot| slot.is_none())
             .ok_or_else(|| Error::invalid_state("no available session slots"))?;

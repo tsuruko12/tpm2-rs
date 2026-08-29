@@ -5,7 +5,7 @@ use rsa::{BigUint, RsaPublicKey};
 use zeroize::Zeroizing;
 
 use super::super::{
-    types::{Tpm2bNonce, TpmSe, TpmiShAuthSession, Tpm2bEncryptedSecret},
+    types::{TpmiShAuthSession, TpmiShHmac, Tpm2bNonce, TpmSe, Tpm2bEncryptedSecret},
 };
 use super::{
     Command, CommandResources, Context, SessionState, StartAuthSessionResponse, TpmsAuthCommand,
@@ -37,23 +37,15 @@ struct SaltKey {
 // no-policy + attrs -> HMAC authorization
 // no-policy + auth + no-attrs -> HMAC authorization
 // no-policy + no-auth + no-attrs -> password authorization
-
-// TODO: reuse policy session by restarting if it exsist
 impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
         resources: &mut CommandResources,
-        session_attrs: TpmaSession,
+        hmac_session_attrs: TpmaSession,
         authorization: Option<&Authorization>,
         tpm_key: Option<TpmiDhObject>,
     ) -> Result<Vec<TpmsAuthCommand>> {
         // tpm_key is only None before the handle is created
-        if authorization.is_none() {
-            if let Some((handle, _)) = resources.find_hmac_session() {
-                return Ok(vec![reuse_hmac_session(handle, session_attrs)?]);
-            }
-        }
-
         let salt_key = match tpm_key {
             Some(handle) => Some(SaltKey {
                 handle,
@@ -62,57 +54,49 @@ impl Context {
             None => None,
         };
 
+        let Some(authorization) = authorization else {
+            return Ok(vec![self.prepare_hmac_session(
+                resources, 
+                hmac_session_attrs, 
+                salt_key.as_ref(),
+                None,
+            )?]);
+        };
+
         let mut auth_commands = Vec::with_capacity(2);
 
-        match authorization {
-            Some(authorization) => {
-                if let Some(policy) = &authorization.policy {
-                    let required_auth = policy.auth_kind()?
-                        .map(|kind| (kind, &authorization.auth));
+        if let Some(policy) = &authorization.policy {
+            let required_auth = policy.auth_kind()?
+                .map(|kind| (kind, &authorization.auth));
 
-                    auth_commands.push(self.prepare_policy_session(
-                        resources,
-                        policy,
-                        salt_key.as_ref(),
-                        required_auth,
-                    )?);
+            auth_commands.push(self.prepare_policy_session(
+                resources,
+                hmac_session_attrs,
+                policy,
+                salt_key.as_ref(),
+                required_auth,
+            )?);
 
-                    if !session_attrs.is_empty() {
-                        match resources.find_hmac_session() {
-                            Some((handle, _)) => {
-                                auth_commands.push(reuse_hmac_session(handle, session_attrs)?)
-                            }
-                            None => auth_commands.push(self.prepare_hmac_session(
-                                resources,
-                                session_attrs,
-                                salt_key.as_ref(),
-                                None,
-                            )?),
-                        }
-                    }
-                } else if (session_attrs.is_empty()
-                    || session_attrs == TpmaSession::CONTINUE_SESSION)
-                    && authorization.auth.is_empty()
-                {
-                    auth_commands.push(TpmsAuthCommand::password(session_attrs));
-                } else {
-                    auth_commands.push(self.prepare_hmac_session(
-                        resources,
-                        session_attrs,
-                        salt_key.as_ref(),
-                        Some(&authorization.auth),
-                    )?);
-                }
-            }
-            // TODO: ここいらん、最初に処理してる
-            None => {
+            if !hmac_session_attrs.is_empty() {
                 auth_commands.push(self.prepare_hmac_session(
                     resources,
-                    session_attrs,
+                    hmac_session_attrs,
                     salt_key.as_ref(),
                     None,
                 )?);
             }
+        } else if (hmac_session_attrs.is_empty()
+            || hmac_session_attrs == TpmaSession::CONTINUE_SESSION)
+            && authorization.auth.is_empty()
+        {
+            auth_commands.push(TpmsAuthCommand::password());
+        } else {
+            auth_commands.push(self.prepare_hmac_session(
+                resources,
+                hmac_session_attrs,
+                salt_key.as_ref(),
+                Some(&authorization.auth),
+            )?);
         }
 
         Ok(auth_commands)
@@ -133,12 +117,13 @@ impl Context {
     fn prepare_policy_session(
         &mut self,
         resources: &mut CommandResources,
+        hmac_session_attrs: TpmaSession,
         policy: &PolicyData,
         salt_key: Option<&SaltKey>,
         required_auth: Option<(PolicyAuthKind, &Tpm2bAuth)>,
     ) -> Result<TpmsAuthCommand> {
         let session_type = TpmSe::Policy;
-        let session_attrs = TpmaSession::empty();
+        let session_attrs = policy_session_attrs_from_hmac(hmac_session_attrs);
         let nonce_caller = generate_caller_nonce()?;
 
         let auth_command = match required_auth {
@@ -158,6 +143,7 @@ impl Context {
                     }
                     PolicyAuthKind::Password => auth.clone(),
                 };
+
                 resources.add_session_state(SessionState {
                     session_value,
                     nonce_tpm: response.nonce_tpm,
@@ -205,10 +191,6 @@ impl Context {
         salt_key: Option<&SaltKey>,
         auth: Option<&Tpm2bAuth>,
     ) -> Result<TpmsAuthCommand> {
-        if let Some((handle, _)) = resources.find_hmac_session() {
-            return reuse_hmac_session(handle, session_attrs);
-        }
-
         let session_type = TpmSe::Hmac;
         let nonce_caller = generate_caller_nonce()?;
 
@@ -312,14 +294,47 @@ impl Context {
     }
 }
 
-fn reuse_hmac_session(
-    handle: TpmiShAuthSession,
-    session_attrs: TpmaSession,
-) -> Result<TpmsAuthCommand> {
-    Ok(TpmsAuthCommand::new(
-        handle,
-        generate_caller_nonce()?,
-        session_attrs,
-        Tpm2bAuth::default(),
-    ))
+fn policy_session_attrs_from_hmac(hmac_session_attrs: TpmaSession) -> TpmaSession {
+    if hmac_session_attrs.contains(TpmaSession::CONTINUE_SESSION) {
+        TpmaSession::continue_session()
+    } else {
+        TpmaSession::empty()
+    }
+}
+
+pub(super) fn prepare_reused_sessions(
+    resources: &CommandResources,
+    auth_commands: &[TpmsAuthCommand], 
+    hmac_session_attrs: TpmaSession,
+) -> Result<Vec<TpmsAuthCommand>> {
+    let mut new_auth_commands = Vec::with_capacity(2);
+
+    for auth_command in auth_commands {
+        if auth_command.session_handle() == TpmiShAuthSession::RS_PW {
+            new_auth_commands.push(TpmsAuthCommand::password());
+            continue;
+        }
+
+        let session_attrs = if TpmiShHmac::try_from(auth_command.session_handle()).is_ok() {
+            hmac_session_attrs
+        } else {
+            policy_session_attrs_from_hmac(hmac_session_attrs)
+        };
+
+        let session_state = resources.get_session_state(auth_command.session_handle())?;
+        let (nonce, hmac) = if session_state.uses_hmac {
+            (generate_caller_nonce()?, Tpm2bAuth::default())
+        } else {
+            (auth_command.nonce().clone(), auth_command.hmac().clone())
+        };
+        
+        new_auth_commands.push(TpmsAuthCommand::new(
+            auth_command.session_handle(), 
+            nonce, 
+            session_attrs, 
+            hmac,
+        ));
+    }
+
+    Ok(new_auth_commands)
 }

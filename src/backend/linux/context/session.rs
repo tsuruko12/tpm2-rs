@@ -26,16 +26,16 @@ impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
         resources: &mut CommandResources,
-        session_attrs: TpmaSession,
+        hmac_session_attrs: TpmaSession,
         authorization: Option<(ObjectHandle, &Authorization)>,
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
         // tpm_key is only None before the handle is created
         let Some((obj_handle, authorization)) = authorization else {
             if let Some(hmac_session) = resources.find_hmac_session() {
-                return self.reuse_hmac_session(hmac_session, session_attrs);
+                return self.reuse_hmac_session(hmac_session, hmac_session_attrs);
             }
-            return self.prepare_hmac_session(resources, session_attrs, tpm_key);
+            return self.prepare_hmac_session(resources, hmac_session_attrs, tpm_key);
         };
 
         self.set_auth(obj_handle, authorization.auth.clone().into())?;
@@ -43,7 +43,7 @@ impl Context {
         if !resources.has_no_sessions() {
             return self.reuse_sessions(
                 resources, 
-                session_attrs, 
+                hmac_session_attrs, 
                 authorization.policy.as_ref(),
             )
         }
@@ -51,16 +51,16 @@ impl Context {
         if let Some(policy) = &authorization.policy {
             self.prepare_policy_session(resources, policy, tpm_key)?;
 
-            if !session_attrs.is_empty() {
-                self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
+            if !hmac_session_attrs.is_empty() {
+                self.prepare_hmac_session(resources, hmac_session_attrs, tpm_key)?;
             }
-        } else if (session_attrs.is_empty() 
-            || session_attrs == TpmaSession::CONTINUE_SESSION)
+        } else if (hmac_session_attrs.is_empty() 
+            || hmac_session_attrs == TpmaSession::CONTINUE_SESSION)
             && authorization.auth.is_empty()
         {
             resources.add_session(AuthSession::Password)?;
         } else {
-            self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
+            self.prepare_hmac_session(resources, hmac_session_attrs, tpm_key)?;
         }                       
 
         Ok(())
@@ -104,10 +104,6 @@ impl Context {
             return Ok(())
         }
 
-        if let Some(hmac_session) = resources.find_hmac_session() {
-            self.reuse_hmac_session(hmac_session, session_attrs)?;
-        }
-
         if let Some(session) = resources.find_policy_session() {
             let policy = policy
                 .ok_or_else(|| Error::invalid_state(
@@ -122,6 +118,10 @@ impl Context {
                 policy_session,
                 policy,
             )?;
+        }
+
+        if let Some(hmac_session) = resources.find_hmac_session() {
+            self.reuse_hmac_session(hmac_session, session_attrs)?;
         }
 
         Ok(())

@@ -151,7 +151,7 @@ impl CreatedKey {
 }
 
 impl Context {
-    /// Creates a key from `template`.
+    /// Create a key from `template`.
     ///
     /// Symmetric keys are generated outside the TPM
     /// and then wrapped with a TPM-managed key.
@@ -161,11 +161,12 @@ impl Context {
     /// TPM parent for asymmetric child keys. `auth_value` and `policy` configure the key's
     /// authorization requirements.
     /// 
-    /// Auth value is set when creating keys.
+    /// `auth_value` is set when the key is created.
     ///
     /// # Errors
     ///
-    /// if `parent` is specified for storage root and symmetric keys.
+    /// if `parent` is specified for a storage root key or symmetric key, 
+    /// returns [`Error::InvalidParameter`].
     pub fn create_key(
         &mut self,
         template: KeyTemplate,

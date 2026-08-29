@@ -7,7 +7,6 @@ use crate::{
 };
 
 impl Context {
-    // TODO: ignore flushing errors
     pub(crate) fn create_internal_keys(
         &mut self,
         owner_authorization: &Authorization,
@@ -44,7 +43,7 @@ impl Context {
             key_meta.push(srk_meta);
             persistent_handles.push(srk_handle);
 
-            resources.flush_all_handles(self)?;
+            let _ = resources.flush_all_handles(self);
 
             let storage_available_first = TpmiDhPersistent::STORAGE_AVAILABLE_FIRST;
             let rsa_public = Tpm2bPublic::rsa_decrypt(Tpm2bDigest::default());
@@ -62,11 +61,14 @@ impl Context {
 
             let next_handle = TpmiDhPersistent::try_from(session_salt_key_meta.handle.value() + 1)
                 .map_err(|_| Error::resource_exhausted("no persistent handle is available"))?;
+            if next_handle.value() > TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value() {
+                return Err(Error::resource_exhausted("no persistent handle is available"));
+            }
 
             key_meta.push(session_salt_key_meta);
             persistent_handles.push(session_salt_handle);
 
-            resources.flush_all_handles(self)?;
+            let _ = resources.flush_all_handles(self);
 
             let shared_wrapping_key_meta = self.create_and_persist(
                 &mut resources,
@@ -84,29 +86,24 @@ impl Context {
             key_meta.push(shared_wrapping_key_meta);
             persistent_handles.push(shared_wrapping_handle);
 
-            resources.flush_all_handles(self)
+            let _ = resources.flush_all_handles(self);
+
+            Ok(())
         })();
 
         match result {
-            Ok(()) => match resources.release(self) {
-                Ok(()) => Ok(key_meta),
-                Err(e) => {
-                    self.evict_persistent_handles(
-                        owner_authorization,
-                        &key_meta,
-                        Some(&persistent_handles),
-                    );
-                    Err(e)
-                }
-            },
+            Ok(()) => {
+                let _ = resources.release(self);
+                Ok(key_meta)
+            }
             Err(e) => {
-                resources.cleanup(self);
-                
+                resources.cleanup(self);       
                 self.evict_persistent_handles(
                     owner_authorization,
                     &key_meta,
                     Some(&persistent_handles),
                 );
+                
                 Err(e)
             }
         }
@@ -116,7 +113,7 @@ impl Context {
         &mut self,
         resources: &mut CommandResources,
         kind: InternalKeyKind,
-        mut persistent_handle: TpmiDhPersistent,
+        persistent_handle: TpmiDhPersistent,
         owner_authorization: &Authorization,
         serch_end: Option<TpmiDhPersistent>,
         session_salt_handle: Option<TpmiDhObject>,
@@ -128,10 +125,9 @@ impl Context {
         let created = create(self)?;
         resources.add_transient_handle(created.handle);
 
-        self.evict_control(
-            resources,
+        let (_, persistent_handle) = self.evict_control(
             created.handle,
-            &mut persistent_handle,
+            persistent_handle,
             owner_authorization,
             session_salt_handle,
             serch_end,
@@ -155,12 +151,9 @@ impl Context {
         match persistent_handles {
             Some(handles) => {
                 for (meta, loaded_handle) in key_meta.iter().rev().zip(handles.iter().rev()) {
-                    let mut persistent_handle = meta.handle;
-
                     if let Err(err) = self.evict_control(
-                        &mut resources,
                         *loaded_handle,
-                        &mut persistent_handle,
+                        meta.handle,
                         owner_authorization,
                         None,
                         None,
@@ -171,13 +164,9 @@ impl Context {
             }
             None => {
                 for meta in key_meta.iter().rev() {
-                    let handle = TpmiDhObject::from(meta.handle);
-                    let mut persistent_handle = meta.handle;
-
                     if let Err(err) = self.evict_control(
-                        &mut resources,
-                        handle,
-                        &mut persistent_handle,
+                        TpmiDhObject::from(meta.handle),
+                        meta.handle,
                         owner_authorization,
                         None,
                         None,

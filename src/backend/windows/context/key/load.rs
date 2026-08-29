@@ -1,8 +1,8 @@
 use super::{
-    Command, CommandResources, Context, 
+    Command, CommandResources, Context,
     read_public::validate_obj_name,
 };
-use super::super::LoadResponse;
+use super::super::{LoadResponse, TpmsAuthCommand};
 use crate::{
     Result,
     db::InternalKeyMeta,
@@ -22,27 +22,35 @@ impl Context {
         in_public: &Tpm2bPublic,
         parent: &LoadedHandle,
         session_salt_handle: Option<TpmiDhObject>,
-        caller_resources: Option<&mut CommandResources>,
+        caller_resources: Option<(&mut CommandResources, Vec<TpmsAuthCommand>)>,
     ) -> Result<(LoadedObjectHandle, Tpm2bName)> {
         let mut command_params = Vec::new();
         in_private.marshal(&mut command_params)?;
         in_public.marshal(&mut command_params)?;
 
-        let session_attrs = match session_salt_handle {
-            Some(_) => TpmaSession::decrypt(),
-            None => TpmaSession::empty(),
+        let mut default_resources = CommandResources::default();
+        let (resources, auth_commands) = match caller_resources {
+            Some((resources, auth_commands)) => (resources, Some(auth_commands)),
+            None => (&mut default_resources, None),
         };
 
-        let mut default_resources = CommandResources::default();
-        let resources = caller_resources.unwrap_or(&mut default_resources);
-
         let result = (|| {
-            let authorization_area = self.prepare_sessions(
-                resources,
-                session_attrs,
-                Some(&parent.authorization),
-                session_salt_handle,
-            )?;
+            let authorization_area = match auth_commands {
+                Some(auth_commands) => auth_commands,
+                None => {
+                    let session_attrs = match session_salt_handle {
+                        Some(_) => TpmaSession::decrypt(),
+                        None => TpmaSession::empty(),
+                    };
+
+                    self.prepare_sessions(
+                        resources,
+                        session_attrs,
+                        Some(&parent.authorization),
+                        session_salt_handle,
+                    )?
+                },
+            };
             
             let mut command = Command::new(TpmCc::LOAD)
                 .with_handles([parent.handle.inner()])
@@ -65,7 +73,7 @@ impl Context {
             ))
         })();
 
-        self.cleanup_on_error(result, resources)
+        self.cleanup_on_err(result, resources)
     }
 
     pub(crate) fn resolve_persistent_handle(
@@ -89,7 +97,7 @@ impl Context {
         validate_obj_name(name.as_bytes(), key_meta.obj_name.as_bytes())?;
 
         Ok(LoadedHandle::internal_persistent(
-            key_meta.handle.into(), // TODO: use obj_handle
+            obj_handle.inner(),
             key_meta.obj_name,
         ))
     }
@@ -112,7 +120,7 @@ impl Context {
                 &public,
                 &parent,
                 Some(session_salt_handle),
-                Some(&mut resources),
+                None,
             )?;
             resources.add_transient_handle(obj_handle.inner());
             resources.flush_handle(self, parent.handle.inner())?;
@@ -122,7 +130,7 @@ impl Context {
             Ok(LoadedHandle::new(obj_handle, obj_name, authorization))
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 
     pub(crate) fn load_primary_key(
@@ -155,6 +163,6 @@ impl Context {
             ))
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 }

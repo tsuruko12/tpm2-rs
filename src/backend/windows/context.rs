@@ -11,7 +11,7 @@ use std::{ffi::c_void, ptr};
 
 use zeroize::Zeroizing;
 
-use super::types::{Tpm2bNonce, TpmiShAuthSession, TpmiShHmac};
+use super::types::{Tpm2bNonce, TpmiShAuthSession, TpmiShHmac, TpmiShPolicy};
 use crate::{Error, Result, types::{LoadedObjectHandle, tpm::TpmiDhObject}};
 
 use self::response::{
@@ -60,6 +60,12 @@ impl CommandResources {
 
     fn session_states(&self) -> &SessionStates {
         &self.session_states
+    }
+
+    fn has_no_sessions(&self) -> bool {
+        self.session_handles
+            .iter()
+            .all(|handle| handle.is_none())
     }
 
     fn add_session_handle(&mut self, handle: TpmiShAuthSession) -> Result<()> {
@@ -120,16 +126,24 @@ impl CommandResources {
             .ok_or_else(|| Error::invalid_state("session handle must be tracked"))
     }
 
-    fn find_hmac_session(&self) -> Option<(TpmiShAuthSession, &SessionState)> {
-        self.session_handles
-            .iter()
-            .zip(self.session_states.iter())
-            .find_map(|(handle, state)| match (*handle, state.as_ref()) {
-                (Some(handle), Some(state)) if TpmiShHmac::try_from(handle).is_ok() => Some((handle, state)),
-                _ => None,
-            })
+    fn find_hmac_session(&self) -> Option<TpmiShAuthSession> {
+        self.find_session(|handle| TpmiShHmac::try_from(handle).is_ok())
     }
 
+    fn find_policy_session(&self) -> Option<TpmiShAuthSession> {
+        self.find_session(|handle| TpmiShPolicy::try_from(handle).is_ok())
+    }
+
+    fn find_password_session(&self) -> Option<TpmiShAuthSession> {
+        self.find_session(|handle| handle == TpmiShAuthSession::RS_PW)
+    }
+
+    fn find_session(
+        &self,
+        matches: impl Fn(TpmiShAuthSession) -> bool,
+    ) -> Option<TpmiShAuthSession> {
+        self.session_handles.iter().flatten().copied().find(|handle| matches(*handle))
+    }
     fn clear_session(&mut self, target: TpmiShAuthSession) {
         if let Some(idx) = self
             .session_handles
@@ -140,16 +154,10 @@ impl CommandResources {
             self.session_states[idx] = None;
         }
     }
-
-    fn clear_sessions(&mut self) {
-        self.session_handles.fill(None);
-        self.session_states.fill(None);
-    }
 }
 
-// TODO: rename to cleanup_on_err
 impl Context {
-    fn cleanup_on_error<T>(
+    fn cleanup_on_err<T>(
         &mut self,
         result: Result<T>,
         resources: &mut CommandResources,

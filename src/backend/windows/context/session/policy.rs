@@ -59,7 +59,7 @@ impl Context {
             Ok(auth_policy)
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 
     pub(super) fn restart_policy(&mut self, session_handle: TpmiShPolicy) -> Result<()> {

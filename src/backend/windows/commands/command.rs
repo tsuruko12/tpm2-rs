@@ -119,11 +119,11 @@ impl TpmsAuthCommand {
         }
     }
 
-    pub(in crate::backend::windows) fn password(session_attributes: TpmaSession) -> Self {
+    pub(in crate::backend::windows) fn password() -> Self {
         Self {
             session_handle: TpmiShAuthSession::RS_PW,
             nonce: Tpm2bNonce::default(),
-            session_attributes,
+            session_attributes: TpmaSession::empty(),
             hmac: Tpm2bAuth::default(),
         }
     }

@@ -50,7 +50,7 @@ impl Context {
             Ok(bytes)
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 
     fn get_random_chunk(

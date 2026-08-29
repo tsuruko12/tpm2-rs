@@ -4,6 +4,17 @@ use crate::{Error, Result, types::{Key, KeyId, LoadedObjectHandle, tpm::TpmiDhPe
 use super::super::Context;
 
 impl Context {
+    /// Make a stored TPM key persistent.
+    ///
+    /// `persistent_handle` selects the TPM persistent handle. When it is `None`,
+    /// an available persistent handle is selected automatically. On success, 
+    /// the stored key metadata is updated to reference the persistent TPM object.
+    ///
+    /// # Errors
+    ///
+    /// If `key` is temporary, already persistent, or cannot be
+    /// loaded, returns [`Error::InvalidKey`]. 
+    /// If the specified handle is invalid, returns [`Error::InvalidParameter`] .
     pub fn persist(&mut self, key: &Key, persistent_handle: Option<u32>) -> Result<()> {
         let key_id = key.id();
 
@@ -34,7 +45,7 @@ impl Context {
         let loaded = self.load_key(key_id)?;
         if loaded.is_persistent() {
             let _ = self.backend.release_handle(loaded.handle);
-            return Err(Error::invalid_key("specified key is already persistent key"));
+            return Err(Error::invalid_key("specified key is already persistent"));
         }
 
         let session_salt_handle = match self.load_session_salt_handle() {

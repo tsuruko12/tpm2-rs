@@ -51,6 +51,6 @@ impl Context {
             RsaEncryptResponse::try_from(response_body).map(|response| response.out_data)
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 }

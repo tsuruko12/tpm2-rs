@@ -132,7 +132,7 @@ impl Context {
                 public,
                 &parent,
                 Some(session_salt_handle),
-                Some(&mut resources),
+                Some(&mut resources), // TODO: pass None
             )?;
             resources.close_handle(self, session_salt_handle)?;
             resources.release_handle(self, parent.handle)?;

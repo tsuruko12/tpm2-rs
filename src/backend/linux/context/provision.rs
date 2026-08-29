@@ -73,6 +73,9 @@ impl Context {
 
             let next_handle = TpmiDhPersistent::try_from(session_salt_key_meta.handle.value() + 1)
                 .map_err(|_| Error::resource_exhausted("no persistent handle is available"))?;
+            if next_handle.value() > TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value() {
+                return Err(Error::resource_exhausted("no persistent handle is available"));
+            }
 
             key_meta.push(session_salt_key_meta);
             persistent_handles.push(session_salt_handle);

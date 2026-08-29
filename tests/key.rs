@@ -65,3 +65,43 @@ fn creates_key_with_authorization() {
     )
     .expect("failed to create a named key");
 }
+
+#[test]
+fn rejects_persisting_temporary_key() {
+    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
+    let mut ctx = connect_tpm();
+
+    let key = ctx
+        .create_key(KeyTemplate::rsa_sign(), None, None, None, None)
+        .expect("failed to create a temporary RSA key");
+
+    assert!(matches!(
+        ctx.persist(&key, None),
+        Err(Error::InvalidKey { .. })
+    ));
+}
+
+#[test]
+fn persists_stored_key() {
+    let _guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
+    let mut ctx = connect_tpm();
+    let key_name = format!("persistent-rsa-sign-{}", std::process::id());
+
+    let key = ctx
+        .create_key(
+            KeyTemplate::rsa_sign(),
+            Some(&key_name),
+            None,
+            None,
+            None,
+        )
+        .expect("failed to create a stored RSA key");
+
+    ctx.persist(&key, None)
+        .expect("failed to persist the RSA key");
+
+    assert!(matches!(
+        ctx.persist(&key, None),
+        Err(Error::InvalidKey { .. })
+    ));
+}

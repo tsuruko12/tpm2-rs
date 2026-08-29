@@ -4,8 +4,6 @@ use crate::{
     hierarchy::Hierarchy, policy::PolicyData, types::{KeyData, KeyId, tpm::Tpm2bAuth}
 };
 
-// TODO: consider pub(super)
-
 #[derive(Default)]
 pub(crate) struct Cache {
     temporary_keys: HashMap<String, TemporaryKey>,

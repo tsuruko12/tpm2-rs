@@ -1,5 +1,8 @@
 use super::{Command, CommandResources, Context, compute_obj_name};
-use super::super::{CreatePrimaryResponse, CreateResponse};
+use super::super::{
+    CreatePrimaryResponse, CreateResponse, TpmsAuthCommand,
+    session::prepare_reused_sessions,
+};
 use crate::{
     Error, Result,
     backend::{
@@ -121,7 +124,7 @@ impl Context {
             Ok((wrapped_sym_key, created_key_data))
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 
     fn get_auth_policy(&mut self, policy: Option<&mut PolicyData>) -> Result<Tpm2bDigest> {
@@ -143,12 +146,18 @@ impl Context {
         let mut resources = CommandResources::default();
 
         let result = (|| {
+            let authorization_area = self.prepare_sessions(
+                &mut resources, 
+                TpmaSession::encrypt_decrypt(), 
+                Some(&parent.authorization), 
+                Some(session_salt_handle),
+            )?;
+
             let (out_private, out_public) = self.submit_create(
                 &mut resources,
                 parent,
                 &mut command_params,
-                TpmaSession::encrypt_decrypt(),
-                Some(session_salt_handle),
+                authorization_area,
             )?;
             let name = compute_obj_name(out_public.as_inner())?;
 
@@ -160,7 +169,7 @@ impl Context {
             })
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 
     pub(crate) fn create_and_load_key(
@@ -172,7 +181,7 @@ impl Context {
     ) -> Result<CreatedObject> {
         // password session is used when session_salt_handle is None
         let mut command_params = marshal_creation_params(in_public, auth)?;
-        let session_attrs = match session_salt_handle {
+        let mut session_attrs = match session_salt_handle {
             Some(_) => TpmaSession::encrypt_decrypt().with_continue_session(),
             None => TpmaSession::empty(),
         };
@@ -180,12 +189,25 @@ impl Context {
         let mut resources = CommandResources::default();
 
         let result = (|| {
+            let authorization_area = self.prepare_sessions(
+                &mut resources, 
+                session_attrs, 
+                Some(&parent.authorization), 
+                session_salt_handle,
+            )?;
+
+            session_attrs.remove(TpmaSession::CONTINUE_SESSION);
+            let authorization_area_for_load = prepare_reused_sessions(
+                &resources,
+                &authorization_area, 
+                session_attrs,
+            )?;
+
             let (out_private, out_public) = self.submit_create(
                 &mut resources,
                 parent,
                 &mut command_params,
-                session_attrs,
-                session_salt_handle,
+                authorization_area,
             )?;
 
             let (handle, name) = self
@@ -194,7 +216,7 @@ impl Context {
                     &out_public,
                     parent,
                     session_salt_handle,
-                    Some(&mut resources),
+                    Some((&mut resources, authorization_area_for_load)),
                 )
                 .map(|(handle, name)| (handle.inner(), name))?;
 
@@ -206,7 +228,7 @@ impl Context {
             })
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 
     fn submit_create(
@@ -214,15 +236,8 @@ impl Context {
         resources: &mut CommandResources,
         parent: &LoadedHandle,
         command_params: &mut [u8],
-        session_attrs: TpmaSession,
-        session_salt_handle: Option<TpmiDhObject>,
+        authorization_area: Vec<TpmsAuthCommand>,
     ) -> Result<(Tpm2bPrivate, Tpm2bPublic)> {
-        let authorization_area = self.prepare_sessions(
-            resources,
-            session_attrs,
-            Some(&parent.authorization),
-            session_salt_handle,
-        )?;
         let mut command = Command::new(TpmCc::CREATE)
             .with_handles([parent.handle.inner()])
             .with_authorization_area(authorization_area)
@@ -286,7 +301,7 @@ impl Context {
             })
         })();
 
-        self.cleanup_on_error(result, &mut resources)
+        self.cleanup_on_err(result, &mut resources)
     }
 }
 
