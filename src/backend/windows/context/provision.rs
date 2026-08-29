@@ -7,6 +7,7 @@ use crate::{
 };
 
 impl Context {
+    // TODO: ignore flushing errors
     pub(crate) fn create_internal_keys(
         &mut self,
         owner_authorization: &Authorization,
@@ -55,7 +56,7 @@ impl Context {
                 owner_authorization,
                 Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
                 None,
-                |ctx| ctx.create_and_load(&rsa_public, empty_auth.clone(), &parent, None),
+                |ctx| ctx.create_and_load_key(&rsa_public, empty_auth.clone(), &parent, None),
             )?;
             let session_salt_handle = TpmiDhObject::from(session_salt_key_meta.handle);
 
@@ -75,7 +76,7 @@ impl Context {
                 Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
                 Some(session_salt_handle),
                 |ctx| {
-                    ctx.create_and_load(&rsa_public, empty_auth, &parent, Some(session_salt_handle))
+                    ctx.create_and_load_key(&rsa_public, empty_auth, &parent, Some(session_salt_handle))
                 },
             )?;
             let shared_wrapping_handle = TpmiDhObject::from(shared_wrapping_key_meta.handle);

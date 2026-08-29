@@ -1,7 +1,7 @@
 use std::sync::Once;
 
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use tpm_tool::Context;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 static INIT: Once = Once::new();
 

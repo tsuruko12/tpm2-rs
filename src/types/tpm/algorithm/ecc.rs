@@ -367,6 +367,16 @@ impl TryFrom<TpmEccCurve> for TpmiEccCurve {
     }
 }
 
+impl From<EccCurve> for TpmiEccCurve {
+    fn from(ecc_curve: EccCurve) -> Self {
+        match ecc_curve {
+            EccCurve::NistP256 => Self::NIST_P256,
+            EccCurve::NistP384 => Self::NIST_P384,
+            EccCurve::NistP521 => Self::NIST_P521,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct TpmsEccPoint {
     x: Tpm2bEccParameter,

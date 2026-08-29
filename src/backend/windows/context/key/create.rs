@@ -29,7 +29,7 @@ impl Context {
         let auth_policy = self.get_auth_policy(policy)?;
         let in_public = Tpm2bPublic::from_template(template, auth_policy);
         
-        let created = self.create(&in_public, auth, parent, session_salt_handle)?;
+        let created = self.create_key(&in_public, auth, parent, session_salt_handle)?;
 
         Ok(CreatedKeyData {
             public: created.public,
@@ -85,7 +85,7 @@ impl Context {
                     let auth_policy = self.get_auth_policy(authorization.policy.as_mut())?;
                     let in_public = Tpm2bPublic::from_template(template, auth_policy);
 
-                    let created = self.create_and_load(
+                    let created = self.create_and_load_key(
                         &in_public,
                         authorization.auth.clone(),
                         parent,
@@ -131,7 +131,7 @@ impl Context {
         }
     }
 
-    pub(crate) fn create(
+    pub(crate) fn create_key(
         &mut self,
         in_public: &Tpm2bPublic,
         auth: Tpm2bAuth,
@@ -163,7 +163,7 @@ impl Context {
         self.cleanup_on_error(result, &mut resources)
     }
 
-    pub(crate) fn create_and_load(
+    pub(crate) fn create_and_load_key(
         &mut self,
         in_public: &Tpm2bPublic,
         auth: Tpm2bAuth,
@@ -197,9 +197,6 @@ impl Context {
                     Some(&mut resources),
                 )
                 .map(|(handle, name)| (handle.inner(), name))?;
-            resources.add_transient_handle(handle);
-
-            resources.flush_sessions(self)?;
 
             Ok(CreatedObject {
                 handle,

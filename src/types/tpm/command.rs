@@ -8,8 +8,6 @@ tpm_list_type!(TpmlCc(TpmCc));
 
 newtype!(TpmCc(u32));
 
-// constの一部はlinuxの方で定義するかも
-
 impl TpmCc {
     const FIRST: u32 = 0x0000_011F;
     const LAST: u32 = 0x0000_01AA;
@@ -44,12 +42,10 @@ impl From<PolicyCommand> for TpmCc {
         match command {
             PolicyCommand::CreatePrimary => Self::CREATE_PRIMARY,
             PolicyCommand::Create => Self::CREATE,
-            PolicyCommand::Load => Self::LOAD,
             PolicyCommand::Import => Self::IMPORT,
             PolicyCommand::Duplicate => Self::DUPLICATE,
             PolicyCommand::Sign => Self::SIGN,
             PolicyCommand::Decrypt => Self::RSA_DECRYPT,
-            PolicyCommand::Unseal => Self::UNSEAL,
         }
     }
 }

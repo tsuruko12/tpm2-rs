@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter, Result as StdResult};
 
 #[cfg(target_os = "linux")]
-use tss_esapi::handles::KeyHandle;
+use tss_esapi::handles::ObjectHandle;
 
 use crate::types::tpm::{Tpm2bPublicKeyRsa, TpmiDhPersistent};
 
@@ -14,7 +14,7 @@ use super::{
 };
 
 #[cfg(target_os = "linux")]
-pub(crate) type BackendObjectHandle = KeyHandle;
+pub(crate) type BackendObjectHandle = ObjectHandle;
 #[cfg(target_os = "windows")]
 pub(crate) type BackendObjectHandle = TpmiDhObject;
 
@@ -137,6 +137,7 @@ impl LoadedObjectHandle {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Key(KeyId);
 
 impl Key {
@@ -144,8 +145,21 @@ impl Key {
         Self(id)
     }
 
+    pub(crate) fn stored(key_name: &str) -> Self {
+        Self(KeyId::Stored(key_name.to_string()))
+    }
+
     pub(crate) fn id(&self) -> &KeyId {
         &self.0
+    }
+}
+
+impl Debug for Key {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            KeyId::Stored(name) => f.debug_tuple("Key").field(name).finish(),
+            KeyId::Temporary(_) => f.write_str("Key(temporary)"),
+        }
     }
 }
 

@@ -1,16 +1,18 @@
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use directories::ProjectDirs;
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use tracing::debug;
 
+use super::codec::{marshal_policy_data, unmarshal_policy_data};
+
 use crate::{
-    Error, Result, generate_key_id, hierarchy::Hierarchy, policy::{PcrSelection, PcrSlot, PolicyCommand}, types::{
-        PolicyData, SymmetricKeyBits, algorithm::HashAlgorithm, public::{BlockCipher, CipherMode},
-        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal, TpmUnmarshal, TpmiDhPersistent, TpmlDigest, TpmtPublic, ensure_consumed},
+    Error, Result, generate_key_id, hierarchy::Hierarchy, types::{
+        PolicyData, SymmetricKeyBits, public::{BlockCipher, CipherMode},
+        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmMarshal, TpmUnmarshal, TpmiDhPersistent, TpmtPublic},
     },
 };
 
@@ -18,10 +20,9 @@ const DB_FILE: &str = "tpm2-rs.db";
 const STORE_PATH_ENV: &str = "TPM2_RS_STORE_PATH";
 const APP_NAME: &str = "tpm2-rs";
 
-const HANDLE_SRK: &str = "srk";
-const HANDLE_SESSION_SALT_KEY: &str = "session_salt_key";
-const HANDLE_SHARED_WRAPPING_KEY: &str = "shared_wrapping_key";
-const MIN_POLICY_OR_BRANCHES: usize = 2;
+const SRK: &str = "srk";
+const SESSION_SALT_KEY: &str = "session_salt_key";
+const SHARED_WRAPPING_KEY: &str = "shared_wrapping_key";
 
 const CREATE_SCHEMA: &str = r#"
 PRAGMA foreign_keys = ON;
@@ -29,84 +30,6 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE user_keys (
     key_name TEXT NOT NULL PRIMARY KEY,
     kind     TEXT NOT NULL CHECK (kind IN ('primary', 'child', 'symmetric'))
-);
-
-CREATE TABLE policies (
-    id                 TEXT PRIMARY KEY,
-    kind               TEXT NOT NULL CHECK (
-        kind IN ('auth_value', 'password', 'pcr', 'command', 'sequence', 'or')
-    ),
-    pcr_hash_alg TEXT CHECK (
-        pcr_hash_alg IN (
-            'sha1',
-            'sha256',
-            'sha384',
-            'sha512'
-        )
-    ),
-    pcr_slots_mask          INTEGER CHECK (
-        pcr_slots_mask IS NULL OR
-        pcr_slots_mask > 0 AND pcr_slots_mask <= 16777215
-    ),
-    command            TEXT CHECK (
-        command IN (
-            'create_primary',
-            'create',
-            'load',
-            'import',
-            'duplicate',
-            'sign',
-            'decrypt',
-            'unseal'
-        )
-    ),
-    or_branch_digests BLOB,
-    
-    UNIQUE (id, kind),
-
-    CHECK (
-        (
-            kind IN ('auth_value', 'password') AND
-            pcr_hash_alg IS NULL AND
-            pcr_slots_mask IS NULL AND
-            command IS NULL AND
-            or_branch_digests IS NULL
-        ) OR (
-            kind = 'pcr' AND
-            pcr_hash_alg IS NOT NULL AND
-            pcr_slots_mask IS NOT NULL AND
-            command IS NULL AND
-            or_branch_digests IS NULL
-        ) OR (
-            kind = 'command' AND
-            pcr_hash_alg IS NULL AND
-            pcr_slots_mask IS NULL AND
-            command IS NOT NULL AND
-            or_branch_digests IS NULL
-        ) OR (
-            kind = 'sequence' AND
-            pcr_hash_alg IS NULL AND
-            pcr_slots_mask IS NULL AND
-            command IS NULL AND
-            or_branch_digests IS NULL
-        ) OR (
-            kind = 'or' AND
-            pcr_hash_alg IS NULL AND
-            pcr_slots_mask IS NULL AND
-            command IS NULL AND
-            or_branch_digests IS NOT NULL
-        )
-    )
-);
-
-CREATE TABLE policy_branches (
-    parent_id   TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    child_index INTEGER NOT NULL CHECK (child_index >= 0),
-    child_id    TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-
-    PRIMARY KEY (parent_id, child_index),
-    UNIQUE (child_id),
-    CHECK (parent_id <> child_id)
 );
 
 CREATE TABLE tpm_keys (
@@ -119,7 +42,7 @@ CREATE TABLE tpm_keys (
     object_name     BLOB NOT NULL,
     private         BLOB,
     persistent_handle INTEGER UNIQUE,
-    policy_id       TEXT REFERENCES policies(id) ON DELETE RESTRICT,
+    policy          BLOB,
     parent_key_name TEXT REFERENCES tpm_keys(key_name) ON DELETE RESTRICT,
 
     CHECK (
@@ -133,7 +56,7 @@ CREATE TABLE wrapping_keys (
     public      BLOB NOT NULL,
     private     BLOB NOT NULL,
     object_name BLOB NOT NULL,
-    policy_id   TEXT REFERENCES policies(id) ON DELETE RESTRICT
+    policy      BLOB
 );
 
 CREATE TABLE symmetric_keys (
@@ -149,7 +72,7 @@ CREATE TABLE hierarchy_policies (
     hierarchy TEXT PRIMARY KEY CHECK (
         hierarchy IN ('owner')
     ),
-    policy_id TEXT REFERENCES policies(id) ON DELETE SET NULL
+    policy BLOB
 );
 
 CREATE TABLE internal_persistent_keys (
@@ -162,7 +85,7 @@ CREATE TABLE internal_persistent_keys (
     object_name BLOB NOT NULL
 );
 
-INSERT INTO hierarchy_policies (hierarchy, policy_id) VALUES ('owner', NULL);
+INSERT INTO hierarchy_policies (hierarchy, policy) VALUES ('owner', NULL);
 PRAGMA user_version = 1;
 "#;
 
@@ -183,9 +106,9 @@ pub(crate) enum InternalKeyKind {
 impl InternalKeyKind {
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
-            Self::Srk => HANDLE_SRK,
-            Self::SessionSaltKey => HANDLE_SESSION_SALT_KEY,
-            Self::SharedWrappingKey => HANDLE_SHARED_WRAPPING_KEY,
+            Self::Srk => SRK,
+            Self::SessionSaltKey => SESSION_SALT_KEY,
+            Self::SharedWrappingKey => SHARED_WRAPPING_KEY,
         }
     }
 }
@@ -299,14 +222,10 @@ impl MetadataStore {
         Ok(Self { db_path, conn })
     }
 
-    fn store_dir_path(&mut self) -> Result<&Path> {
-        self.db_path.parent().ok_or(Error::StorePathUnavailable)
-    }
-
     pub(crate) fn ensure_uninitialized(&mut self) -> Result<()> {
         let meta = fs::metadata(&self.db_path)?;
         if meta.len() != 0 {
-            return Err(Error::StoreAlreadyExists);
+            return Err(Error::AlreadyProvisioned);
         }
 
         Ok(())
@@ -328,9 +247,9 @@ impl MetadataStore {
         "#;
 
         for (kind, meta) in [
-            (HANDLE_SRK, srk),
-            (HANDLE_SESSION_SALT_KEY, session_salt_key),
-            (HANDLE_SHARED_WRAPPING_KEY, shared_wrapping_key),
+            (SRK, srk),
+            (SESSION_SALT_KEY, session_salt_key),
+            (SHARED_WRAPPING_KEY, shared_wrapping_key),
         ] {
             tx.execute(stmt, (kind, meta.handle.value(), meta.obj_name.as_bytes()))?;
         }
@@ -341,17 +260,20 @@ impl MetadataStore {
     }
 
     pub(crate) fn ensure_unique_key_name(&self, key_name: &str) -> Result<()> {
-        let exists = self.conn.query_row(
+        if self.user_key_exists(key_name)? {
+            return Err(Error::KeyAlreadyExists(key_name.into()))
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn user_key_exists(&self, key_name: &str) -> Result<bool> {
+        self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM user_keys WHERE key_name = ?1)", 
             [key_name], 
             |row| Ok(row.get(0)?)
-        )?;
-
-        if exists {
-            Err(Error::KeyAlreadyExists(key_name.into()))
-        } else {
-            Ok(())
-        }
+        )
+        .map_err(map_db_err)
     }
 
     pub(crate) fn load_key(&self, key_name: &str) -> Result<KeyMeta> {
@@ -362,14 +284,15 @@ impl MetadataStore {
                 [key_name],
                 |row| row.get::<_, String>(0),
             )
-            .optional()?
+            .optional()
+            .map_err(map_db_err)?
             .ok_or(Error::KeyNotFound)?;
 
         match kind.as_str() {
             "primary" | "child" => self.load_tpm_key(key_name),
             "symmetric" => self.load_symmetric_key(key_name),
             _ => {
-                debug!(%key_name, %kind, "stored key kind is invalid");
+                debug!(%key_name, "stored key kind is invalid");
                 Err(Error::corrupted_store())
             }
         }
@@ -386,7 +309,7 @@ impl MetadataStore {
                 tpm_keys.private,
                 tpm_keys.object_name,
                 tpm_keys.persistent_handle,
-                tpm_keys.policy_id,
+                tpm_keys.policy,
                 tpm_keys.parent_key_name
             FROM user_keys
             JOIN tpm_keys ON tpm_keys.key_name = user_keys.key_name
@@ -402,7 +325,7 @@ impl MetadataStore {
             private,
             object_name,
             persistent_handle,
-            policy_id,
+            policy,
             parent_name,
         ) = self
             .conn
@@ -416,11 +339,12 @@ impl MetadataStore {
                     row.get::<_, Option<Vec<u8>>>(5)?,
                     row.get::<_, Vec<u8>>(6)?,
                     row.get::<_, Option<i64>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<Vec<u8>>>(8)?,
                     row.get::<_, Option<String>>(9)?,
                 ))
             })
-            .optional()?
+            .optional()
+            .map_err(map_db_err)?
             .ok_or(Error::KeyNotFound)?;
 
         if user_key_kind != tpm_key_kind {
@@ -466,8 +390,7 @@ impl MetadataStore {
                 TpmiDhPersistent::try_from(value).map_err(Error::corrupted_store_with_source)
             })
             .transpose()?;
-        let tpm_key_meta =
-            self.load_tpm_key_meta(public, private, object_name, policy_id.as_deref())?;
+        let tpm_key_meta = Self::load_tpm_key_meta(public, private, object_name, policy.as_deref())?;
 
         Ok(KeyMeta::Tpm {
             key_name,
@@ -491,7 +414,7 @@ impl MetadataStore {
                 wrapping_keys.public,
                 wrapping_keys.private,
                 wrapping_keys.object_name,
-                wrapping_keys.policy_id
+                wrapping_keys.policy
             FROM user_keys
             LEFT JOIN symmetric_keys ON symmetric_keys.key_name = user_keys.key_name
             LEFT JOIN wrapping_keys ON wrapping_keys.id = symmetric_keys.wrapping_key_id
@@ -509,7 +432,7 @@ impl MetadataStore {
             wrapping_public,
             wrapping_private,
             wrapping_object_name,
-            wrapping_policy_id,
+            wrapping_policy,
         ) = self
             .conn
             .query_row(stmt, [key_name], |row| {
@@ -524,10 +447,11 @@ impl MetadataStore {
                     row.get::<_, Option<Vec<u8>>>(7)?,
                     row.get::<_, Option<Vec<u8>>>(8)?,
                     row.get::<_, Option<Vec<u8>>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<Vec<u8>>>(10)?,
                 ))
             })
-            .optional()?
+            .optional()
+            .map_err(map_db_err)?
             .ok_or(Error::KeyNotFound)?;
 
         if user_key_kind != "symmetric" {
@@ -540,9 +464,9 @@ impl MetadataStore {
             debug!(%key_name, "symmetric key metadata is missing");
             return Err(Error::corrupted_store());
         };
-        let block_cipher = block_cipher_from_db(&block_cipher)?;
-        let key_bits = symmetric_key_bits_from_db(key_bits)?;
-        let mode = cipher_mode_from_db(&mode)?;
+        let block_cipher = BlockCipher::from_db(&block_cipher)?;
+        let key_bits = SymmetricKeyBits::from_db(key_bits)?;
+        let mode = CipherMode::from_db(&mode)?;
 
         let wrapping_key = match wrapping_key_id {
             Some(id) => {
@@ -553,11 +477,11 @@ impl MetadataStore {
                     return Err(Error::corrupted_store());
                 };
 
-                WrappingKeyMeta::Dedicated(self.load_tpm_key_meta(
+                WrappingKeyMeta::Dedicated(Self::load_tpm_key_meta(
                     public,
                     Some(private),
                     object_name,
-                    wrapping_policy_id.as_deref(),
+                    wrapping_policy.as_deref(),
                 )?)
             }
             None => WrappingKeyMeta::Shared,
@@ -574,11 +498,10 @@ impl MetadataStore {
     }
 
     fn load_tpm_key_meta(
-        &self,
         public: Vec<u8>,
         private: Option<Vec<u8>>,
         obj_name: Vec<u8>,
-        policy_id: Option<&str>,
+        policy: Option<&[u8]>,
     ) -> Result<TpmKeyMeta> {
         let mut public_bytes = public.as_slice();
         let public =
@@ -593,25 +516,27 @@ impl MetadataStore {
         }
         let private = private
             .map(|private| {
-                Tpm2bPrivate::try_from(private).map_err(|_| {
-                    debug!("invalid stored private data");
-                    Error::corrupted_store()
-                })
+                Tpm2bPrivate::try_from(private).map_err(Error::corrupted_store_with_source)
             })
             .transpose()?;
-        let obj_name = obj_name.try_into().map_err(|_| {
-            debug!("invalid stored object name");
-            Error::corrupted_store()
-        })?;
+        let obj_name = obj_name.try_into().map_err(Error::corrupted_store_with_source)?;
 
         Ok(TpmKeyMeta {
             public: public.into(),
             private,
             obj_name,
-            policy: policy_id
-                .map(|policy_id| self.load_policy(policy_id))
-                .transpose()?,
+            policy: policy.map(unmarshal_policy_data).transpose()?,
         })
+    }
+
+    pub(crate) fn load_key_policy(&self, key_name: &str) -> Result<Option<PolicyData>> {
+        match self.load_key(key_name)? {
+            KeyMeta::Tpm { tpm_key_meta, .. } => Ok(tpm_key_meta.policy),
+            KeyMeta::Symmetric { wrapping_key, .. } => match wrapping_key {
+                WrappingKeyMeta::Shared => Ok(None),
+                WrappingKeyMeta::Dedicated(tpm_key_meta) => Ok(tpm_key_meta.policy),
+            },
+        }
     }
 
     pub(crate) fn load_owner_policy(&self) -> Result<Option<PolicyData>> {
@@ -619,163 +544,18 @@ impl MetadataStore {
     }
 
     pub(crate) fn load_hierarchy_policy(&self, hierarchy: Hierarchy) -> Result<Option<PolicyData>> {
-        let policy_id = self
+        let policy = self
             .conn
             .query_row(
-                "SELECT policy_id FROM hierarchy_policies WHERE hierarchy = ?",
+                "SELECT policy FROM hierarchy_policies WHERE hierarchy = ?",
                 [hierarchy.as_str()],
-                |row| row.get::<_, Option<String>>(0),
+                |row| row.get::<_, Option<Vec<u8>>>(0),
             )
-            .optional()?
+            .optional()
+            .map_err(map_db_err)?
             .flatten();
 
-        policy_id
-            .as_deref()
-            .map(|policy_id| self.load_policy(policy_id))
-            .transpose()
-    }
-
-    fn load_policy(&self, policy_id: &str) -> Result<PolicyData> {
-        self.load_policy_recursive(policy_id, &mut Vec::new())
-    }
-
-    fn load_policy_recursive(
-        &self,
-        policy_id: &str,
-        ancestors: &mut Vec<String>,
-    ) -> Result<PolicyData> {
-        if ancestors.iter().any(|ancestor| ancestor == policy_id) {
-            debug!(%policy_id, "stored policy graph contains a cycle");
-            return Err(Error::corrupted_store());
-        }
-
-        ancestors.push(policy_id.to_owned());
-        let result = self.load_policy_inner(policy_id, ancestors);
-        ancestors.pop();
-
-        result
-    }
-
-    fn load_policy_inner(
-        &self,
-        policy_id: &str,
-        ancestors: &mut Vec<String>,
-    ) -> Result<PolicyData> {
-        let (kind, pcr_hash_alg, pcr_slots_mask, command, or_branch_digests) = self
-            .conn
-            .query_row(
-                r#"
-                    SELECT kind, pcr_hash_alg, pcr_slots_mask, command, or_branch_digests
-                    FROM policies
-                    WHERE id = ?1
-                "#,
-                [policy_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<u32>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<Vec<u8>>>(4)?,
-                    ))
-                },
-            )
-            .optional()?
-            .ok_or_else(|| {
-                debug!("stored policy data is missing");
-                Error::corrupted_store()
-            })?;
-
-        match kind.as_str() {
-            "auth_value" => Ok(PolicyData::AuthValue),
-            "password" => Ok(PolicyData::Password),
-            "command" => {
-                let command = command.as_deref().ok_or_else(|| {
-                    debug!("stored policy command is missing");
-                    Error::corrupted_store()
-                })?;
-                Ok(PolicyData::Command(PolicyCommand::from_db(command)?))
-            },
-            "pcr" => {
-                let hash_alg = pcr_hash_alg.as_deref().ok_or_else(|| {
-                    debug!(%policy_id, "stored PCR hash algorithm is missing");
-                    Error::corrupted_store()
-                })?;
-                let slots_mask = pcr_slots_mask.ok_or_else(|| {
-                    debug!(%policy_id, "stored PCR slot mask is missing");
-                    Error::corrupted_store()
-                })?;
-                let slots = pcr_slots_from_mask(slots_mask)?;
-                let selection = PcrSelection::new(HashAlgorithm::from_db(hash_alg)?, &slots)
-                    .map_err(Error::corrupted_store_with_source)?;
-
-                Ok(PolicyData::Pcr(selection))
-            },
-            "sequence" => Ok(PolicyData::Sequence(
-                self.load_policy_children(policy_id, ancestors)?,
-            )),
-            "or" => {
-                let bytes = or_branch_digests.as_deref().ok_or_else(|| {
-                    debug!(%policy_id, "stored PolicyOR digests are missing");
-                    Error::corrupted_store()
-                })?;
-                let branches = self.load_policy_children(policy_id, ancestors)?;
-                let branch_digests =
-                    unmarshal_policy_or_digests(bytes, branches.len()).map_err(|_| {
-                        debug!(%policy_id, "stored PolicyOR digests are invalid");
-                        Error::corrupted_store()
-                    })?;
-
-                Ok(PolicyData::Or {
-                    branches,
-                    branch_digests,
-                    selected_branch: None,
-                })
-            },
-            _ => {
-                debug!(%kind, "invalid stored policy kind");
-                Err(Error::corrupted_store())
-            }
-        }
-    }
-
-    fn load_policy_children(
-        &self,
-        policy_id: &str,
-        ancestors: &mut Vec<String>,
-    ) -> Result<Vec<PolicyData>> {
-        let children = {
-            let mut statement = self.conn.prepare(
-                r#"
-                    SELECT child_index, child_id
-                    FROM policy_branches
-                    WHERE parent_id = ?1
-                    ORDER BY child_index
-                "#,
-            )?;
-            let rows = statement.query_map([policy_id], |row| {
-                Ok((row.get::<_, usize>(0)?, row.get::<_, String>(1)?))
-            })?;
-
-            rows.collect::<std::result::Result<Vec<_>, _>>()?
-        };
-
-        let mut policies = Vec::with_capacity(children.len());
-        for (expected_index, (child_index, child_id)) in children.into_iter().enumerate() {
-            if child_index != expected_index {
-                debug!(
-                    %policy_id, 
-                    child_index, 
-                    expected_index, 
-                    "stored policy child indexes are non-contiguous"
-                );
-                return Err(Error::corrupted_store());
-            }
-
-            policies.push(self.load_policy_recursive(&child_id, ancestors)?);
-        }
-
-        Ok(policies)
+        policy.as_deref().map(unmarshal_policy_data).transpose()
     }
 
     pub(crate) fn load_internal_srk(&self) -> Result<InternalKeyMeta> {
@@ -805,7 +585,8 @@ impl MetadataStore {
                     row.get::<_, Vec<u8>>(1)?,
                 ))
             })
-            .optional()?
+            .optional()
+            .map_err(map_db_err)?
             .ok_or_else(|| {
                 debug!(?kind, "required stored data is missing");
                 Error::corrupted_store()
@@ -862,6 +643,19 @@ impl MetadataStore {
         tx.commit()?;
         Ok(())
     }
+
+    pub(crate) fn update_persistent_handle(
+        &self,
+        key_name: &str,
+        persistent_handle: u32,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE tpm_keys SET persistent_handle = ?1 WHERE key_name = ?2",
+            (persistent_handle, key_name),
+        )?;
+
+        Ok(())
+    }
 }
 
 fn save_tpm_key_meta(
@@ -875,10 +669,10 @@ fn save_tpm_key_meta(
     let kind = if hierarchy.is_some() { "primary" } else { "child" };
     let hierarchy = hierarchy.map(|hierarchy| hierarchy.as_str());
     let private = tpm_key_meta.private.as_ref().map(Tpm2bPrivate::as_bytes);
-    let policy_id = tpm_key_meta
+    let policy = tpm_key_meta
         .policy
         .as_ref()
-        .map(|policy| save_policy(tx, policy))
+        .map(marshal_policy_data)
         .transpose()?;
     let mut public = Vec::new();
     tpm_key_meta.public.as_inner().marshal(&mut public)?;
@@ -897,7 +691,7 @@ fn save_tpm_key_meta(
                 object_name,
                 private,
                 persistent_handle,
-                policy_id,
+                policy,
                 parent_key_name
             )
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -910,7 +704,7 @@ fn save_tpm_key_meta(
             tpm_key_meta.obj_name.as_bytes(),
             private,
             persistent_handle.map(|handle| handle.value()),
-            policy_id.as_deref(),
+            policy.as_deref(),
             parent_name,
         ),
     )?;
@@ -950,9 +744,9 @@ fn save_sym_key_meta(
         "#,
         (
             key_name,
-            block_cipher_to_db(block_cipher),
-            symmetric_key_bits_to_db(key_bits),
-            cipher_mode_to_db(mode),
+            block_cipher.as_str(),
+            key_bits.as_str(),
+            mode.as_str(),
             wrapped_key,
             wrapping_key_id.as_deref(),
         ),
@@ -965,10 +759,10 @@ fn save_dedicated_wrapping_key(tx: &Transaction<'_>, key_meta: &TpmKeyMeta) -> R
     let private = key_meta.private.as_ref().ok_or_else(|| {
         Error::invalid_state("dedicated wrapping key metadata must contain private data")
     })?;
-    let policy_id = key_meta
+    let policy = key_meta
         .policy
         .as_ref()
-        .map(|policy| save_policy(tx, policy))
+        .map(marshal_policy_data)
         .transpose()?;
 
     let mut public = Vec::new();
@@ -977,7 +771,7 @@ fn save_dedicated_wrapping_key(tx: &Transaction<'_>, key_meta: &TpmKeyMeta) -> R
     let id = generate_key_id()?;
     tx.execute(
         r#"
-            INSERT INTO wrapping_keys (id, public, private, object_name, policy_id)
+            INSERT INTO wrapping_keys (id, public, private, object_name, policy)
             VALUES (?1, ?2, ?3, ?4, ?5)
         "#,
         (
@@ -985,229 +779,21 @@ fn save_dedicated_wrapping_key(tx: &Transaction<'_>, key_meta: &TpmKeyMeta) -> R
             public,
             private.as_bytes(),
             key_meta.obj_name.as_bytes(),
-            policy_id.as_deref(),
+            policy.as_deref(),
         ),
     )?;
 
     Ok(id)
 }
 
-fn save_policy(tx: &Transaction<'_>, policy: &PolicyData) -> Result<String> {
-    let id = generate_key_id()?;
-
-    match policy {
-        PolicyData::AuthValue => {
-            tx.execute(
-                "INSERT INTO policies (id, kind) VALUES (?1, 'auth_value')",
-                [id.as_str()],
-            )?;
-        }
-        PolicyData::Password => {
-            tx.execute(
-                "INSERT INTO policies (id, kind) VALUES (?1, 'password')",
-                [id.as_str()],
-            )?;
-        }
-        PolicyData::Command(command) => {
-            tx.execute(
-                "INSERT INTO policies (id, kind, command) VALUES (?1, 'command', ?2)",
-                (id.as_str(), policy_command_to_db(*command)),
-            )?;
-        }
-        PolicyData::Pcr(selection) => {
-            tx.execute(
-                r#"
-                    INSERT INTO policies (id, kind, pcr_hash_alg, pcr_slots_mask)
-                    VALUES (?1, 'pcr', ?2, ?3)
-                "#,
-                (
-                    id.as_str(),
-                    hash_algorithm_to_db(selection.hash_alg()),
-                    pcr_slots_to_mask(selection),
-                ),
-            )?;
-        }
-        PolicyData::Sequence(steps) => {
-            tx.execute(
-                "INSERT INTO policies (id, kind) VALUES (?1, 'sequence')",
-                [id.as_str()],
-            )?;
-            save_policy_children(tx, id.as_str(), steps)?;
-        }
-        PolicyData::Or {
-            branches,
-            branch_digests,
-            ..
-        } => {
-            let digests = marshal_policy_or_digests(branch_digests, branches.len())?;
-            tx.execute(
-                r#"
-                    INSERT INTO policies (id, kind, or_branch_digests)
-                    VALUES (?1, 'or', ?2)
-                "#,
-                (id.as_str(), digests),
-            )?;
-            save_policy_children(tx, id.as_str(), branches)?;
-        }
+fn map_db_err(err: rusqlite::Error) -> Error {
+    if let rusqlite::Error::SqliteFailure(_, Some(msg)) = &err
+        && msg.starts_with("no such table:")
+    {
+        Error::NotProvisioned
+    } else {
+        Error::Store(err)
     }
-
-    Ok(id)
-}
-
-fn save_policy_children(
-    tx: &Transaction<'_>,
-    parent_id: &str,
-    children: &[PolicyData],
-) -> Result<()> {
-    for (child_index, child) in children.iter().enumerate() {
-        let child_id = save_policy(tx, child)?;
-        tx.execute(
-            r#"
-                INSERT INTO policy_branches (parent_id, child_index, child_id)
-                VALUES (?1, ?2, ?3)
-            "#,
-            (parent_id, child_index as i64, child_id.as_str()),
-        )?;
-    }
-
-    Ok(())
-}
-
-fn marshal_policy_or_digests(
-    branch_digests: &TpmlDigest,
-    branch_count: usize,
-) -> Result<Vec<u8>> {
-    if branch_count < MIN_POLICY_OR_BRANCHES {
-        return Err(Error::invalid_state("PolicyOR branch count is invalid"));
-    }
-    if branch_digests.len() < MIN_POLICY_OR_BRANCHES {
-        return Err(Error::invalid_state(
-            "PolicyOR digest count is invalid",
-        ));
-    }
-
-    let mut output = Vec::new();
-    branch_digests.marshal(&mut output)?;
-
-    Ok(output)
-}
-
-fn policy_command_to_db(command: PolicyCommand) -> &'static str {
-    match command {
-        PolicyCommand::CreatePrimary => "create_primary",
-        PolicyCommand::Create => "create",
-        PolicyCommand::Load => "load",
-        PolicyCommand::Import => "import",
-        PolicyCommand::Duplicate => "duplicate",
-        PolicyCommand::Sign => "sign",
-        PolicyCommand::Decrypt => "decrypt",
-        PolicyCommand::Unseal => "unseal",
-    }
-}
-
-fn hash_algorithm_to_db(hash_alg: HashAlgorithm) -> &'static str {
-    match hash_alg {
-        HashAlgorithm::Sha1 => "sha1",
-        HashAlgorithm::Sha256 => "sha256",
-        HashAlgorithm::Sha384 => "sha384",
-        HashAlgorithm::Sha512 => "sha512",
-    }
-}
-
-fn pcr_slots_to_mask(selection: &PcrSelection) -> u32 {
-    selection
-        .slots()
-        .iter()
-        .fold(0, |mask, &slot| mask | (1 << slot as u8))
-}
-
-fn block_cipher_to_db(block_cipher: BlockCipher) -> &'static str {
-    match block_cipher {
-        BlockCipher::Aes => "aes",
-        BlockCipher::Camellia => "camellia",
-    }
-}
-
-fn block_cipher_from_db(block_cipher: &str) -> Result<BlockCipher> {
-    match block_cipher {
-        "aes" => Ok(BlockCipher::Aes),
-        "camellia" => Ok(BlockCipher::Camellia),
-        _ => {
-            debug!(%block_cipher, "invalid stored symmetric block cipher");
-            Err(Error::corrupted_store())
-        }
-    }
-}
-
-fn symmetric_key_bits_to_db(key_bits: SymmetricKeyBits) -> u32 {
-    match key_bits {
-        SymmetricKeyBits::Bits128 => 128,
-        SymmetricKeyBits::Bits256 => 256,
-    }
-}
-
-fn symmetric_key_bits_from_db(key_bits: u32) -> Result<SymmetricKeyBits> {
-    match key_bits {
-        128 => Ok(SymmetricKeyBits::Bits128),
-        256 => Ok(SymmetricKeyBits::Bits256),
-        _ => {
-            debug!(%key_bits, "invalid stored symmetric key size");
-            Err(Error::corrupted_store())
-        }
-    }
-}
-
-fn cipher_mode_to_db(mode: CipherMode) -> &'static str {
-    match mode {
-        CipherMode::Gcm => "gcm",
-    }
-}
-
-fn cipher_mode_from_db(mode: &str) -> Result<CipherMode> {
-    match mode {
-        "gcm" => Ok(CipherMode::Gcm),
-        _ => {
-            debug!(%mode, "invalid stored symmetric cipher mode");
-            Err(Error::corrupted_store())
-        }
-    }
-}
-
-fn pcr_slots_from_mask(mask: u32) -> Result<Vec<PcrSlot>> {
-    if mask == 0 || mask > PcrSlot::MASK {
-        debug!(%mask, "stored PCR slot mask is out of range");
-        return Err(Error::corrupted_store());
-    }
-
-    let mut slots = Vec::new();
-    for slot in 0 ..=PcrSlot::MAX {
-        if mask & (1 << slot) != 0 {
-            slots.push(PcrSlot::try_from(slot).map_err(Error::corrupted_store_with_source)?);
-        }
-    }
-
-    Ok(slots)
-}
-
-fn unmarshal_policy_or_digests(
-    input: &[u8],
-    branch_count: usize,
-) -> Result<TpmlDigest> {
-    let mut input = input;
-
-    if branch_count < MIN_POLICY_OR_BRANCHES {
-        debug!(branch_count, "stored PolicyOR branch count is invalid");
-        return Err(Error::corrupted_store());
-    }
-
-    let branch_digests = TpmlDigest::unmarshal(&mut input)?;
-    if branch_digests.len() < MIN_POLICY_OR_BRANCHES {
-        debug!(digest_count = branch_digests.len(), "stored PolicyOR digest count is invalid");
-        return Err(Error::corrupted_store());
-    }
-    ensure_consumed(input)?;
-
-    Ok(branch_digests)
 }
 
 fn store_path_from_env() -> Option<PathBuf> {

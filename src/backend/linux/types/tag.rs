@@ -44,7 +44,7 @@ fn convert_tagged_pcr_select(
 ) -> std::result::Result<TaggedPcrSelect, BoxError> {
     let tag = PcrPropertyTag::try_from(tagged_pcr_select.tag() as u32)?;
     let size_of_select = PcrSelectSize::try_parse_usize(tagged_pcr_select.pcr_select().len())?;
-    let selected_pcr_slots = policy::pcr_select_to_slots(tagged_pcr_select.pcr_select())?;
+    let selected_pcr_slots = policy::to_esapi_pcr_slots(tagged_pcr_select.pcr_select())?;
 
     Ok(TaggedPcrSelect::create(
         tag,
@@ -87,7 +87,7 @@ impl TryFrom<TaggedPcrSelect> for TpmsTaggedPcrSelect {
 
     fn try_from(tagged_pcr_select: TaggedPcrSelect) -> Result<Self> {
         let tag = tagged_pcr_select.pcr_property_tag().try_into()?;
-        let pcr_select = policy::pcr_slots_to_select(
+        let pcr_select = policy::pcr_slots_to_select_bytes(
             &tagged_pcr_select.selected_pcrs(),
             tagged_pcr_select.size_of_select(),
         );

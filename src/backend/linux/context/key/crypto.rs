@@ -1,4 +1,8 @@
-use tss_esapi::{handles::KeyHandle, structures::{Data, RsaDecryptionScheme}};
+use tss_esapi::{
+    handles::KeyHandle, 
+    interface_types::algorithm::HashingAlgorithm, 
+    structures::{Data, HashScheme, RsaDecryptionScheme}
+};
 
 use crate::{
     Error, Result, 
@@ -18,23 +22,23 @@ impl Context {
         let result = (|| {
             self.prepare_sessions(
                 &mut resources, 
-                TpmaSession::decrypt().with_continue_session(), 
-                Some((rsa_handle.inner().into(), rsa_authorization)), 
+                TpmaSession::decrypt(), 
+                Some((rsa_handle.inner(), rsa_authorization)), 
                 Some(session_salt_handle)
             )?;
 
             self.ctx.execute_with_sessions(resources.session_slots(), |ctx| {
                 ctx.rsa_encrypt(
-                    rsa_handle.inner(), 
+                    rsa_handle.inner().into(), 
                     message.into(), 
-                    RsaDecryptionScheme::Oaep, 
-                    Data::default()
+                    RsaDecryptionScheme::Oaep(HashScheme::new(HashingAlgorithm::Sha256)), 
+                    Data::default(),
                 )
             })
             .map(Into::into)
             .map_err(Error::from_tss_err)
         })();
 
-        self.finish_command(result, &mut resources)
+        self.finalize_command(result, &mut resources)
     }
 }

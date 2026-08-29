@@ -6,11 +6,11 @@ mod random;
 mod session;
 mod tcti;
 
+use tracing::debug;
 use tss_esapi::{
     Context as EsapiContext,
     handles::ObjectHandle,
     interface_types::session_handles::AuthSession,
-    structures::Auth,
 };
 
 use crate::{Error, Result, types::LoadedObjectHandle};
@@ -36,12 +36,16 @@ struct CommandResources {
 }
 
 impl CommandResources {
-    fn sessions(&self) -> SessionSlotArray {
-        &self.sessions
+    fn session_slots(&self) -> SessionSlots {
+        debug!(sessions = ?self.sessions);
+        (self.sessions[0], self.sessions[1], self.sessions[2])
     }
 
-    fn session_slots(&self) -> SessionSlots {
-        (self.sessions[0], self.sessions[1], self.sessions[2])
+    fn has_no_sessions(&self) -> bool {
+        self
+            .sessions
+            .iter()
+            .all(|session| session.is_none())
     }
 
     fn add_session(&mut self, session: AuthSession) -> Result<()> {
@@ -73,27 +77,38 @@ impl CommandResources {
     }
 
     fn find_hmac_session(&self) -> Option<AuthSession> {
-        self.sessions
-            .iter()
-            .flatten()
-            .copied()
-            .find(|session| matches!(session, AuthSession::HmacSession(_)))
+        self.find_session(SessionKind::Hmac)
     }
 
-    fn clear_password_session(&mut self) {
-        for session in self.sessions.iter_mut() {
-            if let Some(handle) = session {
-                if *handle == AuthSession::Password {
-                    *session = None;
-                    return;
-                }
-            }
-        }
+    fn find_password_session(&self) -> Option<AuthSession> {
+        self.find_session(SessionKind::Password)
+    }
+
+    fn find_policy_session(&self) -> Option<AuthSession> {
+        self.find_session(SessionKind::Policy)
+    }
+
+    fn find_session(&self, kind: SessionKind) -> Option<AuthSession> {
+        self.sessions.iter().flatten().copied().find(|session| {
+            matches!(
+                (kind, session),
+                (SessionKind::Hmac, AuthSession::HmacSession(_))
+                    | (SessionKind::Policy, AuthSession::PolicySession(_))
+                    | (SessionKind::Password, AuthSession::Password)
+            )
+        })
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum SessionKind {
+    Hmac,
+    Policy,
+    Password,
+}
+
 impl Context {
-    fn finish_command<T>(
+    fn finalize_command<T>(
         &mut self,
         result: Result<T>,
         resources: &mut CommandResources,
@@ -109,10 +124,4 @@ impl Context {
             }
         }
     }
-}
-
-fn auth_from_bytes(bytes: &[u8]) -> Result<Auth> {
-    bytes
-        .try_into()
-        .map_err(|_| Error::invalid_state("auth value exceeds the nameAlg digest size"))
 }

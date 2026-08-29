@@ -1,7 +1,5 @@
 use crate::{
-    Error, Result,
-    macros::newtype,
-    types::{algorithm::HashAlgorithm, tpm::Tpm2bDigest},
+    Error, Result, macros::newtype, public::EccScheme, types::{algorithm::HashAlgorithm, tpm::Tpm2bDigest}
 };
 
 use super::TpmAlgId;
@@ -22,6 +20,14 @@ impl TpmiAlgHash {
     pub(crate) const SHAKE256_256: Self = Self(TpmAlgId::Shake256_256);
     pub(crate) const SHAKE256_512: Self = Self(TpmAlgId::Shake256_512);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
+}
+
+impl TryFrom<u16> for TpmiAlgHash {
+    type Error = Error;
+
+    fn try_from(value: u16) -> Result<Self> {
+        TpmAlgId::try_from(value)?.try_into()
+    }
 }
 
 impl TryFrom<TpmAlgId> for TpmiAlgHash {
@@ -47,11 +53,6 @@ impl TryFrom<TpmAlgId> for TpmiAlgHash {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmsSchemeHash {
-    pub(crate) hash_alg: TpmiAlgHash,
-}
-
 impl From<HashAlgorithm> for TpmiAlgHash {
     fn from(hash_alg: HashAlgorithm) -> Self {
         match hash_alg {
@@ -59,6 +60,19 @@ impl From<HashAlgorithm> for TpmiAlgHash {
             HashAlgorithm::Sha256 => Self::SHA256,
             HashAlgorithm::Sha384 => Self::SHA384,
             HashAlgorithm::Sha512 => Self::SHA512,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TpmsSchemeHash {
+    pub(crate) hash_alg: TpmiAlgHash,
+}
+
+impl From<EccScheme> for TpmsSchemeHash {
+    fn from(ecc_scheme: EccScheme) -> Self {
+        match ecc_scheme {
+            EccScheme::Ecdsa(hash_alg) => Self { hash_alg: hash_alg.into() },
         }
     }
 }

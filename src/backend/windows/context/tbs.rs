@@ -26,6 +26,7 @@ use crate::{
 const INIT_TBS_RESPONSE_SIZE: usize = 4096;
 const MAX_RETRY_COUNT: usize = 3;
 
+// TODO: add log for session info
 impl Context {
     pub(crate) fn create_context() -> Result<Self> {
         let mut handle = ptr::null_mut();

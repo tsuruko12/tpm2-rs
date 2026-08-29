@@ -147,6 +147,7 @@ impl CommandResources {
     }
 }
 
+// TODO: rename to cleanup_on_err
 impl Context {
     fn cleanup_on_error<T>(
         &mut self,

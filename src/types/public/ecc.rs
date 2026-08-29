@@ -45,26 +45,8 @@ impl EccCurve {
     pub(crate) const MAX_BITS: usize = 521;
 }
 
-impl From<EccCurve> for TpmiEccCurve {
-    fn from(ecc_curve: EccCurve) -> Self {
-        match ecc_curve {
-            EccCurve::NistP256 => Self::NIST_P256,
-            EccCurve::NistP384 => Self::NIST_P384,
-            EccCurve::NistP521 => Self::NIST_P521,
-        }
-    }
-}
-
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EccScheme {
     Ecdsa(HashAlgorithm),
-}
-
-impl From<EccScheme> for TpmsSchemeHash {
-    fn from(ecc_scheme: EccScheme) -> Self {
-        match ecc_scheme {
-            EccScheme::Ecdsa(hash_alg) => Self { hash_alg: hash_alg.into() },
-        }
-    }
 }

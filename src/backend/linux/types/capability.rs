@@ -31,10 +31,10 @@ impl TryFrom<EsapiCapabilityData> for CapabilityData {
             EsapiCapabilityData::Commands(list) => Ok(Self::Commands(list.try_into()?)),
             EsapiCapabilityData::PpCommands(list) => Ok(Self::PpCommands(list.try_into()?)),
             EsapiCapabilityData::AuditCommands(list) => Ok(Self::AuditCommands(list.try_into()?)),
-            EsapiCapabilityData::AssignedPcr(list) => Ok(Self::Pcrs(list.into())),
+            EsapiCapabilityData::AssignedPcr(list) => Ok(Self::Pcrs(list.try_into()?)),
             EsapiCapabilityData::TpmProperties(list) => Ok(Self::TpmProperties(list.try_into()?)),
             EsapiCapabilityData::PcrProperties(list) => Ok(Self::PcrProperties(list.try_into()?)),
-            EsapiCapabilityData::EccCurves(list) => Ok(Self::EccCurves(list.try_into()?)),
+            EsapiCapabilityData::EccCurves(list) => Ok(Self::EccCurves(list.into())),
             _ => unreachable!("unexpected capability data"),
         }
     }

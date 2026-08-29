@@ -9,7 +9,7 @@ use crate::{
     Error, Result, backend::windows::{
         context::session::generate_caller_nonce, types::{Tpm2bEncryptedSecret, TpmSe, TpmiShPolicy},
     }, types::{
-        PcrSelection, PolicyData,
+        PcrSelection, PolicyBranchData, PolicyData,
         tpm::{Tpm2bDigest, TpmCc, TpmMarshal, TpmlDigest, TpmlPcrSelection, TpmsPcrSelection},
     },
 };
@@ -49,8 +49,8 @@ impl Context {
                         .try_into()
                         .expect("session must be a policy session")
                 })?;
-            let mut prefix = Vec::new();
 
+            let mut prefix = Vec::new();
             self.apply_trial_policy(policy_session, policy, &mut prefix)?;
             
             let auth_policy = self.get_policy_digest(policy_session)?;
@@ -62,7 +62,7 @@ impl Context {
         self.cleanup_on_error(result, &mut resources)
     }
 
-    fn restart_policy(&mut self, session_handle: TpmiShPolicy) -> Result<()> {
+    pub(super) fn restart_policy(&mut self, session_handle: TpmiShPolicy) -> Result<()> {
         let mut command = Command::new(TpmCc::POLICY_RESTART)
             .with_handles([session_handle]);
 
@@ -203,11 +203,11 @@ impl Context {
     }
 
     fn compute_pcr_digest(&mut self, selection: TpmsPcrSelection) -> Result<Tpm2bDigest> {
+        let hash = selection.hash();
+
         let mut hasher = Sha256::new();
         let mut update_counter = None;
         let mut remaining = selection.pcr_select().to_vec();
-
-        let hash = selection.hash();
 
         while remaining.iter().any(|&byte| byte != 0) {
             let pcr_selection_in = TpmlPcrSelection::from(vec![
@@ -231,7 +231,7 @@ impl Context {
                 .pcr_selection_out
                 .select_for_hash(hash) 
             else {
-                debug!("requested hash bank is missing");
+                debug!("requested PCR hash bank is missing");
                 return Err(Error::InvalidData);
             };
             if returned_select.iter().all(|&byte| byte == 0) {
@@ -280,10 +280,9 @@ impl Context {
             PolicyData::AuthValue => self.apply_policy_auth(policy_session),
             PolicyData::Password => self.apply_policy_password(policy_session),
             PolicyData::Or { .. } => {
-                let (digests, selected_branch) = policy.selected_or_branch()?;
-                let selected_branch = PolicyData::try_from(selected_branch.clone())?;
-                
-                self.apply_policy_or(policy_session, digests, &selected_branch)
+                let (digests, selected_branch) = policy.selected_branch()?;
+
+                self.apply_policy_or(policy_session, digests, selected_branch)
             }
             PolicyData::Sequence(steps) => self.apply_sequence_steps(policy_session, steps),
         }
@@ -301,9 +300,10 @@ impl Context {
                     self.apply_trial_policy(policy_session, step, prefix)?;
                 }
             }
-            PolicyData::Or { branches, branch_digests, .. } => {
-                *branch_digests = self.policy_or_for_trial(policy_session, branches, prefix)?;
-                self.submit_policy_or(policy_session, branch_digests)?;
+            PolicyData::Or { branches, .. } => {
+                let digests = self.policy_or_for_trial(policy_session, branches, prefix)?;
+                let digests = policy.set_branch_digests(digests)?;
+                self.submit_policy_or(policy_session, digests)?;
                 prefix.push(policy.clone());
             }
             _ => {
@@ -318,19 +318,19 @@ impl Context {
     fn policy_or_for_trial(
         &mut self, 
         policy_session: TpmiShPolicy, 
-        branches: &mut [PolicyData],
+        branches: &mut [PolicyBranchData],
         prefix: &[PolicyData],
     ) -> Result<TpmlDigest> {
         let (first_branch, remaining_branches) = branches
             .split_first_mut()
             .expect("normalized PolicyOR must contain at least two branches");
         let mut branch_prefix = prefix.to_vec();
-        self.apply_trial_policy(policy_session, first_branch, &mut branch_prefix)?;
+        self.apply_trial_policy(policy_session, &mut first_branch.policy, &mut branch_prefix)?;
 
         let mut digests = vec![self.get_policy_digest(policy_session)?];
         for branch in remaining_branches {
             let mut branch_path = prefix.to_vec();
-            branch_path.push(branch.clone());
+            branch_path.push(branch.policy.clone());
             let mut branch_path = PolicyData::Sequence(branch_path);
 
             digests.push(self.compute_auth_policy(&mut branch_path)?);
@@ -338,7 +338,7 @@ impl Context {
             let PolicyData::Sequence(mut steps) = branch_path else {
                 unreachable!("branch path must be a policy sequence");
             };
-            *branch = steps
+            branch.policy = steps
                 .pop()
                 .expect("branch path must contain the branch policy");
         }

@@ -1,8 +1,7 @@
-use tracing::debug;
-
 use crate::{Error, Result};
+use super::tpm::{TpmAlgId, TpmiAlgHash};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HashAlgorithm {
     Sha1,
     Sha256,
@@ -12,17 +11,20 @@ pub enum HashAlgorithm {
 
 impl HashAlgorithm {
     pub(super) const DEFAULT: Self = Self::Sha256;
+}
 
-    pub(crate) fn from_db(hash_alg: &str) -> Result<Self> {
-        match hash_alg {
-            "sha1" => Ok(HashAlgorithm::Sha1),
-            "sha256" => Ok(HashAlgorithm::Sha256),
-            "sha384" => Ok(HashAlgorithm::Sha384),
-            "sha512" => Ok(HashAlgorithm::Sha512),
-            _ => {
-                debug!(%hash_alg, "invalid stored PCR hash algorithm");
-                Err(Error::corrupted_store())
-            }
+impl TryFrom<TpmiAlgHash> for HashAlgorithm {
+    type Error = Error;
+
+    fn try_from(hash_alg: TpmiAlgHash) -> Result<Self> {
+        match TpmAlgId::from(hash_alg) {
+            TpmAlgId::Sha1 => Ok(Self::Sha1),
+            TpmAlgId::Sha256 => Ok(Self::Sha256),
+            TpmAlgId::Sha384 => Ok(Self::Sha384),
+            TpmAlgId::Sha512 => Ok(Self::Sha512),
+            _ => Err(Error::conversion::<TpmiAlgHash, HashAlgorithm>(Some(
+                &hash_alg,
+            ))),
         }
     }
 }

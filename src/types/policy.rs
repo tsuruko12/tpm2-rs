@@ -1,7 +1,11 @@
-use tracing::debug;
+use std::collections::HashSet;
 
-use crate::{Error, Result, types::tpm::TpmsPcrSelection};
-use super::{algorithm::HashAlgorithm, tpm::TpmlDigest};
+use crate::{Error, Result};
+
+use super::{
+    algorithm::HashAlgorithm,
+    tpm::{TpmCc, TpmlDigest, TpmsPcrSelection},
+};
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,14 +14,25 @@ pub enum Policy {
     Command(PolicyCommand),
     AuthValue,
     Password,
-    Or(Vec<Policy>),
+    Or(Vec<PolicyBranch>),
     Sequence(Vec<Policy>),
 }
 
-// validate policy when key creation
-// will change Result<Self> to Self later
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyBranch {
+    label: String,
+    policy: Policy,
+}
 
-// flatten like nesting Or
+impl PolicyBranch {
+    pub fn new(label: impl Into<String>, policy: Policy) -> Self {
+        Self {
+            label: label.into(),
+            policy,
+        }
+    }
+}
+
 impl Policy {
     pub fn pcr(slots: &[PcrSlot]) -> Result<Self> {
         let selection = PcrSelection::new(HashAlgorithm::Sha256, slots)?;
@@ -36,45 +51,40 @@ impl Policy {
         Self::Password
     }
 
-    pub fn or(policies: &[Self]) -> Self {
-        Self::Or(policies.to_vec())
+    pub fn or(branches: Vec<PolicyBranch>) -> Self {
+        Self::Or(branches)
     }
 }
 
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PolicyCommand {
     CreatePrimary,
     Create,
-    Load,
     Import,
     Duplicate,
     Sign,
     Decrypt,
-    Unseal,
 }
 
-impl PolicyCommand {
-    pub(crate) fn from_db(command: &str) -> Result<Self> {
-        match command {
-            "create_primary" => Ok(PolicyCommand::CreatePrimary),
-            "create" => Ok(PolicyCommand::Create),
-            "load" => Ok(PolicyCommand::Load),
-            "import" => Ok(PolicyCommand::Import),
-            "duplicate" => Ok(PolicyCommand::Duplicate),
-            "sign" => Ok(PolicyCommand::Sign),
-            "decrypt" => Ok(PolicyCommand::Decrypt),
-            "unseal" => Ok(PolicyCommand::Unseal),
-            _ => {
-                debug!(%command, "invalid stored policy command");
-                Err(Error::corrupted_store())
-            }
+impl TryFrom<TpmCc> for PolicyCommand {
+    type Error = Error;
+
+    fn try_from(command_code: TpmCc) -> Result<Self> {
+        match command_code {
+            TpmCc::CREATE => Ok(Self::Create),
+            TpmCc::CREATE_PRIMARY => Ok(Self::CreatePrimary),
+            TpmCc::DUPLICATE => Ok(Self::Duplicate),
+            TpmCc::IMPORT => Ok(Self::Import),
+            TpmCc::SIGN => Ok(Self::Sign),
+            TpmCc::RSA_DECRYPT => Ok(Self::Decrypt),
+            _ => Err(Error::conversion::<TpmCc, PolicyCommand>(Some(&command_code))),
         }
     }
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PcrSlot {
     Slot0 = 0,
     Slot1 = 1,
@@ -157,17 +167,17 @@ impl PcrSelection {
         }
 
         let mut slots = slots.to_vec();
-        slots.sort_unstable_by_key(|slot| *slot as u8);
+        slots.sort_unstable();
         slots.dedup();
 
         Ok(Self { hash_alg, slots })
     }
 
-    pub(crate) fn hash_alg(&self) -> HashAlgorithm {
+    pub fn hash_alg(&self) -> HashAlgorithm {
         self.hash_alg
     }
 
-    pub(crate) fn slots(&self) -> &[PcrSlot] {
+    pub fn slots(&self) -> &[PcrSlot] {
         &self.slots
     }
 
@@ -199,17 +209,23 @@ pub(crate) enum PolicyData {
     AuthValue,
     Password,
     Or {
-        branches: Vec<PolicyData>,
+        branches: Vec<PolicyBranchData>,
         branch_digests: TpmlDigest,
-        selected_branch: Option<SelectedBranch>,
+        selected_label: Option<String>,
     },
     Sequence(Vec<PolicyData>),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SelectedBranch {
-    branch: Policy,
-    digests: TpmlDigest,
+pub(crate) struct PolicyBranchData {
+    pub(crate) label: String,
+    pub(crate) policy: PolicyData,
+}
+
+struct PolicySelection {
+    end: usize,
+    policy: PolicyData,
+    selected_or_count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -219,6 +235,74 @@ pub(crate) enum PolicyAuthKind {
 }
 
 impl PolicyData {
+    pub(crate) fn contains_or(&self) -> bool {
+        match self {
+            Self::Or { .. } => true,
+            Self::Sequence(steps) => steps.iter().any(|step| step.contains_or()),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn set_branch_digests(&mut self, digests: TpmlDigest) -> Result<&TpmlDigest> {
+        let Self::Or { branch_digests, .. } = self else {
+            return Err(Error::invalid_state("expected PolicyData::Or"));
+        };
+
+        *branch_digests = digests;
+
+        Ok(branch_digests)
+    }
+
+    pub(crate) fn set_selected_labels(
+        &mut self,
+        labels: &HashSet<String>,
+    ) -> Result<()> {
+        let mut remaining = labels.clone();
+        self.apply_selected_labels(&mut remaining)?;
+
+        if !remaining.is_empty() {
+            return Err(Error::invalid_param("invalid policy branch labels"));
+        }
+
+        Ok(())
+    }
+
+    fn apply_selected_labels(
+        &mut self,
+        remaining: &mut HashSet<String>,
+    ) -> Result<()> {
+        match self {
+            Self::Or {
+                branches,
+                selected_label,
+                ..
+            } => {
+                let branch = branches
+                    .iter_mut()
+                    .find(|branch| remaining.contains(branch.label.as_str()))
+                    .ok_or_else(|| {
+                        Error::invalid_param("policy branch was not selected")
+                    })?;
+
+                remaining.remove(branch.label.as_str());
+                *selected_label = Some(branch.label.clone());
+
+                branch.policy.apply_selected_labels(remaining)?;
+
+                Ok(())
+            }
+            Self::Sequence(steps) => {
+                for step in steps {
+                    step.apply_selected_labels(remaining)?;
+                }
+
+                Ok(())
+            }
+
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) fn auth_kind(&self) -> Result<Option<PolicyAuthKind>> {
         match self {
             Self::Pcr(_) | Self::Command(_) => Ok(None),
@@ -234,26 +318,195 @@ impl PolicyData {
                 Ok(None)
             }
             Self::Or { .. } => {
-                let (_, branch) = self.selected_or_branch()?;
-                Self::try_from(branch.clone())?.auth_kind()
+                let (_, branch) = self.selected_branch()?;
+                branch.auth_kind()
             }
         }
     }
 
-    pub(crate) fn selected_or_branch(&self) -> Result<(&TpmlDigest, &Policy)> {
+    pub(crate) fn selected_branch(&self) -> Result<(&TpmlDigest, &PolicyData)> {
         let Self::Or {
-            selected_branch,
-            ..
+            branches,
+            branch_digests,
+            selected_label,
         } = self
         else {
-            return Err(Error::invalid_state("expected PolicyOR"));
+            return Err(Error::invalid_state("expected PolicyData::Or"));
         };
 
-        let SelectedBranch { branch, digests } = selected_branch
-            .as_ref()
+        let selected_label = selected_label
+            .as_deref()
             .ok_or(Error::InvalidPolicy("policy branch is not selected"))?;
 
-        Ok((digests, branch))
+        let branch = branches
+            .iter()
+            .find(|branch| branch.label == selected_label)
+            .ok_or_else(|| {
+                Error::invalid_state("selected policy branch is missing")
+            })?;
+
+        Ok((branch_digests, &branch.policy))
+    }
+}
+
+#[cfg(test)]
+mod set_selected_labels {
+    use super::*;
+
+    fn branch(label: &str, policy: Policy) -> PolicyBranch {
+        PolicyBranch::new(label, policy)
+    }
+
+    fn labels(values: &[&str]) -> HashSet<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn selects_a_labeled_policy_or_branch() {
+        let mut policy = PolicyData::try_from(Policy::or(vec![
+            branch("auth", Policy::auth_value()),
+            branch("password", Policy::password()),
+        ]))
+        .expect("PolicyOR must normalize");
+
+        policy
+            .set_selected_labels(&labels(&["auth"]))
+            .expect("configured branch must be selectable");
+
+        let (_, selected_branch) = policy
+            .selected_branch()
+            .expect("selected branch must be available");
+        assert!(matches!(selected_branch, PolicyData::AuthValue));
+    }
+
+    #[test]
+    fn selects_each_policy_or() {
+        let mut policy = PolicyData::try_from(Policy::Sequence(vec![
+            Policy::or(vec![
+                branch("auth", Policy::auth_value()),
+                branch("password", Policy::password()),
+            ]),
+            Policy::or(vec![
+                branch("sign", Policy::command(PolicyCommand::Sign)),
+                branch("decrypt", Policy::command(PolicyCommand::Decrypt)),
+            ]),
+        ]))
+        .expect("policy must normalize");
+
+        policy
+            .set_selected_labels(&labels(&["auth", "sign"]))
+            .expect("configured sequence branch must be selectable");
+
+        let PolicyData::Sequence(steps) = &policy else {
+            panic!("policy must remain a sequence");
+        };
+        let (_, first_selected_branch) = steps[0]
+            .selected_branch()
+            .expect("first PolicyOR branch must be selected");
+        let (_, second_selected_branch) = steps[1]
+            .selected_branch()
+            .expect("second PolicyOR branch must be selected");
+        assert!(matches!(first_selected_branch, PolicyData::AuthValue));
+        assert!(matches!(
+            second_selected_branch,
+            PolicyData::Command(PolicyCommand::Sign)
+        ));
+    }
+
+    #[test]
+    fn selects_nested_policy_or_branches() {
+        let mut policy = PolicyData::try_from(Policy::or(vec![
+            branch(
+                "outer",
+                Policy::Sequence(vec![
+                    Policy::auth_value(),
+                    Policy::or(vec![
+                        branch("sign", Policy::command(PolicyCommand::Sign)),
+                        branch("decrypt", Policy::command(PolicyCommand::Decrypt)),
+                    ]),
+                ]),
+            ),
+            branch("password", Policy::password()),
+        ]))
+        .expect("policy must normalize");
+
+        policy
+            .set_selected_labels(&labels(&["outer", "sign"]))
+            .expect("nested branch path must be selectable");
+
+        let (_, outer_branch) = policy
+            .selected_branch()
+            .expect("outer PolicyOR branch must be selected");
+        let PolicyData::Sequence(steps) = outer_branch else {
+            panic!("outer branch must remain a sequence");
+        };
+        let (_, inner_branch) = steps[1]
+            .selected_branch()
+            .expect("nested PolicyOR branch must be selected");
+        assert!(matches!(
+            inner_branch,
+            PolicyData::Command(PolicyCommand::Sign)
+        ));
+    }
+
+    #[test]
+    fn rejects_a_missing_policy_or_selection() {
+        let mut policy = PolicyData::try_from(Policy::Sequence(vec![
+            Policy::or(vec![
+                branch("auth", Policy::auth_value()),
+                branch("password", Policy::password()),
+            ]),
+            Policy::or(vec![
+                branch("sign", Policy::command(PolicyCommand::Sign)),
+                branch("decrypt", Policy::command(PolicyCommand::Decrypt)),
+            ]),
+        ]))
+        .expect("policy must normalize");
+
+        let error = policy
+            .set_selected_labels(&labels(&["auth"]))
+            .expect_err("every PolicyOR must be selected");
+
+        assert!(matches!(
+            error,
+            Error::InvalidParameter(message) if message == "policy branch was not selected"
+        ));
+    }
+
+    #[test]
+    fn rejects_a_label_not_in_the_next_policy_or() {
+        let mut policy = PolicyData::try_from(Policy::or(vec![
+            branch("auth", Policy::auth_value()),
+            branch("password", Policy::password()),
+        ]))
+        .expect("PolicyOR must normalize");
+
+        let error = policy
+            .set_selected_labels(&labels(&["sign"]))
+            .expect_err("unconfigured branch must be rejected");
+
+        assert!(matches!(
+            error,
+            Error::InvalidParameter(message) if message == "policy branch was not selected"
+        ));
+    }
+
+    #[test]
+    fn rejects_extra_selected_labels() {
+        let mut policy = PolicyData::try_from(Policy::or(vec![
+            branch("auth", Policy::auth_value()),
+            branch("password", Policy::password()),
+        ]))
+        .expect("PolicyOR must normalize");
+
+        let error = policy
+            .set_selected_labels(&labels(&["auth", "extra"]))
+            .expect_err("extra branch labels must be rejected");
+
+        assert!(matches!(
+            error,
+            Error::InvalidParameter(message) if message == "invalid policy branch labels"
+        ));
     }
 }
 
@@ -266,14 +519,23 @@ impl TryFrom<Policy> for PolicyData {
 }
 
 fn normalize(policy: Policy) -> Result<PolicyData> {
+    let mut labels = HashSet::new();
+    normalize_inner(policy, &mut labels)
+}
+
+fn normalize_inner(
+    policy: Policy,
+    labels: &mut HashSet<String>,
+) -> Result<PolicyData> {
     match policy {
         Policy::AuthValue => Ok(PolicyData::AuthValue),
         Policy::Password => Ok(PolicyData::Password),
         Policy::Command(command) => Ok(PolicyData::Command(command)),
         Policy::Pcr(selection) => Ok(PolicyData::Pcr(selection)),
+
         Policy::Or(branches) => {
             let mut normalized_branches = Vec::new();
-            normalize_or_branches(branches, &mut normalized_branches)?;
+            normalize_or_branches(branches, &mut normalized_branches, labels)?;
 
             if normalized_branches.len() < 2 {
                 return Err(Error::InvalidPolicy(
@@ -284,9 +546,10 @@ fn normalize(policy: Policy) -> Result<PolicyData> {
             Ok(PolicyData::Or {
                 branches: normalized_branches,
                 branch_digests: TpmlDigest::default(),
-                selected_branch: None,
+                selected_label: None,
             })
         }
+
         Policy::Sequence(steps) => {
             if steps.is_empty() {
                 return Err(Error::InvalidPolicy(
@@ -295,9 +558,12 @@ fn normalize(policy: Policy) -> Result<PolicyData> {
             }
 
             let mut normalized_steps = Vec::new();
+
             for step in steps {
-                match normalize(step)? {
-                    PolicyData::Sequence(nested_steps) => normalized_steps.extend(nested_steps),
+                match normalize_inner(step, labels)? {
+                    PolicyData::Sequence(nested_steps) => {
+                        normalized_steps.extend(nested_steps);
+                    }
                     step => normalized_steps.push(step),
                 }
             }
@@ -308,17 +574,38 @@ fn normalize(policy: Policy) -> Result<PolicyData> {
 }
 
 fn normalize_or_branches(
-    branches: Vec<Policy>,
-    normalized_branches: &mut Vec<PolicyData>,
+    branches: Vec<PolicyBranch>,
+    normalized_branches: &mut Vec<PolicyBranchData>,
+    labels: &mut HashSet<String>,
 ) -> Result<()> {
     if branches.is_empty() {
-        return Err(Error::InvalidPolicy("PolicyOR must not be empty"));
+        return Err(Error::InvalidPolicy(
+            "PolicyOR must not be empty",
+        ));
     }
 
-    for branch in branches {
-        match branch {
-            Policy::Or(branches) => normalize_or_branches(branches, normalized_branches)?,
-            branch => normalized_branches.push(normalize(branch)?),
+    for PolicyBranch { label, policy } in branches {
+        match policy {
+            Policy::Or(branches) => {
+                normalize_or_branches(
+                    branches,
+                    normalized_branches,
+                    labels,
+                )?;
+            }
+
+            policy => {
+                if !labels.insert(label.clone()) {
+                    return Err(Error::InvalidPolicy(
+                        "policy branch labels must be unique",
+                    ));
+                }
+
+                normalized_branches.push(PolicyBranchData {
+                    label,
+                    policy: normalize_inner(policy, labels)?,
+                });
+            }
         }
     }
 

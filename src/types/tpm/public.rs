@@ -1,17 +1,20 @@
 use bitflags::bitflags;
 
-use crate::{
-    Error, Result, macros::{newtype, tpm2b_type, tpm2b_zeroize_type}, public::RsaKeyBits, types::public::{
-        KeyTemplate,
-        ecc::EccTemplate,
-        rsa::{RsaScheme, RsaTemplate},
-    }
-};
 use super::{
     Tpm2bDigest, TpmAlgId, TpmHandle, TpmiAlgHash,
     algorithm::{
-        TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint,
-        TpmsKeyedHashParms, TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme,
+        TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint, TpmsKeyedHashParms,
+        TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme,
+    },
+};
+use crate::{
+    Error, Result,
+    macros::{newtype, tpm2b_type, tpm2b_zeroize_type},
+    public::RsaKeyBits,
+    types::public::{
+        KeyTemplate,
+        ecc::EccTemplate,
+        rsa::{RsaScheme, RsaTemplate},
     },
 };
 
@@ -35,7 +38,10 @@ impl From<TpmtPublic> for Tpm2bPublic {
 }
 
 impl Tpm2bPublic {
-    pub(crate) fn from_template(template: KeyTemplate, auth_policy: impl Into<Tpm2bDigest>) -> Self {
+    pub(crate) fn from_template(
+        template: KeyTemplate,
+        auth_policy: impl Into<Tpm2bDigest>,
+    ) -> Self {
         let auth_policy = auth_policy.into();
 
         match template {
@@ -47,11 +53,11 @@ impl Tpm2bPublic {
 
     pub(crate) fn storage_parent() -> Self {
         TpmtPublic::new(
-            TpmiAlgPublic::RSA, 
-            TpmiAlgHash::SHA256, 
-            TpmaObject::storage_parent(), 
-            Tpm2bDigest::default(), 
-            TpmuPublicParms::RsaDetail(TpmsRsaParms::storage_parent()), 
+            TpmiAlgPublic::RSA,
+            TpmiAlgHash::SHA256,
+            TpmaObject::storage_parent(),
+            Tpm2bDigest::default(),
+            TpmuPublicParms::RsaDetail(TpmsRsaParms::storage_parent()),
             TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
         )
         .into()
@@ -64,11 +70,11 @@ impl Tpm2bPublic {
         );
 
         TpmtPublic::new(
-            TpmiAlgPublic::RSA, 
-            TpmiAlgHash::SHA256, 
-            TpmaObject::decrypt(false, false), 
-            auth_policy, 
-            TpmuPublicParms::RsaDetail(rsa_params), 
+            TpmiAlgPublic::RSA,
+            TpmiAlgHash::SHA256,
+            TpmaObject::decrypt(false, false),
+            auth_policy,
+            TpmuPublicParms::RsaDetail(rsa_params),
             TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
         )
         .into()
@@ -95,6 +101,16 @@ impl Tpm2bPublic {
             }
             _ => false,
         }
+    }
+
+    pub(crate) fn with_empty_unique(mut self) -> Self {
+        self.0.unique = match &self.0.unique {
+            TpmuPublicId::KeyedHash(_) => TpmuPublicId::KeyedHash(Tpm2bDigest::default()),
+            TpmuPublicId::Sym(_) => TpmuPublicId::Sym(Tpm2bDigest::default()),
+            TpmuPublicId::Rsa(_) => TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
+            TpmuPublicId::Ecc(_) => TpmuPublicId::Ecc(TpmsEccPoint::default()),
+        };
+        self
     }
 }
 
@@ -139,19 +155,17 @@ impl TpmtPublic {
     }
 
     fn ecc(template: EccTemplate, auth_policy: Tpm2bDigest) -> Self {
-        let parameters = TpmuPublicParms::EccDetail(
-            TpmsEccParms::ecdsa(
-                template.curve().into(), 
-                template.scheme().into(),
-            )
-        );
+        let parameters = TpmuPublicParms::EccDetail(TpmsEccParms::ecdsa(
+            template.curve().into(),
+            template.scheme().into(),
+        ));
 
-        Self { 
-            alg_type: TpmiAlgPublic::ECC, 
-            name_alg: TpmiAlgHash::SHA256, 
-            object_attributes: TpmaObject::sign(false, template.exportable()), 
-            auth_policy, 
-            parameters, 
+        Self {
+            alg_type: TpmiAlgPublic::ECC,
+            name_alg: TpmiAlgHash::SHA256,
+            object_attributes: TpmaObject::sign(false, template.exportable()),
+            auth_policy,
+            parameters,
             unique: TpmuPublicId::Ecc(TpmsEccPoint::default()),
         }
     }
@@ -168,17 +182,17 @@ impl TpmtPublic {
                 };
 
                 (params, attrs)
-            },
+            }
             None => (TpmsRsaParms::storage_parent(), TpmaObject::storage_parent()),
         };
         let parameters = TpmuPublicParms::RsaDetail(rsa_params);
 
-        Self { 
-            alg_type: TpmiAlgPublic::RSA, 
-            name_alg: TpmiAlgHash::SHA256, 
-            object_attributes, 
-            auth_policy, 
-            parameters, 
+        Self {
+            alg_type: TpmiAlgPublic::RSA,
+            name_alg: TpmiAlgHash::SHA256,
+            object_attributes,
+            auth_policy,
+            parameters,
             unique: TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
         }
     }
@@ -331,7 +345,7 @@ impl TpmuPublicId {
     }
 }
 
-tpm2b_zeroize_type!(Tpm2bPublicKeyRsa, RsaKeyBits::MAX_BITS / 8); 
+tpm2b_zeroize_type!(Tpm2bPublicKeyRsa, RsaKeyBits::MAX_BITS / 8);
 
 impl Clone for Tpm2bPublicKeyRsa {
     fn clone(&self) -> Self {

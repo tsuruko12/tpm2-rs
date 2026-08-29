@@ -1,16 +1,14 @@
 use tss_esapi::{
-    constants::AlgorithmIdentifier,
+    constants::{AlgorithmIdentifier, EccCurveIdentifier},
     interface_types::algorithm::HashingAlgorithm,
-    structures::{AlgorithmPropertyList, HashScheme, KeyDerivationFunctionScheme},
-    tss2_esys::{TPMS_SCHEME_HASH, TPMT_KDF_SCHEME, TPMU_KDF_SCHEME},
+    structures::{AlgorithmPropertyList, EccCurveList, HashScheme},
 };
 
 use crate::{
     Error, Result,
     algorithm::HashAlgorithm,
     types::tpm::{
-        TpmAlgId, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmsAlgProperty, TpmsSchemeHash,
-        TpmtKdfScheme, TpmuKdfScheme,
+        TpmAlgId, TpmEccCurve, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmlEccCurve, TpmsAlgProperty, TpmsSchemeHash
     },
 };
 
@@ -111,87 +109,29 @@ impl TryFrom<AlgorithmPropertyList> for TpmlAlgProperty {
     }
 }
 
-impl From<KeyDerivationFunctionScheme> for TpmtKdfScheme {
-    fn from(kdf_scheme: KeyDerivationFunctionScheme) -> Self {
-        match kdf_scheme {
-            KeyDerivationFunctionScheme::Kdf1Sp800_108(hash_scheme) => Self::kdf1_sp800_108(
-                hash_scheme.into()
-            ),
-            KeyDerivationFunctionScheme::Kdf1Sp800_56a(hash_scheme) => Self::kdf1_sp800_56a(
-                hash_scheme.into()
-            ),
-            KeyDerivationFunctionScheme::Kdf2(hash_scheme) => Self::kdf2(hash_scheme.into()),
-            KeyDerivationFunctionScheme::Mgf1(hash_scheme) => Self::mgf1(hash_scheme.into()),
-            KeyDerivationFunctionScheme::Null => Self::null(),
+impl From<EccCurveList> for TpmlEccCurve {
+    fn from(curve_list: EccCurveList) -> Self {
+        let items = curve_list
+            .into_inner()
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+
+        items.into()
+    }
+}
+
+impl From<EccCurveIdentifier> for TpmEccCurve {
+    fn from(curve_id: EccCurveIdentifier) -> Self {
+        match curve_id {
+            EccCurveIdentifier::BnP256 => Self::BnP256,
+            EccCurveIdentifier::BnP638 => Self::BnP638,
+            EccCurveIdentifier::NistP192 => Self::NistP192,
+            EccCurveIdentifier::NistP224 => Self::NistP224,
+            EccCurveIdentifier::NistP256 => Self::NistP256,
+            EccCurveIdentifier::NistP384 => Self::NistP384,
+            EccCurveIdentifier::NistP521 => Self::NistP521,
+            EccCurveIdentifier::Sm2P256 => Self::Sm2P256,
         }
-    }
-}
-
-impl TryFrom<TPMS_SCHEME_HASH> for TpmsSchemeHash {
-    type Error = Error;
-
-    fn try_from(scheme_hash: TPMS_SCHEME_HASH) -> Result<Self> {
-        Ok(Self {
-            hash_alg: scheme_hash.hashAlg.try_into()?,
-        })
-    }
-}
-
-impl From<TpmsSchemeHash> for TPMS_SCHEME_HASH {
-    fn from(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            hashAlg: scheme_hash.hash_alg.value(),
-        }
-    }
-}
-
-impl TryFrom<TPMT_KDF_SCHEME> for TpmtKdfScheme {
-    type Error = Error;
-
-    fn try_from(kdf_scheme: TPMT_KDF_SCHEME) -> Result<Self> {
-        let scheme = TpmAlgId::try_from(kdf_scheme.scheme)?;
-
-        match scheme {
-            TpmAlgId::Mgf1 => Ok(Self::mgf1(unsafe { kdf_scheme.details.mgf1 }.try_into()?)),
-            TpmAlgId::Kdf1Sp80056a => Ok(Self::kdf1_sp800_56a(
-                unsafe { kdf_scheme.details.kdf1_sp800_56a }.try_into()?,
-            )),
-            TpmAlgId::Kdf2 => Ok(Self::kdf2(unsafe { kdf_scheme.details.kdf2 }.try_into()?)),
-            TpmAlgId::Kdf1Sp800108 => Ok(Self::kdf1_sp800_108(
-                unsafe { kdf_scheme.details.kdf1_sp800_108 }.try_into()?,
-            )),
-            TpmAlgId::Null => Ok(Self::null()),
-            _ => Err(Error::conversion::<TpmAlgId, TpmtKdfScheme>(Some(&scheme))),
-        }
-    }
-}
-
-impl TryFrom<TpmtKdfScheme> for TPMT_KDF_SCHEME {
-    type Error = Error;
-
-    fn try_from(kdf_scheme: TpmtKdfScheme) -> Result<Self> {
-        let (scheme, details) = kdf_scheme.into_parts();
-        let value_scheme = scheme.value();
-        let details = match (TpmAlgId::try_from(value_scheme)?, details) {
-            (TpmAlgId::Mgf1, TpmuKdfScheme::Mgf1(scheme_hash)) => TPMU_KDF_SCHEME { 
-                mgf1: scheme_hash.into() 
-            },
-            (TpmAlgId::Kdf1Sp80056a, TpmuKdfScheme::Kdf1Sp800_56a(scheme_hash)) => TPMU_KDF_SCHEME { 
-                kdf1_sp800_56a: scheme_hash.into() 
-            },
-            (TpmAlgId::Kdf2, TpmuKdfScheme::Kdf2(scheme_hash)) => TPMU_KDF_SCHEME { 
-                kdf2: scheme_hash.into() 
-            },
-            (TpmAlgId::Kdf1Sp800108, TpmuKdfScheme::Kdf1Sp800_108(scheme_hash)) => TPMU_KDF_SCHEME { 
-                kdf1_sp800_108: scheme_hash.into() 
-            },
-            (TpmAlgId::Null, TpmuKdfScheme::Null) => TPMU_KDF_SCHEME::default(),
-            _ => return Err(Error::invalid_state("KDF scheme and details are inconsistent")),
-        };
-
-        Ok(Self {
-            scheme: value_scheme,
-            details,
-        })
     }
 }

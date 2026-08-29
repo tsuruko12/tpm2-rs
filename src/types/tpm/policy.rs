@@ -1,5 +1,3 @@
-use tracing::debug;
-
 use crate::{Error, Result, macros::tpm_list_type, types::PcrSlot};
 use super::algorithm::TpmiAlgHash;
 
@@ -25,12 +23,7 @@ pub(crate) struct TpmsPcrSelection {
 impl TpmsPcrSelection {
     pub(crate) fn new(hash: TpmiAlgHash, pcr_select: Vec<u8>) -> Result<Self> {
         if pcr_select.len() > PcrSlot::SELECT_SIZE {
-            debug!(
-                pcr_select_size = pcr_select.len(),
-                max_size = PcrSlot::SELECT_SIZE,
-                "invalid PCR select size"
-            );
-            return Err(Error::InvalidData);
+            return Err(Error::invalid_param("invalid PCR select size"));
         }
 
         Ok(Self { hash, pcr_select })

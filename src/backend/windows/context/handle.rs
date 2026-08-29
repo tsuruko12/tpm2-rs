@@ -13,7 +13,8 @@ use crate::{
 const RESPONSE_HANDLE_COUNT: usize = 0;
 
 impl Context {
-    pub(super) fn evict_control(
+    // TODO: remove resources and use local one
+    pub(crate) fn evict_control(
         &mut self,
         resources: &mut CommandResources,
         obj_handle: TpmiDhObject,
@@ -190,6 +191,7 @@ impl CommandResources {
         ctx.flush_handles(&mut self.transient_handles)
     }
 
+    // TODO: return first error and try all flushing
     pub(super) fn release(&mut self, ctx: &mut Context) -> Result<()> {
         self.flush_all_handles(ctx)?;
         self.flush_sessions(ctx)

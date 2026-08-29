@@ -45,19 +45,3 @@ impl From<Hierarchy> for TpmiRhHierarchy {
         }
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct HierarchyParseError;
-
-impl std::str::FromStr for Hierarchy {
-    type Err = HierarchyParseError;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.trim() {
-            "storage" => Ok(Hierarchy::Storage),
-            "endorsement" => Ok(Hierarchy::Endorsement),
-            "platform" => Ok(Hierarchy::Platform),
-            _ => Err(HierarchyParseError),
-        }
-    }
-}

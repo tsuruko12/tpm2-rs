@@ -1,9 +1,9 @@
 use crate::macros::tpm2b_zeroize_type;
 use super::{
-    TpmiAlgPublic,Tpm2bAuth, Tpm2bDigest, 
+    TpmiAlgPublic,Tpm2bAuth, Tpm2bDigest, Tpm2bEccParameter,
     buffer::Tpm2bLabel,
 };
-use super::super::public::{EccCurve, RsaKeyBits};
+use super::super::public::RsaKeyBits;
 
 tpm2b_zeroize_type!(Tpm2bSensitiveData, 128);
 
@@ -46,6 +46,5 @@ impl TpmuSensitiveComposite {
 }
 
 tpm2b_zeroize_type!(Tpm2bPrivateKeyRsa, RsaKeyBits::MAX_BITS / 2 / 8);
-tpm2b_zeroize_type!(Tpm2bEccParameter, EccCurve::MAX_BITS.div_ceil(8));
 tpm2b_zeroize_type!(Tpm2bSymKey, 64); // max bytes is the larger of the largest symmetric key and digest
 

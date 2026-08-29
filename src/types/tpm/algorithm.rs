@@ -21,11 +21,13 @@ pub(crate) use self::symmetric::{
     TpmuSymMode,
 };
 
-
 use crate::{
     Error, Result,
     macros::{newtype, tpm_list_type},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TpmsEmpty;
 
 tpm_list_type!(TpmlAlgProperty(TpmsAlgProperty));
 
@@ -209,9 +211,6 @@ impl TryFrom<TpmAlgId> for TpmiAlgKdf {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TpmsEmpty;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmtKdfScheme {

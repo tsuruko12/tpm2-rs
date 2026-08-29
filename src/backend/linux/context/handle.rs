@@ -1,48 +1,91 @@
 use tracing::debug;
 use tss_esapi::{
     constants::Tss2ResponseCodeKind,
-    handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, SessionHandle},
-    interface_types::{resource_handles::Provision, session_handles::{AuthSession, PolicySession}},
+    handles::{ObjectHandle, PersistentTpmHandle, SessionHandle},
+    interface_types::{resource_handles::Provision, session_handles::AuthSession},
 };
 
-use crate::{Error, Result, types::{Authorization, LoadedObjectHandle, tpm::TpmaSession}};
+use crate::{Error, Result, types::{Authorization, LoadedObjectHandle, tpm::{TpmaSession, TpmiDhPersistent}}};
 use super::{Context, CommandResources, SessionSlotArray};
 
 impl Context {
-    pub(super) fn evict_control(
+    pub(crate) fn persist_handle(
         &mut self,
-        resources: &mut CommandResources,
-        obj_handle: ObjectHandle,
-        persistent_handle: &mut PersistentTpmHandle,
+        transient_handle: ObjectHandle,
+        persistent_handle: TpmiDhPersistent,
         owner_authorization: &Authorization,
-        session_salt_handle: Option<KeyHandle>,
-        search_end: Option<PersistentTpmHandle>,
-    ) -> Result<ObjectHandle> {
+        session_salt_handle: ObjectHandle,
+        search_end: Option<TpmiDhPersistent>,
+    ) -> Result<(LoadedObjectHandle, TpmiDhPersistent)> {
+        let mut resources = CommandResources::default();
+        resources.add_transient_handle(transient_handle);
+        resources.add_persistent_handle(session_salt_handle);
+
+        let result = (|| {
+            let (obj_handle, persistent_handle) = self.evict_control(
+                transient_handle, 
+                persistent_handle, 
+                owner_authorization, 
+                Some(session_salt_handle), 
+                search_end,
+            )?;
+            let _ = resources.flush_handle(self, transient_handle);
+
+            Ok((LoadedObjectHandle::Persistent(obj_handle), persistent_handle))
+        })();
+
+        match result {
+            Ok(value) => {
+                let _ = resources.flush_sessions(self);
+                Ok(value)
+            }
+            Err(e) => {
+                resources.cleanup(self);
+                Err(e)
+            }
+        }
+    }
+
+    pub(crate) fn evict_control(
+        &mut self,
+        object_handle: ObjectHandle,
+        mut persistent_handle: TpmiDhPersistent,
+        owner_authorization: &Authorization,
+        session_salt_handle: Option<ObjectHandle>,
+        search_end: Option<TpmiDhPersistent>,
+    ) -> Result<(ObjectHandle, TpmiDhPersistent)> {
+        let mut resources = CommandResources::default();
+
         let result = (|| {
             self.prepare_sessions(
-                resources,
-                TpmaSession::empty().with_continue_session(),
+                &mut resources,
+                TpmaSession::empty(),
                 Some((ObjectHandle::Owner, owner_authorization)),
-                session_salt_handle,
+                session_salt_handle.map(Into::into),
             )?;
 
             loop {
+                let handle_value = persistent_handle.value();
+                let persistent_tpm_handle = PersistentTpmHandle::new(handle_value)
+                    .expect("handle must be in the persistent range");
+
                 match self.ctx.execute_with_sessions(resources.session_slots(), |ctx| {
-                    ctx.evict_control(Provision::Owner, obj_handle, (*persistent_handle).into())
+                    ctx.evict_control(
+                        Provision::Owner, 
+                        object_handle, 
+                        persistent_tpm_handle.into(),
+                    )
                 }) {
-                    Ok(handle) => break Ok(handle),
+                    Ok(obj_handle) => break Ok((obj_handle, persistent_handle)),
                     Err(e) => {
                         if is_nv_defined_err(e) {
-                            let handle_value = u32::from(*persistent_handle);
-
                             if let Some(end) = search_end {
                                 let next_handle = handle_value + 1;
-
-                                if next_handle > end.into() {
+                                if next_handle > end.value() {
                                     break Err(Error::PersistentHandleInUse(handle_value));
                                 }
 
-                                *persistent_handle = PersistentTpmHandle::new(next_handle)
+                                persistent_handle = TpmiDhPersistent::try_from(next_handle)
                                     .expect("handle must be in the persistent range");
 
                                 continue;
@@ -55,7 +98,16 @@ impl Context {
             }
         })();
 
-        self.finish_command(result, resources)
+        match result {
+            Ok(value) => {
+                let _ = resources.flush_sessions(self);
+                Ok(value)
+            }
+            Err(e) => {
+                resources.cleanup(self);
+                Err(e)
+            }
+        }
     }
 
     fn flush_sessions(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
@@ -136,22 +188,7 @@ impl Context {
             return Err(Error::from_tss_err(e));
         } 
 
-        Ok(())
-    }
-
-    fn flush_policy_session(&mut self, sessions: &mut SessionSlotArray) -> Result<()> {
-        for session in sessions.iter_mut() {
-            let Some(handle) = *session else {
-                continue;
-            };
-
-            if PolicySession::try_from(handle).is_ok() {
-                self.flush_context(SessionHandle::from(handle).into())?;
-                *session = None;
-                
-                return Ok(());
-            }
-        }
+        *handle = ObjectHandle::Null;
 
         Ok(())
     }
@@ -212,10 +249,6 @@ impl CommandResources {
         ctx.flush_sessions(&mut self.sessions)
     }
 
-    pub(super) fn flush_policy_session(&mut self, ctx: &mut Context) -> Result<()> {
-        ctx.flush_policy_session(&mut self.sessions)
-    }
-
     pub(super) fn flush_all_handles(&mut self, ctx: &mut Context) -> Result<()> {
         ctx.flush_handles(&mut self.transient_handles)
     }
@@ -225,9 +258,21 @@ impl CommandResources {
     }
 
     pub(super) fn release(&mut self, ctx: &mut Context) -> Result<()> {
-        self.close_all_handles(ctx)?;
-        self.flush_all_handles(ctx)?;
-        ctx.flush_sessions(&mut self.sessions)
+        let mut first_err = None;
+
+        if let Err(e) = self.close_all_handles(ctx) {
+            first_err = Some(e);
+        }
+
+        if let Err(e) = self.flush_all_handles(ctx) {
+            first_err.get_or_insert(e);
+        }
+
+        if let Err(e) = ctx.flush_sessions(&mut self.sessions) {
+            first_err.get_or_insert(e);
+        }
+
+        first_err.map_or(Ok(()), Err)
     }
 
     pub(super) fn cleanup(&mut self, ctx: &mut Context) {

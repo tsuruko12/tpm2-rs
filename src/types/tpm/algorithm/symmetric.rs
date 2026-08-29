@@ -6,25 +6,25 @@ pub(crate) struct TpmsSymCipherParms {
     sym: TpmtSymDefObject,
 }
 
-impl From<TpmtSymDefObject> for TpmsSymCipherParms {
-    fn from(sym: TpmtSymDefObject) -> Self {
-        Self { sym }
-    }
-}
-
 impl TpmsSymCipherParms {
     pub(crate) fn sym(self) -> TpmtSymDefObject {
         self.sym
     }
 }
 
+impl From<TpmtSymDefObject> for TpmsSymCipherParms {
+    fn from(sym: TpmtSymDefObject) -> Self {
+        Self { sym }
+    }
+}
+
+// details field isn't used for now
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TpmtSymDefObject {
     algorithm: TpmiAlgSymObject,
     key_bits: TpmKeyBits,
     mode: TpmuSymMode,
 }
-// details field isn't used for now
 
 impl TpmtSymDefObject {
     pub(crate) fn new(
@@ -113,6 +113,7 @@ impl From<u16> for TpmKeyBits {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TpmuSymMode {
+    Tdes(TpmiAlgSymMode),
     Aes(TpmiAlgSymMode),
     Sm4(TpmiAlgSymMode),
     Camellia(TpmiAlgSymMode),

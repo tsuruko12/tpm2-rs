@@ -1,5 +1,5 @@
-use sha2::{Digest as _, Sha256};
-use tracing::debug;
+mod policy;
+
 use tss_esapi::{
     constants::SessionType,
     handles::{KeyHandle, ObjectHandle},
@@ -7,18 +7,13 @@ use tss_esapi::{
         algorithm::HashingAlgorithm,
         session_handles::{AuthSession, PolicySession},
     },
-    structures::{
-        Auth, Digest, DigestList, PcrSelectionList, PcrSelectionListBuilder, SymmetricDefinition
-    },
+    structures::{Auth, SymmetricDefinition},
 };
 
 use super::{CommandResources, Context};
 use crate::{
     Error, Result,
-    types::{
-        Authorization, PcrSelection, PolicyCommand, PolicyData,
-        tpm::{Tpm2bDigest, TpmaSession, TpmlDigest},
-    },
+    types::{Authorization, PolicyData, tpm::TpmaSession},
 };
 
 // policy + no-attrs -> policy authorization
@@ -36,53 +31,39 @@ impl Context {
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
         // tpm_key is only None before the handle is created
-        match authorization {
-            Some((obj_handle, authorization)) => {
-                let (auth, policy) = authorization.as_parts();
-                self.set_auth(obj_handle, auth.into())?;
+        let Some((obj_handle, authorization)) = authorization else {
+            if let Some(hmac_session) = resources.find_hmac_session() {
+                return self.reuse_hmac_session(hmac_session, session_attrs);
+            }
+            return self.prepare_hmac_session(resources, session_attrs, tpm_key);
+        };
 
-                if let Some(hmac_session) = resources.find_hmac_session() {
-                    self.prepare_sessions_with_hmac(
-                        resources, 
-                        hmac_session, 
-                        session_attrs, 
-                        policy, 
-                        tpm_key,
-                    )?;
-                } else if let Some(policy) = policy {
-                    self.prepare_policy_session(resources, policy, tpm_key)?;
+        self.set_auth(obj_handle, authorization.auth.clone().into())?;
 
-                    if !session_attrs.is_empty() {
-                        self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
-                    }
-                } else if (session_attrs.is_empty() 
-                    || session_attrs == TpmaSession::CONTINUE_SESSION)
-                    && auth.is_empty()
-                {
-                    resources.add_session(AuthSession::Password)?;
-                } else {
-                    self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
-                }                       
-
-                Ok(())
-            },
-            None => self.prepare_hmac_session(resources, session_attrs, tpm_key),
+        if !resources.has_no_sessions() {
+            return self.reuse_sessions(
+                resources, 
+                session_attrs, 
+                authorization.policy.as_ref(),
+            )
         }
-    }
 
-    fn prepare_sessions_with_hmac(
-        &mut self,
-        resources: &mut CommandResources,
-        hmac_session: AuthSession,
-        session_attrs: TpmaSession,
-        policy: Option<&PolicyData>,
-        tpm_key: Option<KeyHandle>,
-    ) -> Result<()> {
-        if let Some(policy) = policy {
+        if let Some(policy) = &authorization.policy {
             self.prepare_policy_session(resources, policy, tpm_key)?;
-        }
 
-        self.set_session_attrs(hmac_session, session_attrs)
+            if !session_attrs.is_empty() {
+                self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
+            }
+        } else if (session_attrs.is_empty() 
+            || session_attrs == TpmaSession::CONTINUE_SESSION)
+            && authorization.auth.is_empty()
+        {
+            resources.add_session(AuthSession::Password)?;
+        } else {
+            self.prepare_hmac_session(resources, session_attrs, tpm_key)?;
+        }                       
+
+        Ok(())
     }
 
     fn prepare_policy_session(
@@ -109,6 +90,49 @@ impl Context {
         tpm_key: Option<KeyHandle>,
     ) -> Result<()> {
         let hmac_session = self.start_auth_session(resources, SessionType::Hmac, tpm_key)?;
+        let session_attrs = session_attrs.with_continue_session();
+        self.set_session_attrs(hmac_session, session_attrs)
+    }
+
+    fn reuse_sessions(
+        &mut self, 
+        resources: &mut CommandResources,
+        session_attrs: TpmaSession,
+        policy: Option<&PolicyData>,
+    ) -> Result<()> {
+        if resources.find_password_session().is_some() {
+            return Ok(())
+        }
+
+        if let Some(hmac_session) = resources.find_hmac_session() {
+            self.reuse_hmac_session(hmac_session, session_attrs)?;
+        }
+
+        if let Some(session) = resources.find_policy_session() {
+            let policy = policy
+                .ok_or_else(|| Error::invalid_state(
+                    "policy must be Some when reusing a policy session")
+                )?;
+
+            let policy_session = PolicySession::try_from(session).unwrap();
+            self.restart_policy(policy_session)?;
+            self.set_session_attrs(session, TpmaSession::continue_session())?;
+
+            self.apply_policy(
+                policy_session,
+                policy,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn reuse_hmac_session(
+        &mut self, 
+        hmac_session: AuthSession,
+        session_attrs: TpmaSession,
+    ) -> Result<()> {
+        let session_attrs = session_attrs.with_continue_session();
         self.set_session_attrs(hmac_session, session_attrs)
     }
 
@@ -152,171 +176,5 @@ impl Context {
         self.ctx
             .tr_set_auth(handle, auth)
             .map_err(Error::esapi)
-    }
-
-    // TODO: it raises an error when OR is selected
-    pub(super) fn compute_auth_policy(&mut self, policy: &PolicyData) -> Result<Tpm2bDigest> {
-        let mut resources = CommandResources::default();
-
-        let result = (|| {
-            let policy_session = self
-                .start_auth_session(&mut resources, SessionType::Trial, None)
-                .map(|session| session.try_into().expect("session must be a policy session"))?;
-            self.apply_policy(policy_session, policy)?;
-
-            self
-                .ctx
-                .policy_get_digest(policy_session)
-                .map(Into::into)
-                .map_err(Error::from_tss_err)     
-        })();
-
-        self.finish_command(result, &mut resources)
-    } 
-
-    fn apply_policy(&mut self, session: PolicySession, policy: &PolicyData) -> Result<()> {
-        self.apply_policy_step(session, policy)
-    }
-
-    fn apply_policy_pcr(&mut self, session: PolicySession, selection: &PcrSelection) -> Result<()> {
-        let size_of_select = self.get_sha256_pcr_select_size()?;
-        let hash_alg = selection.hash_alg().into();
-        let selected_slots = selection
-            .slots()
-            .iter()
-            .copied()
-            .map(Into::into)
-            .collect::<Vec<_>>();
-
-        let selection_list = PcrSelectionListBuilder::new()
-            .with_size_of_select(size_of_select)
-            .with_selection(hash_alg, &selected_slots)
-            .build()
-            .map_err(|e| {
-                Error::invalid_state(format!("failed to build PCR selection list: {e:#}"))
-            })?;
-
-        let digest = self.compute_pcr_digest(selection_list.clone())?;
-
-        self.ctx
-            .policy_pcr(session, digest, selection_list)
-            .map_err(Error::from_tss_err)
-    }
-
-    fn apply_policy_command_code(
-        &mut self,
-        session: PolicySession,
-        command_code: PolicyCommand,
-    ) -> Result<()> {
-        self.ctx
-            .policy_command_code(session, command_code.into())
-            .map_err(Error::from_tss_err)
-    }
-
-    fn apply_policy_auth(&mut self, session: PolicySession) -> Result<()> {
-        self.ctx
-            .policy_auth_value(session)
-            .map_err(Error::from_tss_err)
-    }
-
-    fn apply_policy_password(&mut self, session: PolicySession) -> Result<()> {
-        self.ctx
-            .policy_password(session)
-            .map_err(Error::from_tss_err)
-    }
-
-    fn apply_policy_or(
-        &mut self,
-        session: PolicySession,
-        digests: &TpmlDigest,
-        selected_branch: &PolicyData,
-    ) -> Result<()> {
-        let mut digest_list = DigestList::new();
-
-        for digest in digests.items() {
-            digest_list
-                .add(Digest::from(digest.clone()))
-                .expect("TpmlDigest must contain at most 8 items");
-        }
-
-        if matches!(selected_branch, PolicyData::Or { .. }) {
-            return Err(Error::invalid_state("unexpected nested PolicyOR"));
-        }
-
-        self.apply_policy_step(session, selected_branch)?;
-        self.ctx
-            .policy_or(session, digest_list)
-            .map_err(Error::from_tss_err)
-    }
-
-    fn apply_sequence_steps(&mut self, session: PolicySession, steps: &[PolicyData]) -> Result<()> {
-        for step in steps {
-            if matches!(step, PolicyData::Sequence(_)) {
-                return Err(Error::invalid_state("unexpected nested policy sequence"));
-            }
-
-            self.apply_policy_step(session, step)?;
-        }
-
-        Ok(())
-    }
-
-    fn compute_pcr_digest(&mut self, selection_list: PcrSelectionList) -> Result<Digest> {
-        let mut hasher = Sha256::new();
-        let mut update_counter = None;
-        let mut remaining = selection_list;
-
-        while !remaining.is_empty() {
-            let (counter, returned_selection, digest_list) = self
-                .ctx
-                .pcr_read(remaining.clone())
-                .map_err(Error::from_tss_err)?;
-
-            // use guard
-            match update_counter {
-                Some(expected_counter) => {
-                    if expected_counter != counter {
-                        return Err(Error::authorization_failed("PCR value changed during read"));
-                    }
-                }
-                None => update_counter = Some(counter),
-            }
-
-            let selected_count = returned_selection
-                .get_selections()
-                .iter()
-                .map(|selection| selection.selected().len())
-                .sum::<usize>();
-
-            if selected_count == 0 || digest_list.len() != selected_count {
-                debug!("PCR read did not return the requested values");
-                return Err(Error::InvalidData);
-            }
-
-            for digest in digest_list.value() {
-                hasher.update(digest.value());
-            }
-
-            remaining
-                .subtract(&returned_selection)
-                .map_err(Error::from_tss_err)?;
-        }
-
-        Digest::try_from(hasher.finalize().to_vec()).map_err(Error::from_tss_err)
-    }
-
-    fn apply_policy_step(&mut self, session: PolicySession, policy: &PolicyData) -> Result<()> {
-        match policy {
-            PolicyData::Pcr(selection) => self.apply_policy_pcr(session, selection),
-            PolicyData::Command(command) => self.apply_policy_command_code(session, *command),
-            PolicyData::AuthValue => self.apply_policy_auth(session),
-            PolicyData::Password => self.apply_policy_password(session),
-            PolicyData::Or { .. } => {
-                let (digests, selected_branch) = policy.selected_or_branch()?;
-                let selected_branch = PolicyData::try_from(selected_branch.clone())?;
-                self.apply_policy_or(session, digests, &selected_branch)
-            }
-            PolicyData::Sequence(steps) => self.apply_sequence_steps(session, steps),
-        }
     }
 }

@@ -28,14 +28,15 @@ impl Context {
         in_private.marshal(&mut command_params)?;
         in_public.marshal(&mut command_params)?;
 
+        let session_attrs = match session_salt_handle {
+            Some(_) => TpmaSession::decrypt(),
+            None => TpmaSession::empty(),
+        };
+
         let mut default_resources = CommandResources::default();
         let resources = caller_resources.unwrap_or(&mut default_resources);
 
         let result = (|| {
-            let session_attrs = match session_salt_handle {
-                Some(_) => TpmaSession::encrypt_decrypt(),
-                None => TpmaSession::empty(),
-            };
             let authorization_area = self.prepare_sessions(
                 resources,
                 session_attrs,
@@ -50,6 +51,8 @@ impl Context {
 
             let response_body = self.submit(&mut command, RESPONSE_HANDLE_COUNT, resources)?;
             let response = LoadResponse::try_from(response_body)?;
+
+            resources.flush_sessions(self)?;
 
             Ok((
                 LoadedObjectHandle::Transient(
@@ -86,7 +89,7 @@ impl Context {
         validate_obj_name(name.as_bytes(), key_meta.obj_name.as_bytes())?;
 
         Ok(LoadedHandle::internal_persistent(
-            key_meta.handle.into(),
+            key_meta.handle.into(), // TODO: use obj_handle
             key_meta.obj_name,
         ))
     }

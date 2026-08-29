@@ -1,5 +1,5 @@
 use tracing::debug;
-use tss_esapi::handles::KeyHandle;
+use tss_esapi::handles::ObjectHandle;
 
 use super::{CommandResources, Context};
 use crate::{
@@ -11,10 +11,10 @@ impl Context {
     pub(crate) fn get_random(
         &mut self,
         num_bytes: usize,
-        session_salt_handle: KeyHandle,
+        session_salt_handle: ObjectHandle,
     ) -> Result<Vec<u8>> {
         let mut resources = CommandResources::default();
-        resources.add_persistent_handle(session_salt_handle.into());
+        resources.add_persistent_handle(session_salt_handle);
 
         let result = (|| {
             let mut bytes = Vec::new();
@@ -23,10 +23,10 @@ impl Context {
             })?;
 
             self.prepare_sessions(
-                resources,
+                &mut resources,
                 TpmaSession::encrypt().with_continue_session(),
                 None,
-                Some(session_salt_handle),
+                Some(session_salt_handle.into()),
             )?;
 
             while bytes.len() < num_bytes {
@@ -44,7 +44,7 @@ impl Context {
             Ok(bytes)
         })();
 
-        self.finish_command(result, &mut resources)
+        self.finalize_command(result, &mut resources)
     }
 
     fn get_random_chunk(
@@ -59,8 +59,6 @@ impl Context {
             })
             .map(|bytes| bytes.to_vec())
             .map_err(Error::from_tss_err)?;
-
-        resources.flush_sessions(self)?;
 
         if chunk.is_empty() {
             debug!("TPM returned no random bytes");

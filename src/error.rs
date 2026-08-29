@@ -50,9 +50,9 @@ pub enum Error {
     StoreIo(#[from] std::io::Error),
     #[error("store operation failed")]
     Store(#[from] rusqlite::Error),
-    #[error("store already exists")]
-    StoreAlreadyExists,
-    #[error("provisioning is required")]
+    #[error("store is already provisioned")]
+    AlreadyProvisioned,
+    #[error("store is not provisioned")]
     NotProvisioned,
     #[error("{context}")]
     Unsupported {

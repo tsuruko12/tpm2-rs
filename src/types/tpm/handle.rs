@@ -95,6 +95,12 @@ impl TryFrom<TpmHandle> for TpmiDhObject {
     }
 }
 
+impl From<TpmiDhPersistent> for TpmiDhObject {
+    fn from(persistent_handle: TpmiDhPersistent) -> Self {
+        Self(persistent_handle.into())
+    }
+}
+
 newtype!(TpmiRhProvision(TpmHandle));
 
 impl TpmiRhProvision {
@@ -131,12 +137,6 @@ impl TryFrom<u32> for TpmiDhPersistent {
         } else {
             Err(Error::conversion::<u32, TpmiDhPersistent>(Some(&value)))
         }  
-    }
-}
-
-impl From<TpmiDhPersistent> for TpmiDhObject {
-    fn from(persistent_handle: TpmiDhPersistent) -> Self {
-        Self(persistent_handle.into())
     }
 }
 

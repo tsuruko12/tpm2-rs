@@ -32,32 +32,6 @@ impl TpmiShAuthSession {
     pub(in crate::backend::windows) const RS_PW: Self = Self(TpmHandle::RS_PW);
 }
 
-impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
-    type Error = Error;
-
-    fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
-        let tpm_handle = TpmHandle::from(session_handle);
-        if TpmiShPolicy::try_from(tpm_handle).is_ok(){
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
-            }
-    }
-}
-
-impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
-    type Error = Error;
-
-    fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
-        let tpm_handle = TpmHandle::from(session_handle);
-        if TpmiShHmac::try_from(tpm_handle).is_ok(){
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
-            }
-    }
-}
-
 impl TryFrom<TpmHandle> for TpmiShAuthSession {
     type Error = Error;
 
@@ -86,6 +60,19 @@ impl TryFrom<TpmHandle> for TpmiShPolicy {
     }
 }
 
+impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
+    type Error = Error;
+
+    fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
+        let tpm_handle = TpmHandle::from(session_handle);
+        if TpmiShPolicy::try_from(tpm_handle).is_ok(){
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
+            }
+    }
+}
+
 newtype_in_win!(TpmiShHmac(TpmHandle));
 
 impl TryFrom<TpmHandle> for TpmiShHmac {
@@ -97,6 +84,19 @@ impl TryFrom<TpmHandle> for TpmiShHmac {
                 Ok(Self(tpm_handle))
             } else {
                 Err(Error::conversion::<TpmHandle, TpmiShHmac>(Some(&tpm_handle)))
+            }
+    }
+}
+
+impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
+    type Error = Error;
+
+    fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
+        let tpm_handle = TpmHandle::from(session_handle);
+        if TpmiShHmac::try_from(tpm_handle).is_ok(){
+                Ok(Self(tpm_handle))
+            } else {
+                Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
             }
     }
 }

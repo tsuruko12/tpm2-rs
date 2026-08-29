@@ -8,21 +8,6 @@ use crate::{Error, Result, types::tpm::Tpm2bName};
 use super::Context;
 
 impl Context {
-    pub(crate) fn validate_obj_name(
-        &mut self,
-        obj_handle: ObjectHandle,
-        expected_name: &Tpm2bName,
-        name: Option<&Tpm2bName>,
-    ) -> Result<()> {
-        match name {
-            Some(name) => validate_name(name.as_bytes(), expected_name.as_bytes()),
-            None => {
-                let name = self.read_obj_name(obj_handle)?;
-                validate_name(name.as_bytes(), expected_name.as_bytes())
-            }
-        }
-    }
-
     pub(super) fn read_obj_name(
         &mut self, 
         obj_handle: ObjectHandle,
@@ -38,13 +23,12 @@ impl Context {
     }
 }
 
-fn validate_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
+pub(super) fn validate_obj_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
     if name != expected_name {
         debug!("stored TPM object name does not match");
-        return Err(Error::corrupted_store());
+        return Err(Error::corrupted_store())
     }
 
     Ok(())
 }
 
-// TODO: publish validate_name that's a function

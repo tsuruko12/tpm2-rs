@@ -1,3 +1,4 @@
+mod codec;
 mod store;
 
 pub(crate) use self::store::{

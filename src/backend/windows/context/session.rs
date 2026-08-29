@@ -38,6 +38,7 @@ struct SaltKey {
 // no-policy + auth + no-attrs -> HMAC authorization
 // no-policy + no-auth + no-attrs -> password authorization
 
+// TODO: reuse policy session by restarting if it exsist
 impl Context {
     pub(super) fn prepare_sessions(
         &mut self,
@@ -103,6 +104,7 @@ impl Context {
                     )?);
                 }
             }
+            // TODO: ここいらん、最初に処理してる
             None => {
                 auth_commands.push(self.prepare_hmac_session(
                     resources,

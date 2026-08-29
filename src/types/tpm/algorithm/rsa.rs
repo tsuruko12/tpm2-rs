@@ -112,15 +112,6 @@ impl TpmtRsaScheme {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TpmuRsaScheme {
-    RsaSsa(TpmsSchemeHash),
-    RsaPss(TpmsSchemeHash),
-    Oaep(TpmsSchemeHash),
-    RsaEs(TpmsEmpty),
-    Null,
-}
-
 impl From<RsaScheme> for TpmtRsaScheme {
     fn from(rsa_scheme: RsaScheme) -> Self {
         match rsa_scheme {
@@ -130,6 +121,15 @@ impl From<RsaScheme> for TpmtRsaScheme {
             RsaScheme::RsaEs => Self::rsa_es(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TpmuRsaScheme {
+    RsaSsa(TpmsSchemeHash),
+    RsaPss(TpmsSchemeHash),
+    Oaep(TpmsSchemeHash),
+    RsaEs(TpmsEmpty),
+    Null,
 }
 
 newtype!(TpmiAlgRsaScheme(TpmAlgId));
