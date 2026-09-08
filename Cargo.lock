@@ -1035,7 +1035,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tpm-tool"
+name = "tpm2-rs"
 version = "0.1.0"
 dependencies = [
  "aes",

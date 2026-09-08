@@ -1,6 +1,6 @@
 use std::sync::{Mutex, MutexGuard, Once};
 
-use tpm_tool::Context;
+use tpm2_rs::Context;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 static INIT: Once = Once::new();

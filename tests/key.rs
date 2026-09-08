@@ -1,7 +1,7 @@
 mod common;
 
 use common::connect_tpm;
-use tpm_tool::{Error, policy::{PcrSlot, Policy, PolicyBranch}, public::KeyTemplate};
+use tpm2_rs::{Error, policy::{PcrSlot, Policy, PolicyBranch}, public::KeyTemplate};
 
 #[test]
 fn creates_temporary_keys() {
