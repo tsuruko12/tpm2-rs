@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        type: choice
+        required: true
+        default: linux
+        options:
+          - linux
+          - windows
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    env: 
+      RUST_LOG: debug
+      TPM2TOOLS_TCTI: swtpm:host=127.0.0.1,port=2321
+    runs-on: ${{ inputs.os == 'linux' && 'ubuntu-latest' || fromJSON('["self-hosted", "Windows", "X64"]') }}
+    timeout-minutes: 20
+
+    strategy:
+      matrix:
+        rust: ["stable"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+       
+      - name: Start vTPM on Linux
+        if: inputs.os == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libtss2-dev swtpm
+
+          swtpm socket \
+            --tpm2 \
+            --server type=tcp,port=2321,disconnect \
+            --ctrl type=tcp,port=2322 \
+            --tpmstate dir=/tmp \
+            --flags startup-clear \
+            --daemon
+
+          cargo test --features bundled --test provision -- --ignored --nocapture
+        
+      - name: Cargo test
+        run: cargo test --features bundled -- --nocapture
