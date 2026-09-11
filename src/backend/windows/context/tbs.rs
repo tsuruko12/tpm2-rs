@@ -29,6 +29,7 @@ const MAX_RETRY_COUNT: usize = 3;
 impl Context {
     pub(crate) fn create_context() -> Result<Self> {
         let mut handle = ptr::null_mut();
+        
         let ctx_params2 = TBS_CONTEXT_PARAMS2 {
             version: TPM_VERSION_20,
             Anonymous: TBS_CONTEXT_PARAMS2_0 { asUINT32: 4 },
@@ -76,7 +77,7 @@ impl Context {
         let response = loop {
             let status = unsafe {
                 Tbsip_Submit_Command(
-                    self.handle as *const c_void,
+                    self.handle,
                     TBS_COMMAND_LOCALITY_ZERO,
                     TBS_COMMAND_PRIORITY_NORMAL,
                     command_bytes.as_ptr(),
