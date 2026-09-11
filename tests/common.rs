@@ -29,7 +29,7 @@ pub(crate) fn connect_tpm() -> TestContext {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn connect_tpm() -> Context {
+pub(crate) fn connect_tpm() -> TestContext {
     init_tracing();
 
     let guard = TPM_TEST_LOCK
