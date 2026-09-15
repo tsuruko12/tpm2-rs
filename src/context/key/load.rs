@@ -36,8 +36,8 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// if no key with the specified name is registered, returns [`Error::KeyNotFound`] .
-    pub fn open(&mut self, key_name: &str) -> Result<Key> {
+    /// If no key with the specified name is registered, returns [`Error::KeyNotFound`] .
+    pub fn open_key(&mut self, key_name: &str) -> Result<Key> {
         if self.store.user_key_exists(key_name)? {
             Ok(Key::stored(key_name))
         } else {
