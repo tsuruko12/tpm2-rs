@@ -189,6 +189,20 @@ impl Error {
     pub(crate) fn esapi(source: impl Into<BoxError>) -> Self {
         Self::internal(InternalError::Esapi(source.into()))
     }
+
+    pub(crate) fn from_store_err(source: rusqlite::Error) -> Self {
+        if matches!(
+            source, 
+            rusqlite::Error::FromSqlConversionFailure(_, _, _)
+            | rusqlite::Error::IntegralValueOutOfRange(_, _)
+            | rusqlite::Error::Utf8Error(_, _)
+            | rusqlite::Error::InvalidColumnType(_, _, _)
+        ) {
+            Self::corrupted_store_with_source(source)
+        } else {
+            Self::Store(source)
+        }   
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

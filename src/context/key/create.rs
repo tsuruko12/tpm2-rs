@@ -1,8 +1,8 @@
 use crate::{
+    generate_random_bytes,
     cache::TemporaryKey,
     db::{KeyMeta, TpmKeyMeta, WrappingKeyMeta},
     error::{Error, Result},
-    generate_key_id,
     public::KeyTemplate,
     types::{
         tpm::{Tpm2bAuth, Tpm2bPublicKeyRsa},
@@ -349,3 +349,8 @@ impl Context {
         Ok(id)
     }
 }
+
+fn generate_key_id() -> Result<String> {
+    Ok(hex::encode(generate_random_bytes(16)?))
+}
+

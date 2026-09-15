@@ -145,6 +145,13 @@ impl Key {
         Self(id)
     }
 
+    pub fn name(&self) -> Option<&str> {
+        match &self.0 {
+            KeyId::Stored(id) => Some(id),
+            KeyId::Temporary(_) => None,
+        }
+    }
+
     pub(crate) fn stored(key_name: &str) -> Self {
         Self(KeyId::Stored(key_name.to_string()))
     }

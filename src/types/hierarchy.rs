@@ -15,13 +15,13 @@ impl Hierarchy {
     const PLATFORM_STR: &str = "platform";
     const ENDORSEMENT_STR: &str = "endorsement";
 
-    pub(crate) fn from_db(name: &str) -> Result<Self> {
-        match name {
+    pub(crate) fn from_db(value: &str) -> Result<Self> {
+        match value {
             Self::OWNER_STR => Ok(Self::Storage),
             Self::PLATFORM_STR => Ok(Self::Platform),
             Self::ENDORSEMENT_STR => Ok(Self::Endorsement),
             _ => {
-                debug!(%name, "invalid stored TPM key hierarchy");
+                debug!(%value, "invalid stored TPM key hierarchy");
                 Err(Error::corrupted_store())
             }
         }

@@ -86,6 +86,12 @@ impl Cache {
             .selected_policy_branches
             .get(&AuthorizationTarget::Hierarchy(target))
     }
+
+    pub(crate) fn delete_stored_key(&mut self, target: &str) {
+        let target = AuthorizationTarget::Key(KeyId::Stored(target.to_string()));
+        let _ = self.auths.remove(&target);
+        let _ = self.selected_policy_branches.remove(&target);
+    }
 }
 
 pub(crate) struct TemporaryKey {

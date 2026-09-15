@@ -15,14 +15,10 @@ mod types;
 pub use crate::{
     context::Context,
     error::{Error, Result},
-    types::{algorithm, hierarchy, policy, public},
+    types::{algorithm, hierarchy, key::Key, policy, public},
 };
 
 use rand::{RngCore, rngs::OsRng};
-
-fn generate_key_id() -> Result<String> {
-    Ok(hex::encode(generate_random_bytes(16)?))
-}
 
 fn generate_random_bytes(length: usize) -> Result<Vec<u8>> {
     let mut key = vec![0u8; length];
