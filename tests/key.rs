@@ -1,7 +1,9 @@
 mod common;
 
 use common::connect_tpm;
-use tpm2_rs::{Error, policy::{PcrSlot, Policy, PolicyBranch}, public::KeyTemplate};
+use tpm2_rs::{Error, Key, Result, policy::{PcrSlot, Policy, PolicyBranch}, public::KeyTemplate};
+
+use crate::common::TestContext;
 
 #[test]
 fn creates_temporary_keys() {
@@ -14,20 +16,45 @@ fn creates_temporary_keys() {
         .expect("failed to create a temporary symmetric key");
 }
 
-#[test]
-fn creates_named_keys() {
+#[test] 
+fn creates_and_persists_keys() {
     let mut test = connect_tpm();
+
+    let (key1, key2) = create_named_keys(&mut test).expect("failed to create named keys");
+
+    let key3 = create_key_with_authorization(&mut test)
+        .expect("failed to create a key with authorization");
+    test.ctx.set_auth_value(&key3, b"AuthValue");
+    test.ctx.set_policy_branch(&key3, "auth");
+
+    let created_keys = [&key1, &key2, &key3];
+    let persistent_handles = [0x8100_8500, 0x8100_8501, 0x8100_8502];
+    for (key, handle) in created_keys.iter().zip(persistent_handles) {
+        persist_stored_key(&mut test, key, handle);
+    }
+
+    delete_stored_keys(&mut test, key1.name().unwrap());
+    delete_stored_keys(&mut test, key3.name().unwrap());
+
+    for key in created_keys {
+        assert!(matches!(
+            test.ctx.open_key(key.name().unwrap()),
+            Err(Error::KeyNotFound)
+        ));        
+    }
+}
+
+fn create_named_keys(test: &mut TestContext) -> Result<(Key, Key)> {
     let name = "srk";
 
-    let _ = test.ctx
+    let srk = test.ctx
         .create_key(
             KeyTemplate::storage_root_key(),
             Some("srk"),
             None,
             None,
             None,
-        )
-        .expect("failed to create a named key");
+        )?;
 
     let duplicate = test.ctx.create_key(
         KeyTemplate::storage_root_key(),
@@ -37,12 +64,20 @@ fn creates_named_keys() {
         None,
     );
     assert!(matches!(duplicate, Err(Error::KeyAlreadyExists(_))));
+
+    let ecc_sign_key = test.ctx
+        .create_key(
+            KeyTemplate::ecc_sign(),
+            Some("ecc-sign"),
+            None,
+            None,
+            Some(&srk),
+        )?;
+
+    Ok((srk, ecc_sign_key))
 }
 
-#[test]
-fn creates_key_with_authorization() {
-    let mut test = connect_tpm();
-
+fn create_key_with_authorization(test: &mut TestContext) -> Result<Key> {
     let policy_pcr = Policy::pcr(&[PcrSlot::Slot7, PcrSlot::Slot0]).expect("invalid PCR slots");
     let policy = Policy::or(vec![
         PolicyBranch::new("auth", Policy::auth_value()),
@@ -56,15 +91,15 @@ fn creates_key_with_authorization() {
         Some(policy),
         None,
     )
-    .expect("failed to create a named key");
 }
 
-fn persists_stored_key_at_specified_handle() {
-    let mut test = connect_tpm();
+fn persist_stored_key(test: &mut TestContext, key: &Key, persistent_handle: u32) {
+    test
+        .ctx
+        .persist(&key, Some(persistent_handle))
+        .expect("failed to persist a stored key")
+}
 
-    let key = test.ctx.open("rsa-sign").expect("failed to open key");
-    test.ctx.set_policy_branch(&key, "pcr");
-
-    test.ctx.persist(&key, Some(0x8100_8100))
-        .expect("failed to persist a stored key");
+fn delete_stored_keys(test: &mut TestContext, key_name: &str) {
+    test.ctx.delete_key(key_name).expect("failed to persist a stored key: {key_name}");
 }
