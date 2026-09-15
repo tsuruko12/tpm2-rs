@@ -4,7 +4,20 @@ use crate::{
 use super::super::Context;
 
 impl Context {
-    pub fn delete(&mut self, key_name: &str) -> Result<()> {
+    /// Delete a stored key and its metadata from the key store.
+    ///
+    /// If the specified key has child keys, they are deleted as well. 
+    ///
+    /// # Note
+    ///
+    /// This operation is not atomic. 
+    /// If an error occurs, keys deleted before the error are not restored.
+    ///
+    /// # Errors
+    ///
+    /// If no stored key with `key_name`` exists, returns [`crate::Error::KeyNotFound`].
+    /// If eviction of a persistent TPM object fails, returns an error. 
+    pub fn delete_key(&mut self, key_name: &str) -> Result<()> {
         match self.store.get_key_kind(key_name)? {
             StoredKeyKind::Tpm => {
                 let mut targets = Vec::new();
