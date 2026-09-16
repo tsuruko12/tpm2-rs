@@ -1,8 +1,5 @@
 use tracing::debug;
-use tss_esapi::{
-    handles::{KeyHandle, ObjectHandle},
-    structures::{Name, Public},
-};
+use tss_esapi::handles::ObjectHandle;
 
 use crate::{Error, Result, types::tpm::Tpm2bName};
 use super::Context;
@@ -16,10 +13,6 @@ impl Context {
             .tr_get_name(obj_handle)
             .map(Into::into)
             .map_err(Error::esapi)
-    }
-
-    fn read_obj_public(&mut self, handle: KeyHandle) -> Result<(Public, Name, Name)> {
-        self.ctx.read_public(handle).map_err(Error::from_tss_err)
     }
 }
 
