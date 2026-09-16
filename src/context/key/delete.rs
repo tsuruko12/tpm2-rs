@@ -78,7 +78,6 @@ impl Context {
             .map(|_| ());
 
         let _ = self.backend.release_handle(session_salt_handle);
-        let _ = self.backend.release_handle(loaded);
 
         result
     }
