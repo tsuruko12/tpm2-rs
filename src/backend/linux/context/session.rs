@@ -42,10 +42,10 @@ impl Context {
 
         if !resources.has_no_sessions() {
             return self.reuse_sessions(
-                resources, 
-                hmac_session_attrs, 
+                resources,
+                hmac_session_attrs,
                 authorization.policy.as_ref(),
-            )
+            );
         }
 
         if let Some(policy) = &authorization.policy {
@@ -54,14 +54,14 @@ impl Context {
             if !hmac_session_attrs.is_empty() {
                 self.prepare_hmac_session(resources, hmac_session_attrs, tpm_key)?;
             }
-        } else if (hmac_session_attrs.is_empty() 
+        } else if (hmac_session_attrs.is_empty()
             || hmac_session_attrs == TpmaSession::CONTINUE_SESSION)
             && authorization.auth.is_empty()
         {
             resources.add_session(AuthSession::Password)?;
         } else {
             self.prepare_hmac_session(resources, hmac_session_attrs, tpm_key)?;
-        }                       
+        }
 
         Ok(())
     }
@@ -95,29 +95,25 @@ impl Context {
     }
 
     fn reuse_sessions(
-        &mut self, 
+        &mut self,
         resources: &mut CommandResources,
         session_attrs: TpmaSession,
         policy: Option<&PolicyData>,
     ) -> Result<()> {
         if resources.find_password_session().is_some() {
-            return Ok(())
+            return Ok(());
         }
 
         if let Some(session) = resources.find_policy_session() {
-            let policy = policy
-                .ok_or_else(|| Error::invalid_state(
-                    "policy must be Some when reusing a policy session")
-                )?;
+            let policy = policy.ok_or_else(|| {
+                Error::invalid_state("policy must be Some when reusing a policy session")
+            })?;
 
             let policy_session = PolicySession::try_from(session).unwrap();
             self.restart_policy(policy_session)?;
             self.set_session_attrs(session, TpmaSession::continue_session())?;
 
-            self.apply_policy(
-                policy_session,
-                policy,
-            )?;
+            self.apply_policy(policy_session, policy)?;
         }
 
         if let Some(hmac_session) = resources.find_hmac_session() {
@@ -128,7 +124,7 @@ impl Context {
     }
 
     fn reuse_hmac_session(
-        &mut self, 
+        &mut self,
         hmac_session: AuthSession,
         session_attrs: TpmaSession,
     ) -> Result<()> {
@@ -136,13 +132,18 @@ impl Context {
         self.set_session_attrs(hmac_session, session_attrs)
     }
 
-    fn set_session_attrs(&mut self, session: AuthSession, session_attrs: TpmaSession) -> Result<()> {
-        self.ctx.tr_sess_set_attributes(
-            session,
-            session_attrs.into(),
-            TpmaSession::all().bits().into(),
-        )
-        .map_err(Error::esapi)
+    fn set_session_attrs(
+        &mut self,
+        session: AuthSession,
+        session_attrs: TpmaSession,
+    ) -> Result<()> {
+        self.ctx
+            .tr_sess_set_attributes(
+                session,
+                session_attrs.into(),
+                TpmaSession::all().bits().into(),
+            )
+            .map_err(Error::esapi)
     }
 
     fn start_auth_session(
@@ -173,8 +174,6 @@ impl Context {
     }
 
     fn set_auth(&mut self, handle: ObjectHandle, auth: Auth) -> Result<()> {
-        self.ctx
-            .tr_set_auth(handle, auth)
-            .map_err(Error::esapi)
+        self.ctx.tr_set_auth(handle, auth).map_err(Error::esapi)
     }
 }

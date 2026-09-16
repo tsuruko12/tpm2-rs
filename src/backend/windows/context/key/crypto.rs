@@ -1,5 +1,5 @@
-use super::{Command, CommandResources, Context};
 use super::super::RsaEncryptResponse;
+use super::{Command, CommandResources, Context};
 use crate::backend::windows::types::TpmtRsaDecrypt;
 use crate::{
     Result,

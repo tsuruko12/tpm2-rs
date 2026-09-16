@@ -8,9 +8,7 @@ mod tcti;
 
 use tracing::debug;
 use tss_esapi::{
-    Context as EsapiContext,
-    handles::ObjectHandle,
-    interface_types::session_handles::AuthSession,
+    Context as EsapiContext, handles::ObjectHandle, interface_types::session_handles::AuthSession,
 };
 
 use crate::{Error, Result, types::LoadedObjectHandle};
@@ -42,13 +40,12 @@ impl CommandResources {
     }
 
     fn has_no_sessions(&self) -> bool {
-        self.sessions
-            .iter()
-            .all(|session| session.is_none())
+        self.sessions.iter().all(|session| session.is_none())
     }
 
     fn add_session(&mut self, session: AuthSession) -> Result<()> {
-        let slot = self.sessions
+        let slot = self
+            .sessions
             .iter_mut()
             .find(|slot| slot.is_none())
             .ok_or_else(|| Error::invalid_state("no available session slots"))?;
@@ -115,7 +112,7 @@ impl Context {
             Ok(value) => {
                 resources.flush_sessions(self)?;
                 Ok(value)
-            },
+            }
             Err(e) => {
                 let _ = resources.cleanup(self);
                 Err(e)

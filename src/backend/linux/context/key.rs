@@ -6,8 +6,11 @@ mod read_public;
 use sha2::{Digest, Sha256};
 use tss_esapi::{structures::Public, traits::Marshall};
 
-use crate::{Error, Result, types::tpm::{Tpm2bName, TpmiAlgHash}};
-use super::{Context, CommandResources};
+use super::{CommandResources, Context};
+use crate::{
+    Error, Result,
+    types::tpm::{Tpm2bName, TpmiAlgHash},
+};
 
 fn compute_obj_name(public: &Public) -> Result<Tpm2bName> {
     let public_area_bytes = public

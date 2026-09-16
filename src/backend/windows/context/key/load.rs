@@ -1,15 +1,14 @@
-use super::{
-    Command, CommandResources, Context,
-    read_public::validate_obj_name,
-};
 use super::super::{LoadResponse, TpmsAuthCommand};
+use super::{Command, CommandResources, Context, read_public::validate_obj_name};
 use crate::{
     Result,
     db::InternalKeyMeta,
     types::{
         Authorization, LoadedHandle, LoadedObjectHandle,
-        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc, TpmMarshal, TpmaSession,
-            TpmiDhObject, TpmiDhPersistent, TpmiRhHierarchy},
+        tpm::{
+            Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmCc, TpmMarshal, TpmaSession, TpmiDhObject,
+            TpmiDhPersistent, TpmiRhHierarchy,
+        },
     },
 };
 
@@ -49,9 +48,9 @@ impl Context {
                         Some(&parent.authorization),
                         session_salt_handle,
                     )?
-                },
+                }
             };
-            
+
             let mut command = Command::new(TpmCc::LOAD)
                 .with_handles([parent.handle.inner()])
                 .with_authorization_area(authorization_area)
@@ -115,13 +114,8 @@ impl Context {
         resources.track_loaded_handle(parent.handle);
 
         let result = (|| {
-            let (obj_handle, obj_name) = self.load_handle(
-                &private,
-                &public,
-                &parent,
-                Some(session_salt_handle),
-                None,
-            )?;
+            let (obj_handle, obj_name) =
+                self.load_handle(&private, &public, &parent, Some(session_salt_handle), None)?;
             resources.add_transient_handle(obj_handle.inner());
             resources.flush_handle(self, parent.handle.inner())?;
 

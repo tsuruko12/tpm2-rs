@@ -112,6 +112,7 @@ END;
 
 #[derive(Debug, Clone)]
 pub(crate) struct InternalKeyMeta {
+    #[expect(dead_code)]
     pub(crate) kind: InternalKeyKind,
     pub(crate) handle: TpmiDhPersistent,
     pub(crate) obj_name: Tpm2bName,
@@ -584,20 +585,6 @@ impl MetadataStore {
         })
     }
 
-    pub(crate) fn load_key_policy(&self, key_name: &str) -> Result<Option<PolicyData>> {
-        match self.load_key(key_name)? {
-            KeyMeta::Tpm { tpm_key_meta, .. } => Ok(tpm_key_meta.policy),
-            KeyMeta::Symmetric { wrapping_key, .. } => match wrapping_key {
-                WrappingKeyMeta::Shared => Ok(None),
-                WrappingKeyMeta::Dedicated(tpm_key_meta) => Ok(tpm_key_meta.policy),
-            },
-        }
-    }
-
-    pub(crate) fn load_owner_policy(&self) -> Result<Option<PolicyData>> {
-        self.load_hierarchy_policy(Hierarchy::Storage)
-    }
-
     pub(crate) fn load_hierarchy_policy(&self, hierarchy: Hierarchy) -> Result<Option<PolicyData>> {
         let policy = self
             .conn
@@ -697,26 +684,24 @@ impl MetadataStore {
         Ok(())
     }
 
-    pub(crate) fn delete_key_meta(
-        &mut self, 
-        key_name: &str,
-    ) -> Result<()> {
-        self
-            .conn
+    pub(crate) fn delete_key_meta(&mut self, key_name: &str) -> Result<()> {
+        self.conn
             .execute("DELETE FROM user_keys WHERE key_name = ?1", [key_name])
             .map(|_| ())
             .map_err(Error::from_store_err)
     }
 
     pub(crate) fn get_key_kind(&self, key_name: &str) -> Result<StoredKeyKind> {
-        let kind = self.conn.query_row(
-            "SELECT kind FROM user_keys WHERE key_name = ?1",
-            [key_name],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(map_provisioning_err)?
-        .ok_or(Error::KeyNotFound)?; 
+        let kind = self
+            .conn
+            .query_row(
+                "SELECT kind FROM user_keys WHERE key_name = ?1",
+                [key_name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(map_provisioning_err)?
+            .ok_or(Error::KeyNotFound)?;
 
         StoredKeyKind::from_db(&kind)
     }
@@ -726,39 +711,43 @@ impl MetadataStore {
         key_name: &str,
         persistent_handle: u32,
     ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE tpm_keys SET persistent_handle = ?1 WHERE key_name = ?2",
-            (persistent_handle, key_name),
-        )
-        .map(|_| ())
-        .map_err(Error::from_store_err)
+        self.conn
+            .execute(
+                "UPDATE tpm_keys SET persistent_handle = ?1 WHERE key_name = ?2",
+                (persistent_handle, key_name),
+            )
+            .map(|_| ())
+            .map_err(Error::from_store_err)
     }
 
     pub(crate) fn collect_persistent_key(
         &self,
-        key_name: &str, 
+        key_name: &str,
         targets: &mut Vec<DeleteTarget>,
     ) -> Result<()> {
         if targets.is_empty() {
-            let (persistent_handle, obj_name) = self.conn.query_row(
-            r#"
+            let (persistent_handle, obj_name) = self
+                .conn
+                .query_row(
+                    r#"
                 SELECT persistent_handle, object_name 
                 FROM tpm_keys
                 WHERE key_name = ?1
-            "#,              
-                [key_name], 
-                |row| {
-                    Ok((row.get::<_, Option<u32>>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })
-            .map_err(Error::from_store_err)?;
+            "#,
+                    [key_name],
+                    |row| Ok((row.get::<_, Option<u32>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+                )
+                .map_err(Error::from_store_err)?;
 
-            targets.push(DeleteTarget { 
-                key_name: key_name.to_string(), 
+            targets.push(DeleteTarget {
+                key_name: key_name.to_string(),
                 persistent_handle: persistent_handle
                     .map(TpmiDhPersistent::try_from)
                     .transpose()
                     .map_err(Error::corrupted_store_with_source)?,
-                obj_name: obj_name.try_into().map_err(Error::corrupted_store_with_source)?,
+                obj_name: obj_name
+                    .try_into()
+                    .map_err(Error::corrupted_store_with_source)?,
             });
         }
 
@@ -769,20 +758,17 @@ impl MetadataStore {
                     SELECT key_name, persistent_handle, object_name
                     FROM tpm_keys 
                     WHERE parent_key_name = ?1
-                "#
+                "#,
             )
             .map_err(Error::from_store_err)?;
         let rows = stmt
-            .query_map(
-                [key_name], 
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?, 
-                        row.get::<_, Option<u32>>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                    ))
-                }
-            )
+            .query_map([key_name], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<u32>>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                ))
+            })
             .map_err(Error::from_store_err)?;
 
         let mut child_names = Vec::new();
@@ -794,10 +780,12 @@ impl MetadataStore {
                 .map(TpmiDhPersistent::try_from)
                 .transpose()
                 .map_err(Error::corrupted_store_with_source)?;
-            targets.push(DeleteTarget { 
-                key_name: name, 
+            targets.push(DeleteTarget {
+                key_name: name,
                 persistent_handle,
-                obj_name: obj_name.try_into().map_err(Error::corrupted_store_with_source)?,
+                obj_name: obj_name
+                    .try_into()
+                    .map_err(Error::corrupted_store_with_source)?,
             });
         }
 

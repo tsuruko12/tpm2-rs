@@ -1,6 +1,8 @@
 use super::{TpmAlgId, TpmiAlgHash, TpmsSchemeHash, TpmtKdfScheme, TpmtSymDefObject};
 use crate::{
-    Error, Result, macros::{newtype, tpm_list_type, tpm2b_type}, types::EccCurve,
+    Error, Result,
+    macros::{newtype, tpm_list_type, tpm2b_type},
+    types::EccCurve,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -393,6 +395,7 @@ impl Default for TpmsEccPoint {
 }
 
 impl TpmsEccPoint {
+    #[expect(dead_code)]
     pub(crate) const MAX_SIZE: usize = 2 * Tpm2bEccParameter::MAX_SIZE;
 
     pub(crate) fn new(x: Vec<u8>, y: Vec<u8>) -> Result<Self> {

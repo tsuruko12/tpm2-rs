@@ -1,4 +1,4 @@
-use super::super::{algorithm::HashAlgorithm, tpm::{TpmiEccCurve, TpmsSchemeHash}};
+use super::super::algorithm::HashAlgorithm;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EccTemplate {

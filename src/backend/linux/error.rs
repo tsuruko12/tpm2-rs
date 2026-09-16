@@ -56,6 +56,7 @@ impl Error {
     }
 }
 
+#[expect(dead_code)]
 fn is_internal_err(kind: Tss2ResponseCodeKind) -> bool {
     matches!(
         kind,
@@ -101,4 +102,3 @@ fn is_internal_err(kind: Tss2ResponseCodeKind) -> bool {
 // Unsupported => CommandCode, Hash, KeySize, Mgf, Mode, Kdf, Scheme, Asymmetric, Symmetric, Curve
 // TpmBusy => Yielded, Testing, NvRate, Retry
 // TpmFailure => others
-

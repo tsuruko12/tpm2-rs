@@ -1,11 +1,14 @@
 use tracing::debug;
 
 use crate::{
-    cache::AuthorizationTarget, db::{KeyMeta, TpmKeyMeta}, error::{Error, Result}, hierarchy::Hierarchy, 
+    cache::AuthorizationTarget,
+    db::{KeyMeta, TpmKeyMeta},
+    error::{Error, Result},
+    hierarchy::Hierarchy,
     types::{
-        Authorization, HandleResource, Key, KeyData, KeyId, LoadedHandle, PolicyData, 
-        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmiDhPersistent}
-    }
+        Authorization, HandleResource, Key, KeyData, KeyId, LoadedHandle, PolicyData,
+        tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmiDhPersistent},
+    },
 };
 
 use super::super::Context;
@@ -43,7 +46,7 @@ impl Context {
         } else {
             Err(Error::KeyNotFound)
         }
-    } 
+    }
 
     pub(super) fn load_parent(&mut self, parent: Option<&Key>) -> Result<LoadedHandle> {
         match parent {
@@ -156,7 +159,9 @@ impl Context {
             mut policy,
         } = tpm_key_meta;
 
-        if let Some(policy) = policy.as_mut() && policy.contains_or() {
+        if let Some(policy) = policy.as_mut()
+            && policy.contains_or()
+        {
             let labels = self
                 .cache
                 .key_policy_branches(KeyId::Stored(key_name.to_string()))
@@ -201,13 +206,15 @@ impl Context {
             .cache
             .temporary_key(id)
             .ok_or_else(|| Error::invalid_state("temporary key is not registered"))?;
-        
+
         let mut policy = temporary_key.policy.clone();
-        if let Some(policy) = policy.as_mut() && policy.contains_or() {
+        if let Some(policy) = policy.as_mut()
+            && policy.contains_or()
+        {
             let labels = self
-                    .cache
-                    .key_policy_branches(KeyId::Temporary(id.to_string()))
-                    .ok_or(Error::InvalidPolicy("policy branch was not selected"))?;
+                .cache
+                .key_policy_branches(KeyId::Temporary(id.to_string()))
+                .ok_or(Error::InvalidPolicy("policy branch was not selected"))?;
 
             policy.set_selected_labels(labels)?;
         }
@@ -275,7 +282,9 @@ impl Context {
 
     pub(super) fn hierarchy_authorization(&self, hierarchy: Hierarchy) -> Result<Authorization> {
         let mut policy = self.store.load_hierarchy_policy(hierarchy)?;
-        if let Some(policy) = policy.as_mut() && policy.contains_or() {
+        if let Some(policy) = policy.as_mut()
+            && policy.contains_or()
+        {
             let labels = self
                 .cache
                 .hierarchy_policy_branches(hierarchy)

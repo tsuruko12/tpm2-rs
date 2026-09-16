@@ -20,7 +20,8 @@ use super::{
     Command, CommandResources, Context, Response, ResponseBody, TpmsAuthCommand, TpmsAuthResponse,
 };
 use crate::{
-    error::{Error, Result}, types::tpm::{TPM2B_SIZE_BYTES, TpmCc, TpmHandle, TpmMarshal, TpmaSession},
+    error::{Error, Result},
+    types::tpm::{TPM2B_SIZE_BYTES, TpmCc, TpmHandle, TpmMarshal, TpmaSession},
 };
 
 const INIT_TBS_RESPONSE_SIZE: usize = 4096;
@@ -29,7 +30,7 @@ const MAX_RETRY_COUNT: usize = 3;
 impl Context {
     pub(crate) fn create_context() -> Result<Self> {
         let mut handle = ptr::null_mut();
-        
+
         let ctx_params2 = TBS_CONTEXT_PARAMS2 {
             version: TPM_VERSION_20,
             Anonymous: TBS_CONTEXT_PARAMS2_0 { asUINT32: 4 },
@@ -143,8 +144,8 @@ impl Context {
                 )
             };
             debug!(
-                ?session_handle, 
-                ?session_attrs, 
+                ?session_handle,
+                ?session_attrs,
                 "preparing authorization session"
             );
 

@@ -29,7 +29,10 @@ impl<'p> Command<'p> {
         self
     }
 
-    pub(in crate::backend::windows) fn with_authorization_area(mut self, authorization_area: Vec<TpmsAuthCommand>) -> Self {
+    pub(in crate::backend::windows) fn with_authorization_area(
+        mut self,
+        authorization_area: Vec<TpmsAuthCommand>,
+    ) -> Self {
         if !authorization_area.is_empty() {
             self.authorization_area = authorization_area;
             self.header.use_sessions();

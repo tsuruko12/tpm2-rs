@@ -103,10 +103,7 @@ impl LoadedHandle {
         }
     }
 
-    pub(crate) fn internal_persistent(
-        handle: BackendObjectHandle,
-        name: Tpm2bName,
-    ) -> Self {
+    pub(crate) fn internal_persistent(handle: BackendObjectHandle, name: Tpm2bName) -> Self {
         Self {
             handle: LoadedObjectHandle::Persistent(handle),
             name,
@@ -188,6 +185,7 @@ pub(crate) enum KeyData {
     Srk(HandleResource),
     Rsa(HandleResource),
     Ecc(HandleResource),
+    #[expect(dead_code)]
     Symmetric {
         template: SymmetricTemplate,
         wrapping_key: Option<HandleResource>,
@@ -201,6 +199,7 @@ pub(crate) enum HandleResource {
         private: Option<Tpm2bPrivate>,
         obj_name: Tpm2bName,
     },
+    #[expect(dead_code)]
     Persistent {
         handle: TpmiDhPersistent,
         obj_name: Tpm2bName,
@@ -211,9 +210,7 @@ impl Debug for HandleResource {
     fn fmt(&self, f: &mut Formatter<'_>) -> StdResult {
         match self {
             Self::Transient {
-                public,
-                obj_name,
-                ..
+                public, obj_name, ..
             } => f
                 .debug_struct("Transient")
                 .field("public", public)
@@ -230,6 +227,7 @@ impl Debug for HandleResource {
 }
 
 impl HandleResource {
+    #[expect(dead_code)]
     fn is_persistent(&self) -> bool {
         matches!(self, Self::Persistent { .. })
     }

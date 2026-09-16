@@ -1,4 +1,4 @@
-use crate::{types::Authorization, Result};
+use crate::{Result, types::Authorization};
 
 use super::Context;
 

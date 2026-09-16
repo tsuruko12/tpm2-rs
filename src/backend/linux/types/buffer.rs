@@ -40,8 +40,7 @@ impl From<Private> for Tpm2bPrivate {
 
 impl From<Tpm2bAuth> for Auth {
     fn from(auth: Tpm2bAuth) -> Self {
-        auth
-            .as_bytes()
+        auth.as_bytes()
             .try_into()
             .expect("Tpm2bAuth must be valid for Auth")
     }
@@ -55,8 +54,7 @@ impl From<&Tpm2bAuth> for Auth {
 
 impl From<Auth> for Tpm2bAuth {
     fn from(auth: Auth) -> Self {
-        auth
-            .value()
+        auth.value()
             .try_into()
             .expect("Auth must be valid for Tpm2bAuth")
     }
@@ -64,10 +62,8 @@ impl From<Auth> for Tpm2bAuth {
 
 impl From<Name> for Tpm2bName {
     fn from(name: Name) -> Self {
-        name
-            .value()
+        name.value()
             .try_into()
             .expect("Name must be valid for Tpm2bName")
     }
 }
-

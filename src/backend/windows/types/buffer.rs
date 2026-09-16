@@ -1,6 +1,4 @@
-use crate::{
-    Error, Result, macros::tpm2b_zeroize_type_in_win, public::RsaKeyBits,
-};
+use crate::{Error, Result, macros::tpm2b_zeroize_type_in_win, public::RsaKeyBits};
 
 tpm2b_zeroize_type_in_win!(Tpm2bEncryptedSecret(TpmuEncryptedSecret));
 
@@ -26,7 +24,7 @@ impl TpmuEncryptedSecret {
             Ok(Self::Rsa(value.into()))
         } else {
             Err(Error::invalid_state(
-                "RSA encrypted secret exceeds maximum size"
+                "RSA encrypted secret exceeds maximum size",
             ))
         }
     }

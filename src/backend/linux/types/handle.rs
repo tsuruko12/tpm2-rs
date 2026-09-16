@@ -1,7 +1,8 @@
 use tss_esapi::{
-    handles::{PersistentTpmHandle, TpmHandle as EsapiTpmHandle}, 
-    interface_types::resource_handles::Hierarchy as EsapiHierarchy, 
-    structures::HandleList, tss2_esys::TPM2_HANDLE
+    handles::{PersistentTpmHandle, TpmHandle as EsapiTpmHandle},
+    interface_types::resource_handles::Hierarchy as EsapiHierarchy,
+    structures::HandleList,
+    tss2_esys::TPM2_HANDLE,
 };
 
 use crate::{
@@ -56,7 +57,9 @@ impl TryFrom<TpmiRhHierarchy> for EsapiHierarchy {
             TpmiRhHierarchy::OWNER => Ok(Self::Owner),
             TpmiRhHierarchy::PLATFORM => Ok(Self::Platform),
             TpmiRhHierarchy::NULL => Ok(Self::Null),
-            _ => Err(Error::conversion::<TpmiRhHierarchy, EsapiHierarchy>(Some(&hierarchy))),
+            _ => Err(Error::conversion::<TpmiRhHierarchy, EsapiHierarchy>(Some(
+                &hierarchy,
+            ))),
         }
     }
 }

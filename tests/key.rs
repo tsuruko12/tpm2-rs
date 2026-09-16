@@ -1,7 +1,11 @@
 mod common;
 
 use common::connect_tpm;
-use tpm2_rs::{Error, Key, Result, policy::{PcrSlot, Policy, PolicyBranch}, public::KeyTemplate};
+use tpm2_rs::{
+    Error, Key, Result,
+    policy::{PcrSlot, Policy, PolicyBranch},
+    public::KeyTemplate,
+};
 
 use crate::common::TestContext;
 
@@ -9,14 +13,16 @@ use crate::common::TestContext;
 fn creates_temporary_keys() {
     let mut test = connect_tpm();
 
-    test.ctx.create_key(KeyTemplate::rsa_sign(), None, None, None, None)
+    test.ctx
+        .create_key(KeyTemplate::rsa_sign(), None, None, None, None)
         .expect("failed to create a temporary RSA key");
 
-    test.ctx.create_key(KeyTemplate::aes_gcm_128(), None, None, None, None)
+    test.ctx
+        .create_key(KeyTemplate::aes_gcm_128(), None, None, None, None)
         .expect("failed to create a temporary symmetric key");
 }
 
-#[test] 
+#[test]
 fn creates_and_persists_keys() {
     let mut test = connect_tpm();
 
@@ -40,21 +46,20 @@ fn creates_and_persists_keys() {
         assert!(matches!(
             test.ctx.open_key(key.name().unwrap()),
             Err(Error::KeyNotFound)
-        ));        
+        ));
     }
 }
 
 fn create_named_keys(test: &mut TestContext) -> Result<(Key, Key)> {
     let name = "srk";
 
-    let srk = test.ctx
-        .create_key(
-            KeyTemplate::storage_root_key(),
-            Some("srk"),
-            None,
-            None,
-            None,
-        )?;
+    let srk = test.ctx.create_key(
+        KeyTemplate::storage_root_key(),
+        Some("srk"),
+        None,
+        None,
+        None,
+    )?;
 
     let duplicate = test.ctx.create_key(
         KeyTemplate::storage_root_key(),
@@ -65,14 +70,13 @@ fn create_named_keys(test: &mut TestContext) -> Result<(Key, Key)> {
     );
     assert!(matches!(duplicate, Err(Error::KeyAlreadyExists(_))));
 
-    let ecc_sign_key = test.ctx
-        .create_key(
-            KeyTemplate::ecc_sign(),
-            Some("ecc-sign"),
-            None,
-            None,
-            Some(&srk),
-        )?;
+    let ecc_sign_key = test.ctx.create_key(
+        KeyTemplate::ecc_sign(),
+        Some("ecc-sign"),
+        None,
+        None,
+        Some(&srk),
+    )?;
 
     Ok((srk, ecc_sign_key))
 }
@@ -94,12 +98,13 @@ fn create_key_with_authorization(test: &mut TestContext) -> Result<Key> {
 }
 
 fn persist_stored_key(test: &mut TestContext, key: &Key, persistent_handle: u32) {
-    test
-        .ctx
+    test.ctx
         .persist(&key, Some(persistent_handle))
         .expect("failed to persist a stored key")
 }
 
 fn delete_stored_keys(test: &mut TestContext, key_name: &str) {
-    test.ctx.delete_key(key_name).expect("failed to persist a stored key: {key_name}");
+    test.ctx
+        .delete_key(key_name)
+        .expect("failed to persist a stored key: {key_name}");
 }

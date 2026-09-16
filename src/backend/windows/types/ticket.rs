@@ -11,7 +11,7 @@ pub(in crate::backend::windows) struct TpmtTkCreation {
 
 impl TpmtTkCreation {
     pub(in crate::backend::windows) fn new(
-        hierarchy: TpmiRhHierarchy, 
+        hierarchy: TpmiRhHierarchy,
         digest: Tpm2bDigest,
     ) -> Self {
         Self {

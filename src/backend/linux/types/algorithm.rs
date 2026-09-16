@@ -8,7 +8,8 @@ use crate::{
     Error, Result,
     algorithm::HashAlgorithm,
     types::tpm::{
-        TpmAlgId, TpmEccCurve, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmlEccCurve, TpmsAlgProperty, TpmsSchemeHash
+        TpmAlgId, TpmEccCurve, TpmaAlgorithm, TpmiAlgHash, TpmlAlgProperty, TpmlEccCurve,
+        TpmsAlgProperty, TpmsSchemeHash,
     },
 };
 
@@ -16,7 +17,8 @@ impl TryFrom<TpmiAlgHash> for HashingAlgorithm {
     type Error = Error;
 
     fn try_from(hash_alg: TpmiAlgHash) -> Result<Self> {
-        hash_alg.value()
+        hash_alg
+            .value()
             .try_into()
             .map_err(|_| Error::conversion::<TpmiAlgHash, HashingAlgorithm>(Some(&hash_alg)))
     }

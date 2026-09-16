@@ -1,13 +1,11 @@
-use tss_esapi::{
-    constants::CapabilityType,
-    structures::CapabilityData,
-};
+use tss_esapi::{constants::CapabilityType, structures::CapabilityData};
 
 use crate::{Error, Result};
 
 use super::Context;
 
 impl Context {
+    #[expect(dead_code)]
     pub(super) fn get_capability_once(
         &mut self,
         capability: CapabilityType,

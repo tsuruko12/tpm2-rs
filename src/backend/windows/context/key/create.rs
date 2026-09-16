@@ -1,19 +1,20 @@
-use super::{Command, CommandResources, Context, compute_obj_name};
 use super::super::{
-    CreatePrimaryResponse, CreateResponse, TpmsAuthCommand,
-    session::prepare_reused_sessions,
+    CreatePrimaryResponse, CreateResponse, TpmsAuthCommand, session::prepare_reused_sessions,
 };
+use super::{Command, CommandResources, Context, compute_obj_name};
 use crate::{
     Error, Result,
     backend::{
         generate_sym_key,
-        windows::types::{Tpm2bData, Tpm2bSensitiveCreate, TpmsSensitiveCreate}
+        windows::types::{Tpm2bData, Tpm2bSensitiveCreate, TpmsSensitiveCreate},
     },
     types::{
         Authorization, CreatedKeyData, CreatedObject, KeyTemplate, LoadedHandle,
         LoadedObjectHandle, PolicyData,
-        tpm::{TpmaSession, Tpm2bAuth, Tpm2bDigest, Tpm2bPrivate, Tpm2bPublic,
-            Tpm2bPublicKeyRsa, TpmCc, TpmMarshal, TpmiDhObject, TpmiRhHierarchy, TpmlPcrSelection},
+        tpm::{
+            Tpm2bAuth, Tpm2bDigest, Tpm2bPrivate, Tpm2bPublic, Tpm2bPublicKeyRsa, TpmCc,
+            TpmMarshal, TpmaSession, TpmiDhObject, TpmiRhHierarchy, TpmlPcrSelection,
+        },
     },
 };
 
@@ -31,7 +32,7 @@ impl Context {
     ) -> Result<CreatedKeyData> {
         let auth_policy = self.get_auth_policy(policy)?;
         let in_public = Tpm2bPublic::from_template(template, auth_policy);
-        
+
         let created = self.create_key(&in_public, auth, parent, session_salt_handle)?;
 
         Ok(CreatedKeyData {
@@ -109,16 +110,10 @@ impl Context {
             };
 
             let sym_key = generate_sym_key(key_bits)?;
-            let rsa_authorization = authorization
-                .as_deref()
-                .unwrap_or(&parent.authorization);
+            let rsa_authorization = authorization.as_deref().unwrap_or(&parent.authorization);
 
-            let wrapped_sym_key = self.wrap_key(
-                rsa_handle,
-                rsa_authorization,
-                sym_key,
-                session_salt_handle,
-            )?;
+            let wrapped_sym_key =
+                self.wrap_key(rsa_handle, rsa_authorization, sym_key, session_salt_handle)?;
             resources.flush_all_handles(self)?;
 
             Ok((wrapped_sym_key, created_key_data))
@@ -147,9 +142,9 @@ impl Context {
 
         let result = (|| {
             let authorization_area = self.prepare_sessions(
-                &mut resources, 
-                TpmaSession::encrypt_decrypt(), 
-                Some(&parent.authorization), 
+                &mut resources,
+                TpmaSession::encrypt_decrypt(),
+                Some(&parent.authorization),
                 Some(session_salt_handle),
             )?;
 
@@ -190,18 +185,15 @@ impl Context {
 
         let result = (|| {
             let authorization_area = self.prepare_sessions(
-                &mut resources, 
-                session_attrs, 
-                Some(&parent.authorization), 
+                &mut resources,
+                session_attrs,
+                Some(&parent.authorization),
                 session_salt_handle,
             )?;
 
             session_attrs.remove(TpmaSession::CONTINUE_SESSION);
-            let authorization_area_for_load = prepare_reused_sessions(
-                &resources,
-                &authorization_area, 
-                session_attrs,
-            )?;
+            let authorization_area_for_load =
+                prepare_reused_sessions(&resources, &authorization_area, session_attrs)?;
 
             let (out_private, out_public) = self.submit_create(
                 &mut resources,

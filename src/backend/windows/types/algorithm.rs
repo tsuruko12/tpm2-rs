@@ -1,4 +1,8 @@
-use crate::{Error, Result, macros::newtype_in_win, types::tpm::{TpmAlgId, TpmiAlgHash, TpmsSchemeHash, TpmuRsaScheme}};
+use crate::{
+    Error, Result,
+    macros::newtype_in_win,
+    types::tpm::{TpmAlgId, TpmiAlgHash, TpmsSchemeHash, TpmuRsaScheme},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::backend::windows) struct TpmtRsaDecrypt {
@@ -10,7 +14,9 @@ impl TpmtRsaDecrypt {
     pub(in crate::backend::windows) fn oaep() -> Self {
         Self {
             scheme: TpmiAlgRsaDecrypt::OAEP,
-            details: TpmuRsaScheme::Oaep(TpmsSchemeHash { hash_alg: TpmiAlgHash::SHA256}),
+            details: TpmuRsaScheme::Oaep(TpmsSchemeHash {
+                hash_alg: TpmiAlgHash::SHA256,
+            }),
         }
     }
 
@@ -32,9 +38,7 @@ impl TryFrom<TpmAlgId> for TpmiAlgRsaDecrypt {
 
     fn try_from(alg: TpmAlgId) -> Result<Self> {
         match alg {
-            TpmAlgId::RsaEs
-            | TpmAlgId::Oaep
-            | TpmAlgId::Null => Ok(Self(alg)),
+            TpmAlgId::RsaEs | TpmAlgId::Oaep | TpmAlgId::Null => Ok(Self(alg)),
             _ => Err(Error::conversion::<TpmAlgId, TpmiAlgRsaDecrypt>(Some(&alg))),
         }
     }

@@ -198,14 +198,15 @@ impl Context {
                 session_salt_handle.map(Into::into),
             )?;
 
-            let (handle, name) = self.load_handle(
-                out_private.clone(),
-                out_public.clone(),
-                parent,
-                session_salt_handle,
-                Some(&mut resources),
-            )
-            .map(|(handle, name)| (handle.inner(), name))?;
+            let (handle, name) = self
+                .load_handle(
+                    out_private.clone(),
+                    out_public.clone(),
+                    parent,
+                    session_salt_handle,
+                    Some(&mut resources),
+                )
+                .map(|(handle, name)| (handle.inner(), name))?;
 
             Ok(CreatedObject {
                 handle,

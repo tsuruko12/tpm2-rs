@@ -37,11 +37,9 @@ impl Context {
                     return Err(Error::InvalidData);
                 }
 
-                bytes
-                    .try_reserve(chunk.len())
-                    .map_err(|_| Error::resource_exhausted(
-                        "failed to allocate random output buffer"
-                    ))?;
+                bytes.try_reserve(chunk.len()).map_err(|_| {
+                    Error::resource_exhausted("failed to allocate random output buffer")
+                })?;
                 bytes.extend_from_slice(chunk.as_bytes());
             }
 

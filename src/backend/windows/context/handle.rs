@@ -1,12 +1,15 @@
 use tracing::debug;
 
-use super::super::{TpmRc, types::{TpmiDhContext, TpmiShAuthSession}};
+use super::super::{
+    TpmRc,
+    types::{TpmiDhContext, TpmiShAuthSession},
+};
 use super::{Command, CommandResources, Context, SessionSlots, response::ensure_no_response_body};
 use crate::{
     Error, Result,
     types::{
         Authorization, LoadedObjectHandle,
-        tpm::{TpmCc, TpmaSession, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision, TpmHandle},
+        tpm::{TpmCc, TpmHandle, TpmaSession, TpmiDhObject, TpmiDhPersistent, TpmiRhProvision},
     },
 };
 
@@ -26,15 +29,18 @@ impl Context {
 
         let result = (|| {
             let (obj_handle, persistent_handle) = self.evict_control(
-                transient_handle, 
-                persistent_handle, 
-                owner_authorization, 
-                Some(session_salt_handle), 
+                transient_handle,
+                persistent_handle,
+                owner_authorization,
+                Some(session_salt_handle),
                 search_end,
             )?;
             let _ = resources.flush_handle(self, transient_handle);
 
-            Ok((LoadedObjectHandle::Persistent(obj_handle), persistent_handle))
+            Ok((
+                LoadedObjectHandle::Persistent(obj_handle),
+                persistent_handle,
+            ))
         })();
 
         self.cleanup_on_err(result, &mut resources)
@@ -63,10 +69,7 @@ impl Context {
             )?;
 
             let mut command = Command::new(command_code)
-                .with_handles([
-                    TpmHandle::from(owner_handle),
-                    TpmHandle::from(obj_handle),
-                ])
+                .with_handles([TpmHandle::from(owner_handle), TpmHandle::from(obj_handle)])
                 .with_authorization_area(authorization_area)
                 .with_parameters(&mut command_params);
 
@@ -164,8 +167,7 @@ impl Context {
     }
 
     fn flush_context(&mut self, flush_handle: TpmiDhContext) -> Result<()> {
-        let mut command =
-            Command::new(TpmCc::FLUSH_CONTEXT).with_handles([flush_handle]);
+        let mut command = Command::new(TpmCc::FLUSH_CONTEXT).with_handles([flush_handle]);
 
         self.submit(
             &mut command,

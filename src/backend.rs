@@ -28,6 +28,5 @@ fn generate_sym_key(key_bits: SymmetricKeyBits) -> Result<Tpm2bPublicKeyRsa> {
 
     Ok(key
         .try_into()
-        .expect("generated symmetric key size must not exceed Tpm2bPublicKeyRsa::MAX_BYTES")
-    )
+        .expect("generated symmetric key size must not exceed Tpm2bPublicKeyRsa::MAX_BYTES"))
 }

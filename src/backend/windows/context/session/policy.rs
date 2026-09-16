@@ -3,12 +3,15 @@ use tracing::debug;
 
 use super::super::{
     Command, CommandResources, Context, PcrReadResponse, PolicyGetDigestResponse,
-    response::ensure_no_response_body
+    response::ensure_no_response_body,
 };
 use crate::{
-    Error, Result, backend::windows::{
-        context::session::generate_caller_nonce, types::{Tpm2bEncryptedSecret, TpmSe, TpmiShPolicy},
-    }, types::{
+    Error, Result,
+    backend::windows::{
+        context::session::generate_caller_nonce,
+        types::{Tpm2bEncryptedSecret, TpmSe, TpmiShPolicy},
+    },
+    types::{
         PcrSelection, PolicyBranchData, PolicyData,
         tpm::{Tpm2bDigest, TpmCc, TpmMarshal, TpmlDigest, TpmlPcrSelection, TpmsPcrSelection},
     },
@@ -18,9 +21,9 @@ const RESPONSE_HANDLE_COUNT: usize = 0;
 
 impl Context {
     pub(super) fn apply_policy(
-        &mut self, 
-        policy_session: TpmiShPolicy, 
-        policy: &PolicyData
+        &mut self,
+        policy_session: TpmiShPolicy,
+        policy: &PolicyData,
     ) -> Result<()> {
         self.apply_policy_step(policy_session, policy)
     }
@@ -52,7 +55,7 @@ impl Context {
 
             let mut prefix = Vec::new();
             self.apply_trial_policy(policy_session, policy, &mut prefix)?;
-            
+
             let auth_policy = self.get_policy_digest(policy_session)?;
             resources.flush_sessions(self)?;
 
@@ -63,34 +66,31 @@ impl Context {
     }
 
     pub(super) fn restart_policy(&mut self, session_handle: TpmiShPolicy) -> Result<()> {
-        let mut command = Command::new(TpmCc::POLICY_RESTART)
-            .with_handles([session_handle]);
+        let mut command = Command::new(TpmCc::POLICY_RESTART).with_handles([session_handle]);
 
         self.submit(
-            &mut command, 
-            RESPONSE_HANDLE_COUNT, 
+            &mut command,
+            RESPONSE_HANDLE_COUNT,
             &mut CommandResources::default(),
         )
         .and_then(|response_body| ensure_no_response_body(&response_body))
     }
 
     fn get_policy_digest(&mut self, policy_session: TpmiShPolicy) -> Result<Tpm2bDigest> {
-        let mut command = Command::new(TpmCc::POLICY_GET_DIGEST)
-            .with_handles([policy_session]);
+        let mut command = Command::new(TpmCc::POLICY_GET_DIGEST).with_handles([policy_session]);
 
         let response_body = self.submit(
-            &mut command, 
-            RESPONSE_HANDLE_COUNT, 
+            &mut command,
+            RESPONSE_HANDLE_COUNT,
             &mut CommandResources::default(),
         )?;
-        
-        PolicyGetDigestResponse::try_from(response_body)
-            .map(|response| response.policy_digest)
+
+        PolicyGetDigestResponse::try_from(response_body).map(|response| response.policy_digest)
     }
 
     fn apply_policy_pcr(
-        &mut self, 
-        policy_session: TpmiShPolicy, 
+        &mut self,
+        policy_session: TpmiShPolicy,
         selection: PcrSelection,
     ) -> Result<()> {
         let selection = TpmsPcrSelection::from(selection);
@@ -114,9 +114,9 @@ impl Context {
     }
 
     fn apply_policy_command_code(
-        &mut self, 
-        policy_session: TpmiShPolicy, 
-        command_code: TpmCc
+        &mut self,
+        policy_session: TpmiShPolicy,
+        command_code: TpmCc,
     ) -> Result<()> {
         let mut command_params = Vec::new();
         command_code.marshal(&mut command_params)?;
@@ -134,8 +134,7 @@ impl Context {
     }
 
     fn apply_policy_auth(&mut self, policy_session: TpmiShPolicy) -> Result<()> {
-        let mut command = Command::new(TpmCc::POLICY_AUTH_VALUE)
-            .with_handles([policy_session]);
+        let mut command = Command::new(TpmCc::POLICY_AUTH_VALUE).with_handles([policy_session]);
 
         self.submit(
             &mut command,
@@ -146,8 +145,7 @@ impl Context {
     }
 
     fn apply_policy_password(&mut self, policy_session: TpmiShPolicy) -> Result<()> {
-        let mut command = Command::new(TpmCc::POLICY_PASSWORD)
-            .with_handles([policy_session]);
+        let mut command = Command::new(TpmCc::POLICY_PASSWORD).with_handles([policy_session]);
 
         self.submit(
             &mut command,
@@ -188,9 +186,9 @@ impl Context {
     }
 
     fn apply_sequence_steps(
-        &mut self, 
-        policy_session: TpmiShPolicy, 
-        steps: &[PolicyData]
+        &mut self,
+        policy_session: TpmiShPolicy,
+        steps: &[PolicyData],
     ) -> Result<()> {
         for step in steps {
             if matches!(step, PolicyData::Sequence(_)) {
@@ -210,16 +208,13 @@ impl Context {
         let mut remaining = selection.pcr_select().to_vec();
 
         while remaining.iter().any(|&byte| byte != 0) {
-            let pcr_selection_in = TpmlPcrSelection::from(vec![
-                TpmsPcrSelection::new(hash, remaining.clone())?
-            ]);
+            let pcr_selection_in =
+                TpmlPcrSelection::from(vec![TpmsPcrSelection::new(hash, remaining.clone())?]);
             let response = self.read_pcr(&pcr_selection_in)?;
 
             match update_counter {
                 Some(expected) if expected != response.pcr_update_counter => {
-                    return Err(Error::authorization_failed(
-                        "PCR value changed during read",
-                    ));
+                    return Err(Error::authorization_failed("PCR value changed during read"));
                 }
                 None => {
                     update_counter = Some(response.pcr_update_counter);
@@ -227,17 +222,12 @@ impl Context {
                 _ => {}
             }
 
-            let Some(returned_select) = response
-                .pcr_selection_out
-                .select_for_hash(hash) 
-            else {
+            let Some(returned_select) = response.pcr_selection_out.select_for_hash(hash) else {
                 debug!("requested PCR hash bank is missing");
                 return Err(Error::InvalidData);
             };
             if returned_select.iter().all(|&byte| byte == 0) {
-                return Err(Error::unsupported(
-                    "requested PCR selection is unavailable",
-                ));
+                return Err(Error::unsupported("requested PCR selection is unavailable"));
             }
 
             for (remaining, &returned) in remaining.iter_mut().zip(returned_select) {
@@ -256,21 +246,20 @@ impl Context {
         let mut command_params = Vec::new();
         pcr_selection_in.marshal(&mut command_params)?;
 
-        let mut command = Command::new(TpmCc::PCR_READ)
-            .with_parameters(&mut command_params);
+        let mut command = Command::new(TpmCc::PCR_READ).with_parameters(&mut command_params);
 
         let response_body = self.submit(
-            &mut command, 
+            &mut command,
             RESPONSE_HANDLE_COUNT,
-            &mut CommandResources::default()
+            &mut CommandResources::default(),
         )?;
         PcrReadResponse::try_from(response_body)
     }
 
     fn apply_policy_step(
-        &mut self, 
+        &mut self,
         policy_session: TpmiShPolicy,
-        policy: &PolicyData
+        policy: &PolicyData,
     ) -> Result<()> {
         match policy {
             PolicyData::Pcr(selection) => self.apply_policy_pcr(policy_session, selection.clone()),
@@ -316,8 +305,8 @@ impl Context {
     }
 
     fn policy_or_for_trial(
-        &mut self, 
-        policy_session: TpmiShPolicy, 
+        &mut self,
+        policy_session: TpmiShPolicy,
         branches: &mut [PolicyBranchData],
         prefix: &[PolicyData],
     ) -> Result<TpmlDigest> {
@@ -355,11 +344,7 @@ impl Context {
             self.submit_policy_or(policy_session, &p_hash_list)?;
 
             let mut next = vec![self.get_policy_digest(policy_session)?];
-            next.extend(
-                remaining_digests
-                    .by_ref()
-                    .take(TpmlDigest::MAX_COUNT - 1),
-            );
+            next.extend(remaining_digests.by_ref().take(TpmlDigest::MAX_COUNT - 1));
             p_hash_list = TpmlDigest::try_from(next)?;
         }
 

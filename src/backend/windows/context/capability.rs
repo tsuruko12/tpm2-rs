@@ -7,6 +7,7 @@ use crate::{
 const RESPONSE_HANDLE_COUNT: usize = 0;
 
 impl Context {
+    #[expect(dead_code)]
     pub(super) fn get_capability_once(
         &mut self,
         capability: TpmCap,
@@ -18,12 +19,11 @@ impl Context {
         property.marshal(&mut command_params)?;
         property_count.marshal(&mut command_params)?;
 
-        let mut command = Command::new(TpmCc::GET_CAPABILITY)
-            .with_parameters(&mut command_params);
+        let mut command = Command::new(TpmCc::GET_CAPABILITY).with_parameters(&mut command_params);
 
         let response_body = self.submit(
-            &mut command, 
-            RESPONSE_HANDLE_COUNT, 
+            &mut command,
+            RESPONSE_HANDLE_COUNT,
             &mut CommandResources::default(),
         )?;
 

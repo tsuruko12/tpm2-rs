@@ -1,13 +1,13 @@
 use crate::{
-    generate_random_bytes,
     cache::TemporaryKey,
     db::{KeyMeta, TpmKeyMeta, WrappingKeyMeta},
     error::{Error, Result},
+    generate_random_bytes,
     public::KeyTemplate,
     types::{
-        tpm::{Tpm2bAuth, Tpm2bPublicKeyRsa},
         Authorization, CreatedKeyData, HandleResource, Key, KeyData, KeyId, LoadedHandle, Policy,
         PolicyData,
+        tpm::{Tpm2bAuth, Tpm2bPublicKeyRsa},
     },
 };
 
@@ -160,12 +160,12 @@ impl Context {
     /// otherwise, the key is available only through this context. `parent` selects the
     /// TPM parent for asymmetric child keys. `auth_value` and `policy` configure the key's
     /// authorization requirements.
-    /// 
+    ///
     /// `auth_value` is set when the key is created.
     ///
     /// # Errors
     ///
-    /// if `parent` is specified for a storage root key or symmetric key, 
+    /// if `parent` is specified for a storage root key or symmetric key,
     /// returns [`Error::InvalidParameter`].
     pub fn create_key(
         &mut self,
@@ -213,8 +213,7 @@ impl Context {
         let key_id =
             self.register_created_key(template, created_key, key_name, policy, parent_id)?;
 
-        self.cache
-            .set_key_auth(key_id.clone(), auth);
+        self.cache.set_key_auth(key_id.clone(), auth);
 
         Ok(Key::new(key_id))
     }
@@ -353,4 +352,3 @@ impl Context {
 fn generate_key_id() -> Result<String> {
     Ok(hex::encode(generate_random_bytes(16)?))
 }
-

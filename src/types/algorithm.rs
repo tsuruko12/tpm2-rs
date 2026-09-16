@@ -1,5 +1,5 @@
-use crate::{Error, Result};
 use super::tpm::{TpmAlgId, TpmiAlgHash};
+use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HashAlgorithm {

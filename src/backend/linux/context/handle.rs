@@ -5,8 +5,14 @@ use tss_esapi::{
     interface_types::{resource_handles::Provision, session_handles::AuthSession},
 };
 
-use crate::{Error, Result, types::{Authorization, LoadedObjectHandle, tpm::{TpmaSession, TpmiDhPersistent}}};
-use super::{Context, CommandResources, SessionSlotArray};
+use super::{CommandResources, Context, SessionSlotArray};
+use crate::{
+    Error, Result,
+    types::{
+        Authorization, LoadedObjectHandle,
+        tpm::{TpmaSession, TpmiDhPersistent},
+    },
+};
 
 impl Context {
     pub(crate) fn persist_handle(
@@ -23,15 +29,18 @@ impl Context {
 
         let result = (|| {
             let (obj_handle, persistent_handle) = self.evict_control(
-                transient_handle, 
-                persistent_handle, 
-                owner_authorization, 
-                Some(session_salt_handle), 
+                transient_handle,
+                persistent_handle,
+                owner_authorization,
+                Some(session_salt_handle),
                 search_end,
             )?;
             let _ = resources.flush_handle(self, transient_handle);
 
-            Ok((LoadedObjectHandle::Persistent(obj_handle), persistent_handle))
+            Ok((
+                LoadedObjectHandle::Persistent(obj_handle),
+                persistent_handle,
+            ))
         })();
 
         match result {
@@ -69,13 +78,15 @@ impl Context {
                 let persistent_tpm_handle = PersistentTpmHandle::new(handle_value)
                     .expect("handle must be in the persistent range");
 
-                match self.ctx.execute_with_sessions(resources.session_slots(), |ctx| {
-                    ctx.evict_control(
-                        Provision::Owner, 
-                        object_handle, 
-                        persistent_tpm_handle.into(),
-                    )
-                }) {
+                match self
+                    .ctx
+                    .execute_with_sessions(resources.session_slots(), |ctx| {
+                        ctx.evict_control(
+                            Provision::Owner,
+                            object_handle,
+                            persistent_tpm_handle.into(),
+                        )
+                    }) {
                     Ok(obj_handle) => break Ok((obj_handle, persistent_handle)),
                     Err(e) => {
                         if is_nv_defined_err(e) {
@@ -124,7 +135,7 @@ impl Context {
                     debug!(?handle, "failed to flush TPM session");
 
                     continue;
-                }       
+                }
             }
 
             *session = None;
@@ -145,8 +156,7 @@ impl Context {
             return Ok(());
         }
 
-        self
-            .flush_context(*handle)
+        self.flush_context(*handle)
             .inspect_err(|_| debug!("failed to flush TPM handle"))?;
 
         *handle = ObjectHandle::None;
@@ -154,7 +164,7 @@ impl Context {
         Ok(())
     }
 
-   fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
+    fn flush_handles(&mut self, handles: &mut Vec<ObjectHandle>) -> Result<()> {
         let mut first_err = None;
 
         for handle in handles.iter_mut() {
@@ -186,7 +196,7 @@ impl Context {
         if let Err(e) = self.ctx.tr_close(handle) {
             debug!("failed to close ESAPI handle");
             return Err(Error::from_tss_err(e));
-        } 
+        }
 
         *handle = ObjectHandle::Null;
 
@@ -194,7 +204,9 @@ impl Context {
     }
 
     fn flush_context(&mut self, flush_handle: ObjectHandle) -> Result<()> {
-        self.ctx.flush_context(flush_handle).map_err(Error::from_tss_err)
+        self.ctx
+            .flush_context(flush_handle)
+            .map_err(Error::from_tss_err)
     }
 }
 
@@ -207,9 +219,9 @@ impl CommandResources {
     }
 
     pub(super) fn release_handle(
-        &mut self, 
-        ctx: &mut Context, 
-        target: LoadedObjectHandle, 
+        &mut self,
+        ctx: &mut Context,
+        target: LoadedObjectHandle,
     ) -> Result<()> {
         match target {
             LoadedObjectHandle::Persistent(handle) => self.close_handle(ctx, handle.into()),
@@ -217,11 +229,7 @@ impl CommandResources {
         }
     }
 
-    pub(super) fn flush_handle(
-        &mut self,
-        ctx: &mut Context,
-        target: ObjectHandle,
-    ) -> Result<()> {
+    pub(super) fn flush_handle(&mut self, ctx: &mut Context, target: ObjectHandle) -> Result<()> {
         let handle = self
             .transient_handles
             .iter_mut()
@@ -231,11 +239,7 @@ impl CommandResources {
         ctx.flush_handle(handle)
     }
 
-    pub(super) fn close_handle(
-        &mut self,
-        ctx: &mut Context,
-        target: ObjectHandle,
-    ) -> Result<()> {
+    pub(super) fn close_handle(&mut self, ctx: &mut Context, target: ObjectHandle) -> Result<()> {
         let handle = self
             .persistent_handles
             .iter_mut()

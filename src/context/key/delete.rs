@@ -1,22 +1,27 @@
-use crate::{
-    Result, db::StoredKeyKind, types::{LoadedObjectHandle, tpm::{Tpm2bName, TpmiDhPersistent}}
-};
 use super::super::Context;
+use crate::{
+    Result,
+    db::StoredKeyKind,
+    types::{
+        LoadedObjectHandle,
+        tpm::{Tpm2bName, TpmiDhPersistent},
+    },
+};
 
 impl Context {
     /// Delete a stored key and its metadata from the key store.
     ///
-    /// If the specified key has child keys, they are deleted as well. 
+    /// If the specified key has child keys, they are deleted as well.
     ///
     /// # Note
     ///
-    /// This operation is not atomic. 
+    /// This operation is not atomic.
     /// If an error occurs, keys deleted before the error are not restored.
     ///
     /// # Errors
     ///
     /// If no stored key with `key_name`` exists, returns [`crate::Error::KeyNotFound`].
-    /// If eviction of a persistent TPM object fails, returns an error. 
+    /// If eviction of a persistent TPM object fails, returns an error.
     pub fn delete_key(&mut self, key_name: &str) -> Result<()> {
         match self.store.get_key_kind(key_name)? {
             StoredKeyKind::Tpm => {
@@ -30,8 +35,8 @@ impl Context {
 
                     self.store.delete_key_meta(&target.key_name)?;
                     self.cache.delete_stored_key(&target.key_name);
-                }                
-            },
+                }
+            }
             StoredKeyKind::Symmetric => {
                 self.store.delete_key_meta(key_name)?;
                 self.cache.delete_stored_key(key_name);
@@ -42,7 +47,7 @@ impl Context {
     }
 
     fn evict_persistent_key(
-        &mut self, 
+        &mut self,
         persistent_handle: TpmiDhPersistent,
         obj_name: &Tpm2bName,
     ) -> Result<()> {
@@ -50,22 +55,27 @@ impl Context {
         let session_salt_handle = self
             .load_session_salt_handle()
             .map(LoadedObjectHandle::Persistent)?;
-        let loaded = match self.backend.resolve_persistent_handle(persistent_handle, obj_name) {
+        let loaded = match self
+            .backend
+            .resolve_persistent_handle(persistent_handle, obj_name)
+        {
             Ok(loaded) => loaded,
             Err(e) => {
                 let _ = self.backend.release_handle(session_salt_handle);
-                return Err(e)
+                return Err(e);
             }
         };
 
-        let result = self.backend.evict_control(
-            loaded.inner(), 
-            persistent_handle, 
-            &owner_authorization,
-            Some(session_salt_handle.inner()), 
-            None,
-        )
-        .map(|_| ());
+        let result = self
+            .backend
+            .evict_control(
+                loaded.inner(),
+                persistent_handle,
+                &owner_authorization,
+                Some(session_salt_handle.inner()),
+                None,
+            )
+            .map(|_| ());
 
         let _ = self.backend.release_handle(session_salt_handle);
         let _ = self.backend.release_handle(loaded);

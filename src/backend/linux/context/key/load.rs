@@ -63,8 +63,7 @@ impl Context {
         persistent_handle: TpmiDhPersistent,
         expected_name: &Tpm2bName,
     ) -> Result<LoadedObjectHandle> {
-        let obj_handle =
-            self.load_persistent_handle(persistent_handle)?;
+        let obj_handle = self.load_persistent_handle(persistent_handle)?;
 
         let mut resources = CommandResources::default();
 
@@ -135,7 +134,7 @@ impl Context {
                 None,
             )?;
             resources.add_transient_handle(obj_handle.inner());
-            
+
             resources.close_handle(self, session_salt_handle)?;
             resources.release_handle(self, parent.handle)?;
 

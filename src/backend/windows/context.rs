@@ -12,16 +12,17 @@ use std::{ffi::c_void, ptr};
 use zeroize::Zeroizing;
 
 use super::types::{Tpm2bNonce, TpmiShAuthSession, TpmiShHmac, TpmiShPolicy};
-use crate::{Error, Result, types::{LoadedObjectHandle, tpm::TpmiDhObject}};
+use crate::{
+    Error, Result,
+    types::{LoadedObjectHandle, tpm::TpmiDhObject},
+};
 
 use self::response::{
     CreatePrimaryResponse, CreateResponse, GetCapabilityResponse, GetRandomResponse, LoadResponse,
     PcrReadResponse, PolicyGetDigestResponse, ReadPublicResponse, RsaEncryptResponse,
     StartAuthSessionResponse,
 };
-use super::commands::{
-    Command, Response, ResponseBody, TpmsAuthCommand, TpmsAuthResponse,
-};
+use super::commands::{Command, Response, ResponseBody, TpmsAuthCommand, TpmsAuthResponse};
 
 type ContextHandle = *mut c_void;
 
@@ -63,9 +64,7 @@ impl CommandResources {
     }
 
     fn has_no_sessions(&self) -> bool {
-        self.session_handles
-            .iter()
-            .all(|handle| handle.is_none())
+        self.session_handles.iter().all(|handle| handle.is_none())
     }
 
     fn add_session_handle(&mut self, handle: TpmiShAuthSession) -> Result<()> {
@@ -142,7 +141,11 @@ impl CommandResources {
         &self,
         matches: impl Fn(TpmiShAuthSession) -> bool,
     ) -> Option<TpmiShAuthSession> {
-        self.session_handles.iter().flatten().copied().find(|handle| matches(*handle))
+        self.session_handles
+            .iter()
+            .flatten()
+            .copied()
+            .find(|handle| matches(*handle))
     }
     fn clear_session(&mut self, target: TpmiShAuthSession) {
         if let Some(idx) = self

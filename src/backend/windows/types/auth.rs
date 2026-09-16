@@ -1,8 +1,11 @@
 use super::TpmaLocality;
 use crate::{
-    Error, Result, macros::{impl_tpm2b_inner_codec, tpm2b_type, tpm2b_zeroize_type},
-    types::tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmHandle,
-        TpmiAlgHash, TpmlPcrSelection, TpmtHa},
+    Error, Result,
+    macros::{impl_tpm2b_inner_codec, tpm2b_type, tpm2b_zeroize_type},
+    types::tpm::{
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmHandle, TpmiAlgHash,
+        TpmlPcrSelection, TpmtHa,
+    },
 };
 
 tpm2b_type!(Tpm2bNonce, Tpm2bDigest::MAX_BYTES);
@@ -11,9 +14,11 @@ tpm2b_type!(Tpm2bData, TpmtHa::MAX_BYTES);
 
 tpm2b_type!(Tpm2bCreationData(TpmsCreationData));
 
-tpm2b_zeroize_type!(Tpm2bSensitiveCreate(TpmsSensitiveCreate), TpmsSensitiveCreate::MAX_BYTES);
+tpm2b_zeroize_type!(
+    Tpm2bSensitiveCreate(TpmsSensitiveCreate),
+    TpmsSensitiveCreate::MAX_BYTES
+);
 impl_tpm2b_inner_codec!(Tpm2bSensitiveCreate(TpmsSensitiveCreate));
-
 
 #[derive(Clone)]
 pub(in crate::backend::windows) struct TpmsCreationData {
@@ -49,20 +54,23 @@ impl TpmsCreationData {
         outside_info: Tpm2bData,
     ) -> Result<Self> {
         if pcr_select.is_empty() && !pcr_digest.is_empty() {
-            return Err(Error::invalid_param("pcrDigest must be empty when pcrSelect is empty"));
+            return Err(Error::invalid_param(
+                "pcrDigest must be empty when pcrSelect is empty",
+            ));
         }
 
         let expected_name_size = if parent_name_alg == TpmAlgId::Null {
             size_of::<TpmHandle>()
         } else {
-            let digest_size = parent_name_alg.digest_size().ok_or_else(|| Error::invalid_param(
-                "invalid parentNameAlg"
-            ))?;
+            let digest_size = parent_name_alg
+                .digest_size()
+                .ok_or_else(|| Error::invalid_param("invalid parentNameAlg"))?;
             size_of::<TpmiAlgHash>() + digest_size
         };
 
-        if parent_name.size() != expected_name_size 
-            || parent_qualified_name.size() != expected_name_size {
+        if parent_name.size() != expected_name_size
+            || parent_qualified_name.size() != expected_name_size
+        {
             return Err(Error::invalid_param(
                 "parentName and parentQualifiedName sizes do not match parentNameAlg",
             ));
@@ -128,8 +136,8 @@ pub(in crate::backend::windows) struct TpmsSensitiveCreate {
 }
 
 impl TpmsSensitiveCreate {
-    pub(in crate::backend::windows) const MAX_BYTES: usize = Tpm2bAuth::MAX_BYTES 
-        + Tpm2bSensitiveData::MAX_BYTES;
+    pub(in crate::backend::windows) const MAX_BYTES: usize =
+        Tpm2bAuth::MAX_BYTES + Tpm2bSensitiveData::MAX_BYTES;
 
     pub(in crate::backend::windows) fn asymmetric(user_auth: Tpm2bAuth) -> Self {
         Self {

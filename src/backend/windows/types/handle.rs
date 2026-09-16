@@ -1,5 +1,7 @@
 use crate::{
-    Error, Result, macros::newtype_in_win, types::tpm::{TpmHandle, TpmiDhObject},
+    Error, Result,
+    macros::newtype_in_win,
+    types::tpm::{TpmHandle, TpmiDhObject},
 };
 
 newtype_in_win!(TpmiDhEntity(TpmHandle));
@@ -19,9 +21,13 @@ impl TryFrom<TpmHandle> for TpmiDhEntity {
             _ if TpmiDhObject::try_from(tpm_handle).is_ok()
                 || (TpmHandle::NV_INDEX_FIRST..=TpmHandle::NV_INDEX_LAST).contains(&value)
                 || (TpmHandle::PCR_FIRST..=TpmHandle::PCR_LAST).contains(&value)
-                || (TpmHandle::RH_AUTH_00..=TpmHandle::RH_AUTH_FF)
-                    .contains(&value) => Ok(Self(tpm_handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiDhEntity>(Some(&tpm_handle))),
+                || (TpmHandle::RH_AUTH_00..=TpmHandle::RH_AUTH_FF).contains(&value) =>
+            {
+                Ok(Self(tpm_handle))
+            }
+            _ => Err(Error::conversion::<TpmHandle, TpmiDhEntity>(Some(
+                &tpm_handle,
+            ))),
         }
     }
 }
@@ -36,14 +42,15 @@ impl TryFrom<TpmHandle> for TpmiShAuthSession {
     type Error = Error;
 
     fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
-        if TpmiShPolicy::try_from(tpm_handle).is_ok()
-            || TpmiShHmac::try_from(tpm_handle).is_ok() {
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmHandle, TpmiShAuthSession>(Some(&tpm_handle)))
-            }
+        if TpmiShPolicy::try_from(tpm_handle).is_ok() || TpmiShHmac::try_from(tpm_handle).is_ok() {
+            Ok(Self(tpm_handle))
+        } else {
+            Err(Error::conversion::<TpmHandle, TpmiShAuthSession>(Some(
+                &tpm_handle,
+            )))
+        }
     }
-} 
+}
 
 newtype_in_win!(TpmiShPolicy(TpmHandle));
 
@@ -52,11 +59,12 @@ impl TryFrom<TpmHandle> for TpmiShPolicy {
 
     fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
         if (TpmHandle::POLICY_SESSION_FIRST..=TpmHandle::POLICY_SESSION_LAST)
-            .contains(&tpm_handle.value()) {
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
-            }
+            .contains(&tpm_handle.value())
+        {
+            Ok(Self(tpm_handle))
+        } else {
+            Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
+        }
     }
 }
 
@@ -65,11 +73,11 @@ impl TryFrom<TpmiShAuthSession> for TpmiShPolicy {
 
     fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
         let tpm_handle = TpmHandle::from(session_handle);
-        if TpmiShPolicy::try_from(tpm_handle).is_ok(){
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
-            }
+        if TpmiShPolicy::try_from(tpm_handle).is_ok() {
+            Ok(Self(tpm_handle))
+        } else {
+            Err(Error::conversion::<TpmiShAuthSession, TpmiShPolicy>(None))
+        }
     }
 }
 
@@ -80,11 +88,14 @@ impl TryFrom<TpmHandle> for TpmiShHmac {
 
     fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
         if (TpmHandle::HMAC_SESSION_FIRST..=TpmHandle::HMAC_SESSION_LAST)
-            .contains(&tpm_handle.value()) {
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmHandle, TpmiShHmac>(Some(&tpm_handle)))
-            }
+            .contains(&tpm_handle.value())
+        {
+            Ok(Self(tpm_handle))
+        } else {
+            Err(Error::conversion::<TpmHandle, TpmiShHmac>(Some(
+                &tpm_handle,
+            )))
+        }
     }
 }
 
@@ -93,11 +104,11 @@ impl TryFrom<TpmiShAuthSession> for TpmiShHmac {
 
     fn try_from(session_handle: TpmiShAuthSession) -> Result<Self> {
         let tpm_handle = TpmHandle::from(session_handle);
-        if TpmiShHmac::try_from(tpm_handle).is_ok(){
-                Ok(Self(tpm_handle))
-            } else {
-                Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
-            }
+        if TpmiShHmac::try_from(tpm_handle).is_ok() {
+            Ok(Self(tpm_handle))
+        } else {
+            Err(Error::conversion::<TpmiShAuthSession, TpmiShHmac>(None))
+        }
     }
 }
 
@@ -127,10 +138,13 @@ impl TryFrom<TpmHandle> for TpmiDhContext {
     fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
         if TpmiShAuthSession::try_from(tpm_handle).is_ok()
             || (TpmHandle::TRANSIENT_FIRST..=TpmHandle::TRANSIENT_LAST)
-                .contains(&tpm_handle.value()) {
-                    Ok(Self(tpm_handle))
-                } else {
-                    Err(Error::conversion::<TpmHandle, TpmiDhContext>(Some(&tpm_handle)))
-                }
+                .contains(&tpm_handle.value())
+        {
+            Ok(Self(tpm_handle))
+        } else {
+            Err(Error::conversion::<TpmHandle, TpmiDhContext>(Some(
+                &tpm_handle,
+            )))
+        }
     }
 }

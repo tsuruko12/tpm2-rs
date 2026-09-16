@@ -1,7 +1,7 @@
 use tracing::debug;
 
-use crate::{Error, Result};
 use super::tpm::TpmiRhHierarchy;
+use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Hierarchy {

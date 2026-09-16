@@ -1,5 +1,8 @@
 use crate::{
-    Error, Result, macros::newtype, public::EccScheme, types::{algorithm::HashAlgorithm, tpm::Tpm2bDigest}
+    Error, Result,
+    macros::newtype,
+    public::EccScheme,
+    types::{algorithm::HashAlgorithm, tpm::Tpm2bDigest},
 };
 
 use super::TpmAlgId;
@@ -72,7 +75,9 @@ pub(crate) struct TpmsSchemeHash {
 impl From<EccScheme> for TpmsSchemeHash {
     fn from(ecc_scheme: EccScheme) -> Self {
         match ecc_scheme {
-            EccScheme::Ecdsa(hash_alg) => Self { hash_alg: hash_alg.into() },
+            EccScheme::Ecdsa(hash_alg) => Self {
+                hash_alg: hash_alg.into(),
+            },
         }
     }
 }
@@ -168,7 +173,9 @@ impl TryFrom<&[Tpm2bDigest]> for TpmlDigest {
 
     fn try_from(items: &[Tpm2bDigest]) -> Result<Self> {
         if items.len() <= Self::MAX_COUNT {
-            Ok(Self { items: items.to_vec() })
+            Ok(Self {
+                items: items.to_vec(),
+            })
         } else {
             Err(Error::conversion::<Vec<Tpm2bDigest>, TpmlDigest>(None))
         }

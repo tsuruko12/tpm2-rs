@@ -1,7 +1,7 @@
 use tracing::debug;
 
-use super::{Command, CommandResources, Context};
 use super::super::ReadPublicResponse;
+use super::{Command, CommandResources, Context};
 use crate::{
     Error, Result,
     types::tpm::{Tpm2bName, Tpm2bPublicKeyRsa, TpmCc, TpmiDhObject, TpmuPublicId},
@@ -51,7 +51,7 @@ fn into_rsa_public_unique(unique: TpmuPublicId) -> Result<Tpm2bPublicKeyRsa> {
 pub(super) fn validate_obj_name(name: &[u8], expected_name: &[u8]) -> Result<()> {
     if name != expected_name {
         debug!("stored TPM object name does not match");
-        return Err(Error::corrupted_store())
+        return Err(Error::corrupted_store());
     }
 
     Ok(())

@@ -9,8 +9,8 @@ use zeroize::Zeroizing;
 
 use super::super::TpmsAuthResponse;
 use crate::{
-    backend::windows::TpmRc, 
-    error::{Error, Result}, 
+    backend::windows::TpmRc,
+    error::{Error, Result},
     types::tpm::{Tpm2bAuth, TpmCc, TpmaSession},
 };
 

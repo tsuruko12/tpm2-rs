@@ -4,19 +4,17 @@ mod policy;
 use rsa::{BigUint, RsaPublicKey};
 use zeroize::Zeroizing;
 
-use super::super::{
-    types::{TpmiShAuthSession, TpmiShHmac, Tpm2bNonce, TpmSe, Tpm2bEncryptedSecret},
-};
+use super::super::types::{Tpm2bEncryptedSecret, Tpm2bNonce, TpmSe, TpmiShAuthSession, TpmiShHmac};
 use super::{
     Command, CommandResources, Context, SessionState, StartAuthSessionResponse, TpmsAuthCommand,
 };
 use crate::{
-    Error, Result, 
+    Error, Result,
     types::{
         Authorization, PolicyAuthKind, PolicyData,
         tpm::{
-            Tpm2bAuth, TpmCc, TpmHandle, TpmaSession, TpmiAlgHash, TpmMarshal, TpmiDhObject,
-            TpmtSymDefObject
+            Tpm2bAuth, TpmCc, TpmHandle, TpmMarshal, TpmaSession, TpmiAlgHash, TpmiDhObject,
+            TpmtSymDefObject,
         },
     },
 };
@@ -56,8 +54,8 @@ impl Context {
 
         let Some(authorization) = authorization else {
             return Ok(vec![self.prepare_hmac_session(
-                resources, 
-                hmac_session_attrs, 
+                resources,
+                hmac_session_attrs,
                 salt_key.as_ref(),
                 None,
             )?]);
@@ -66,8 +64,7 @@ impl Context {
         let mut auth_commands = Vec::with_capacity(2);
 
         if let Some(policy) = &authorization.policy {
-            let required_auth = policy.auth_kind()?
-                .map(|kind| (kind, &authorization.auth));
+            let required_auth = policy.auth_kind()?.map(|kind| (kind, &authorization.auth));
 
             auth_commands.push(self.prepare_policy_session(
                 resources,
@@ -109,9 +106,7 @@ impl Context {
             BigUint::from_bytes_be(public_unique.as_bytes()),
             BigUint::from(DEFAULT_EXPONENT),
         )
-        .map_err(|e| Error::invalid_state(
-            format!("failed to construct RSA public key: {e:?}")
-        ))
+        .map_err(|e| Error::invalid_state(format!("failed to construct RSA public key: {e:?}")))
     }
 
     fn prepare_policy_session(
@@ -153,11 +148,8 @@ impl Context {
                 TpmsAuthCommand::new(response.session_handle, nonce_caller, session_attrs, hmac)
             }
             None => {
-                let (response, _) = self.start_unsalted_session(
-                    resources, 
-                    &nonce_caller, 
-                    session_type
-                )?;
+                let (response, _) =
+                    self.start_unsalted_session(resources, &nonce_caller, session_type)?;
                 resources.add_session_state(SessionState {
                     session_value: Vec::new().into(),
                     nonce_tpm: response.nonce_tpm,
@@ -225,14 +217,13 @@ impl Context {
         nonce_caller: &Tpm2bNonce,
         session_type: TpmSe,
     ) -> Result<(StartAuthSessionResponse, Zeroizing<Vec<u8>>)> {
-        let response =
-            self.start_auth_session(
-                resources, 
-                nonce_caller, 
-                &Tpm2bEncryptedSecret::default(), 
-                session_type, 
-                None,
-            )?;
+        let response = self.start_auth_session(
+            resources,
+            nonce_caller,
+            &Tpm2bEncryptedSecret::default(),
+            session_type,
+            None,
+        )?;
 
         Ok((response, Vec::new().into()))
     }
@@ -304,7 +295,7 @@ fn policy_session_attrs_from_hmac(hmac_session_attrs: TpmaSession) -> TpmaSessio
 
 pub(super) fn prepare_reused_sessions(
     resources: &CommandResources,
-    auth_commands: &[TpmsAuthCommand], 
+    auth_commands: &[TpmsAuthCommand],
     hmac_session_attrs: TpmaSession,
 ) -> Result<Vec<TpmsAuthCommand>> {
     let mut new_auth_commands = Vec::with_capacity(2);
@@ -327,11 +318,11 @@ pub(super) fn prepare_reused_sessions(
         } else {
             (auth_command.nonce().clone(), auth_command.hmac().clone())
         };
-        
+
         new_auth_commands.push(TpmsAuthCommand::new(
-            auth_command.session_handle(), 
-            nonce, 
-            session_attrs, 
+            auth_command.session_handle(),
+            nonce,
+            session_attrs,
             hmac,
         ));
     }

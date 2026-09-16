@@ -74,9 +74,9 @@ impl KeyTemplate {
 
                 template.set_exportable();
             }
-            Self::Symmetric(_) => return Err(Error::invalid_param(
-                "symmetric key must not be exportable"
-            )),
+            Self::Symmetric(_) => {
+                return Err(Error::invalid_param("symmetric key must not be exportable"));
+            }
         }
 
         Ok(self)

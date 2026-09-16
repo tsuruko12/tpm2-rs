@@ -5,7 +5,10 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use super::super::super::types::Tpm2bNonce;
-use crate::{Error, Result, backend::windows::types::{Tpm2bEncryptedSecret, TpmuEncryptedSecret}};
+use crate::{
+    Error, Result,
+    backend::windows::types::{Tpm2bEncryptedSecret, TpmuEncryptedSecret},
+};
 
 const SALT_SIZE: usize = 32;
 const NONCE_SIZE: usize = 32;
@@ -57,8 +60,10 @@ pub(super) fn generate_encrypted_salt(
         .map_err(Error::encryption)?;
 
     Ok((
-        Tpm2bEncryptedSecret::from(TpmuEncryptedSecret::rsa(encrypted_salt)
-            .expect("RSA encrypted salt must match the RSA modulus size")), 
+        Tpm2bEncryptedSecret::from(
+            TpmuEncryptedSecret::rsa(encrypted_salt)
+                .expect("RSA encrypted salt must match the RSA modulus size"),
+        ),
         salt,
     ))
 }

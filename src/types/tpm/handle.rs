@@ -90,7 +90,9 @@ impl TryFrom<TpmHandle> for TpmiDhObject {
         match tpm_handle.value() {
             TpmHandle::TRANSIENT_FIRST..=TpmHandle::TRANSIENT_LAST
             | TpmHandle::PERSISTENT_FIRST..=TpmHandle::PERSISTENT_LAST => Ok(Self(tpm_handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiDhObject>(Some(&tpm_handle))),
+            _ => Err(Error::conversion::<TpmHandle, TpmiDhObject>(Some(
+                &tpm_handle,
+            ))),
         }
     }
 }
@@ -114,7 +116,9 @@ impl TryFrom<TpmHandle> for TpmiRhProvision {
     fn try_from(tpm_handle: TpmHandle) -> Result<Self> {
         match tpm_handle {
             TpmHandle::RH_OWNER | TpmHandle::RH_PLATFORM => Ok(Self(tpm_handle)),
-            _ => Err(Error::conversion::<TpmHandle, TpmiRhProvision>(Some(&tpm_handle))),
+            _ => Err(Error::conversion::<TpmHandle, TpmiRhProvision>(Some(
+                &tpm_handle,
+            ))),
         }
     }
 }
@@ -136,7 +140,7 @@ impl TryFrom<u32> for TpmiDhPersistent {
             Ok(Self(value.into()))
         } else {
             Err(Error::conversion::<u32, TpmiDhPersistent>(Some(&value)))
-        }  
+        }
     }
 }
 
@@ -175,9 +179,9 @@ impl TryFrom<TpmHandle> for TpmiRhHierarchy {
             {
                 Ok(Self(tpm_handle))
             }
-            _ => Err(Error::conversion::<TpmHandle, TpmiRhHierarchy>(
-                Some(&tpm_handle),
-            )),
+            _ => Err(Error::conversion::<TpmHandle, TpmiRhHierarchy>(Some(
+                &tpm_handle,
+            ))),
         }
     }
 }

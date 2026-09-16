@@ -3,24 +3,24 @@ use tracing::debug;
 use super::{
     TpmRc,
     commands::{
-        Command, CommandHeader, ResponseHeader, TpmSt, TpmiStCommandTag, 
-        TpmsAuthCommand, TpmsAuthResponse,
+        Command, CommandHeader, ResponseHeader, TpmSt, TpmiStCommandTag, TpmsAuthCommand,
+        TpmsAuthResponse,
     },
     types::{
-        TpmtRsaDecrypt, Tpm2bCreationData, Tpm2bData, Tpm2bNonce,
-        TpmaLocality, TpmsCreationData, TpmsSensitiveCreate, TpmtTkCreation,
-        TpmSe, Tpm2bEncryptedSecret
+        Tpm2bCreationData, Tpm2bData, Tpm2bEncryptedSecret, Tpm2bNonce, TpmSe, TpmaLocality,
+        TpmsCreationData, TpmsSensitiveCreate, TpmtRsaDecrypt, TpmtTkCreation,
     },
 };
 use crate::{
-    error::{Error, Result}, 
+    error::{Error, Result},
     types::tpm::{
-        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmCap, TpmCc, 
-        TpmEccCurve, TpmHandle, TpmMarshal, TpmPt, TpmPtPcr, TpmUnmarshal, TpmaAlgorithm, TpmaCc, 
-        TpmaSession, TpmiAlgHash, TpmiRhHierarchy, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve, 
-        TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty, TpmsAlgProperty, 
-        TpmsEmpty, TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty, TpmuRsaScheme, 
-        ensure_consumed, marshal_list, marshal_tpm2b, read_tpm2b, read_vec, unmarshal_list,
+        Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmCap, TpmCc,
+        TpmEccCurve, TpmHandle, TpmMarshal, TpmPt, TpmPtPcr, TpmUnmarshal, TpmaAlgorithm, TpmaCc,
+        TpmaSession, TpmiAlgHash, TpmiRhHierarchy, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve,
+        TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
+        TpmsAlgProperty, TpmsEmpty, TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty,
+        TpmuRsaScheme, ensure_consumed, marshal_list, marshal_tpm2b, read_tpm2b, read_vec,
+        unmarshal_list,
     },
 };
 
@@ -35,16 +35,14 @@ impl<'a> TpmMarshal for Command<'_> {
             authorization.marshal(&mut authorization_bytes)?;
         }
 
-        let authorization_size = if authorization_bytes.is_empty() {
-            None
-        } else {
-            Some(
-                u32::try_from(authorization_bytes.len())
-                    .map_err(|_| Error::invalid_state(
-                        "authorization area length exceeds u32::MAX"
-                    ))?,
-            )
-        };
+        let authorization_size =
+            if authorization_bytes.is_empty() {
+                None
+            } else {
+                Some(u32::try_from(authorization_bytes.len()).map_err(|_| {
+                    Error::invalid_state("authorization area length exceeds u32::MAX")
+                })?)
+            };
 
         let command_size = CommandHeader::SIZE
             + handles.len() * size_of::<u32>()
@@ -118,9 +116,9 @@ impl TpmMarshal for TpmtRsaDecrypt {
 impl TpmMarshal for TpmuRsaScheme {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         match self {
-            Self::Oaep(scheme_hash)
-            | Self::RsaPss(scheme_hash)
-            | Self::RsaSsa(scheme_hash) => scheme_hash.hash_alg.marshal(buf),
+            Self::Oaep(scheme_hash) | Self::RsaPss(scheme_hash) | Self::RsaSsa(scheme_hash) => {
+                scheme_hash.hash_alg.marshal(buf)
+            }
             Self::RsaEs(empty) => empty.marshal(buf),
             Self::Null => Ok(()),
         }
@@ -160,10 +158,9 @@ impl TpmMarshal for TpmlPcrSelection {
     fn marshal(&self, buf: &mut Vec<u8>) -> Result<()> {
         marshal_list(buf, self.items(), |buf, selection| {
             let pcr_select = selection.pcr_select();
-            let size_of_select = u8::try_from(pcr_select.len())
-                .map_err(|_| Error::invalid_state(
-                    "TPMS_PCR_SELECTION sizeofSelect exceeds u8::MAX"
-                ))?;
+            let size_of_select = u8::try_from(pcr_select.len()).map_err(|_| {
+                Error::invalid_state("TPMS_PCR_SELECTION sizeofSelect exceeds u8::MAX")
+            })?;
 
             selection.hash().marshal(buf)?;
             size_of_select.marshal(buf)?;
@@ -259,7 +256,7 @@ impl TpmUnmarshal for TpmtTkCreation {
         let tag = TpmSt::try_from(u16::unmarshal(input)?)?;
         if tag != TpmSt::CREATION {
             debug!(?tag, "invalid TPMT_TK_CREATION tag");
-            return Err(Error::InvalidData)
+            return Err(Error::InvalidData);
         }
 
         let hierarchy = TpmiRhHierarchy::unmarshal(input)?;

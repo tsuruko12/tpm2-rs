@@ -2,6 +2,6 @@ mod codec;
 mod store;
 
 pub(crate) use self::store::{
-    InternalKeyKind, InternalKeyMeta, KeyMeta, MetadataStore, StoredKeyKind,
-    TpmKeyMeta, WrappingKeyMeta
+    InternalKeyKind, InternalKeyMeta, KeyMeta, MetadataStore, StoredKeyKind, TpmKeyMeta,
+    WrappingKeyMeta,
 };

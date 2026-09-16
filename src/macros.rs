@@ -25,6 +25,7 @@ macro_rules! tpm2b_type {
                 self.0.len()
             }
 
+            #[expect(dead_code)]
             pub(crate) fn into_bytes(self) -> Vec<u8> {
                 self.0
             }
@@ -90,6 +91,7 @@ macro_rules! tpm2b_type {
     };
 }
 
+#[cfg(windows)]
 macro_rules! tpm2b_type_in_win {
     ($($tt:tt)*) => {
         $crate::macros::tpm2b_type!(pub(in crate::backend::windows) $($tt)*);
@@ -128,6 +130,7 @@ macro_rules! tpm2b_zeroize_type {
         $crate::macros::impl_tpm2b_size_consts!($name, $max);
 
         impl $name {
+            #[expect(dead_code)]
             pub(crate) fn as_inner(&self) -> &$inner {
                 &self.0
             }
@@ -161,6 +164,7 @@ macro_rules! tpm2b_zeroize_type {
     };
 }
 
+#[cfg(windows)]
 macro_rules! tpm2b_zeroize_type_in_win {
     ($($tt:tt)*) => {
         $crate::macros::tpm2b_zeroize_type!(pub(in crate::backend::windows) $($tt)*);
@@ -195,6 +199,7 @@ macro_rules! impl_tpm2b_codec {
     };
 }
 
+#[cfg(windows)]
 macro_rules! impl_tpm2b_inner_codec {
     ($name:ident($inner:ty)) => {
         impl $crate::types::tpm::TpmMarshal for $name {
@@ -246,11 +251,12 @@ macro_rules! impl_try_from_bytes {
 
 macro_rules! impl_buffer_methods {
     ($name:ty) => {
+        #[expect(dead_code)]
         impl $name {
             pub(crate) fn as_bytes(&self) -> &[u8] {
                 &self.0
             }
-            
+
             pub(crate) fn len(&self) -> usize {
                 self.0.len()
             }
@@ -269,6 +275,7 @@ macro_rules! tpm_list_type {
             items: Vec<$item>,
         }
 
+        #[expect(dead_code)]
         impl $name {
             pub(crate) fn len(&self) -> usize {
                 self.items.len()
@@ -450,6 +457,7 @@ macro_rules! newtype {
     };
 }
 
+#[cfg(windows)]
 macro_rules! newtype_in_win {
     ($($tt:tt)*) => {
         $crate::macros::newtype!(pub(in crate::backend::windows) $($tt)*);
@@ -457,8 +465,10 @@ macro_rules! newtype_in_win {
 }
 
 pub(crate) use {
-    impl_buffer_methods, impl_tpm2b_codec, impl_try_from_bytes, impl_tpm2b_size_consts, 
-    impl_tpm2b_inner_codec, newtype, newtype_in_win, 
-    tpm_list_type, tpm2b_type, tpm2b_type_in_win, tpm2b_zeroize_type_in_win,
-    tpm2b_zeroize_type, unknown_tpm_data,
+    impl_buffer_methods, impl_tpm2b_codec, impl_tpm2b_size_consts, impl_try_from_bytes, newtype,
+    tpm_list_type, tpm2b_type, tpm2b_zeroize_type, unknown_tpm_data,
+};
+#[cfg(windows)]
+pub(crate) use {
+    impl_tpm2b_inner_codec, newtype_in_win, tpm2b_type_in_win, tpm2b_zeroize_type_in_win,
 };

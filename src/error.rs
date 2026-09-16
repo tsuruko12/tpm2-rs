@@ -64,6 +64,7 @@ pub enum Error {
     Internal,
 }
 
+#[expect(dead_code)]
 impl Error {
     pub(crate) fn connect(source: impl Into<BoxError>) -> Self {
         Self::Connect(source.into())
@@ -160,7 +161,7 @@ impl Error {
             Some(v) => {
                 let ty = type_name::<From>().rsplit("::").next().unwrap();
                 format!("{ty} ({v:?})")
-            },
+            }
             None => type_name::<From>().rsplit("::").next().unwrap().into(),
         };
 
@@ -192,16 +193,16 @@ impl Error {
 
     pub(crate) fn from_store_err(source: rusqlite::Error) -> Self {
         if matches!(
-            source, 
+            source,
             rusqlite::Error::FromSqlConversionFailure(_, _, _)
-            | rusqlite::Error::IntegralValueOutOfRange(_, _)
-            | rusqlite::Error::Utf8Error(_, _)
-            | rusqlite::Error::InvalidColumnType(_, _, _)
+                | rusqlite::Error::IntegralValueOutOfRange(_, _)
+                | rusqlite::Error::Utf8Error(_, _)
+                | rusqlite::Error::InvalidColumnType(_, _, _)
         ) {
             Self::corrupted_store_with_source(source)
         } else {
             Self::Store(source)
-        }   
+        }
     }
 }
 
@@ -215,6 +216,7 @@ pub(crate) enum InternalError {
     InvalidState(String),
     #[error("TPM responce code: {0:#010x}")]
     InvalidTpmCommand(u32),
+    #[cfg(windows)]
     #[error("TBS response code: {0:#010x}")]
     Tbs(u32),
     #[error("ESAPI operation failed: {0:#}")]

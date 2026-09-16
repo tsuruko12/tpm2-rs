@@ -1,9 +1,6 @@
-use crate::macros::tpm2b_zeroize_type;
-use super::{
-    TpmiAlgPublic,Tpm2bAuth, Tpm2bDigest, Tpm2bEccParameter,
-    buffer::Tpm2bLabel,
-};
 use super::super::public::RsaKeyBits;
+use super::{Tpm2bAuth, Tpm2bDigest, Tpm2bEccParameter, TpmiAlgPublic, buffer::Tpm2bLabel};
+use crate::macros::tpm2b_zeroize_type;
 
 tpm2b_zeroize_type!(Tpm2bSensitiveData, 128);
 
@@ -28,9 +25,9 @@ pub(crate) struct TpmtSensitive {
 }
 
 impl TpmtSensitive {
-    const MAX_BYTES: usize = size_of::<TpmiAlgPublic>() 
-        + Tpm2bAuth::MAX_BYTES 
-        + Tpm2bDigest::MAX_BYTES 
+    const MAX_BYTES: usize = size_of::<TpmiAlgPublic>()
+        + Tpm2bAuth::MAX_BYTES
+        + Tpm2bDigest::MAX_BYTES
         + TpmuSensitiveComposite::MAX_BYTES;
 }
 
@@ -47,4 +44,3 @@ impl TpmuSensitiveComposite {
 
 tpm2b_zeroize_type!(Tpm2bPrivateKeyRsa, RsaKeyBits::MAX_BITS / 2 / 8);
 tpm2b_zeroize_type!(Tpm2bSymKey, 64); // max bytes is the larger of the largest symmetric key and digest
-

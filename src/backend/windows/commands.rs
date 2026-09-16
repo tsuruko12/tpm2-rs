@@ -2,10 +2,7 @@ mod command;
 mod response;
 
 use crate::macros::newtype_in_win;
-use crate::{
-    Error, Result,
-    macros::newtype,
-};
+use crate::{Error, Result, macros::newtype};
 
 pub(super) use self::command::{Command, CommandHeader, TpmsAuthCommand};
 pub(super) use self::response::{Response, ResponseBody, ResponseHeader, TpmsAuthResponse};

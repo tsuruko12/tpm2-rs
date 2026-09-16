@@ -1,12 +1,12 @@
 use tracing::debug;
 
 use crate::{
+    Error, Result,
     types::{
         algorithm::HashAlgorithm,
         policy::{PcrSelection, PcrSlot, PolicyBranchData, PolicyCommand, PolicyData},
-        tpm::{ensure_consumed, TpmCc, TpmMarshal, TpmUnmarshal, TpmiAlgHash, TpmlDigest},
+        tpm::{TpmCc, TpmMarshal, TpmUnmarshal, TpmiAlgHash, TpmlDigest, ensure_consumed},
     },
-    Error, Result,
 };
 
 const POLICY_DATA_FORMAT_VERSION: u8 = 2;
@@ -104,8 +104,8 @@ impl StoreEncode for PcrSelection {
 impl StoreDecode for PcrSelection {
     fn decode(input: &mut &[u8]) -> Result<Self> {
         let hash_alg = TpmiAlgHash::unmarshal(input).map_err(Error::corrupted_store_with_source)?;
-        let hash_alg = HashAlgorithm::try_from(hash_alg)
-            .map_err(Error::corrupted_store_with_source)?;
+        let hash_alg =
+            HashAlgorithm::try_from(hash_alg).map_err(Error::corrupted_store_with_source)?;
         let slot_count =
             usize::from(u8::unmarshal(input).map_err(Error::corrupted_store_with_source)?);
         if slot_count > usize::from(PcrSlot::MAX) + 1 {

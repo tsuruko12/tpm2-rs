@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    hierarchy::Hierarchy, policy::PolicyData, types::{KeyData, KeyId, tpm::Tpm2bAuth}
+    hierarchy::Hierarchy,
+    policy::PolicyData,
+    types::{KeyData, KeyId, tpm::Tpm2bAuth},
 };
 
 #[derive(Default)]
@@ -34,8 +36,10 @@ impl Cache {
         self.auths.insert(AuthorizationTarget::Key(target), auth);
     }
 
+    #[expect(dead_code)]
     pub(crate) fn set_hierarchy_auth(&mut self, target: Hierarchy, auth: Tpm2bAuth) {
-        self.auths.insert(AuthorizationTarget::Hierarchy(target), auth);
+        self.auths
+            .insert(AuthorizationTarget::Hierarchy(target), auth);
     }
 
     pub(crate) fn auth(&self, target: &AuthorizationTarget) -> Tpm2bAuth {
@@ -45,45 +49,28 @@ impl Cache {
             .unwrap_or_default()
     }
 
-    pub(crate) fn set_key_policy_branche(
-        &mut self,
-        target: KeyId,
-        label: &str,
-    ) {
-        self
-            .selected_policy_branches
+    pub(crate) fn set_key_policy_branche(&mut self, target: KeyId, label: &str) {
+        self.selected_policy_branches
             .entry(AuthorizationTarget::Key(target))
             .or_default()
             .insert(label.to_string());
     }
 
-    pub(crate) fn set_hierarchy_policy_branche(
-        &mut self,
-        target: Hierarchy,
-        label: &str,
-    ) {
-        self
-            .selected_policy_branches
+    #[expect(dead_code)]
+    pub(crate) fn set_hierarchy_policy_branche(&mut self, target: Hierarchy, label: &str) {
+        self.selected_policy_branches
             .entry(AuthorizationTarget::Hierarchy(target))
             .or_default()
             .insert(label.to_string());
     }
 
-    pub(crate) fn key_policy_branches(
-        &self,
-        target: KeyId,
-    ) -> Option<&HashSet<String>> {
-        self
-            .selected_policy_branches
+    pub(crate) fn key_policy_branches(&self, target: KeyId) -> Option<&HashSet<String>> {
+        self.selected_policy_branches
             .get(&AuthorizationTarget::Key(target))
     }
 
-    pub(crate) fn hierarchy_policy_branches(
-        &self,
-        target: Hierarchy,
-    ) -> Option<&HashSet<String>> {
-        self
-            .selected_policy_branches
+    pub(crate) fn hierarchy_policy_branches(&self, target: Hierarchy) -> Option<&HashSet<String>> {
+        self.selected_policy_branches
             .get(&AuthorizationTarget::Hierarchy(target))
     }
 

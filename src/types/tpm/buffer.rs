@@ -1,8 +1,8 @@
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
-use crate::{macros::{tpm2b_type, tpm2b_zeroize_type}};
 use super::sensitive::Tpm2bSensitive;
+use crate::macros::{tpm2b_type, tpm2b_zeroize_type};
 
 pub(crate) const TPM2B_SIZE_BYTES: usize = 2;
 
@@ -33,7 +33,7 @@ impl Tpm2bAuth {
             Self(Zeroizing::new(value.to_vec()))
         } else {
             Self(Zeroizing::new(Sha256::digest(value).to_vec()))
-        }        
+        }
     }
 
     pub(crate) fn clone(&self) -> Self {
@@ -41,4 +41,4 @@ impl Tpm2bAuth {
     }
 }
 
-tpm2b_type!(Tpm2bLabel, 32); 
+tpm2b_type!(Tpm2bLabel, 32);

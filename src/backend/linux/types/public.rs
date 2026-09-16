@@ -1,12 +1,11 @@
 use tss_esapi::{
-    structures::{Public, PublicKeyRsa}, traits::{Marshall, UnMarshall}
+    structures::{Public, PublicKeyRsa},
+    traits::{Marshall, UnMarshall},
 };
 
 use crate::{
     Error, Result,
-    types::tpm::{
-        Tpm2bPublic, Tpm2bPublicKeyRsa, TpmMarshal, TpmUnmarshal, TpmtPublic
-    },
+    types::tpm::{Tpm2bPublic, Tpm2bPublicKeyRsa, TpmMarshal, TpmUnmarshal, TpmtPublic},
 };
 
 impl TryFrom<&Public> for Tpm2bPublic {
@@ -28,9 +27,7 @@ impl TryFrom<Public> for Tpm2bPublic {
 fn to_tpm2b_public(public: &Public) -> Result<Tpm2bPublic> {
     let public_area_bytes = public
         .marshall()
-        .map_err(|e| Error::invalid_state(
-            format!("failed to marshal tss-esapi public: {e:?}")
-        ))?;
+        .map_err(|e| Error::invalid_state(format!("failed to marshal tss-esapi public: {e:?}")))?;
     let mut input = public_area_bytes.as_slice();
 
     Ok(TpmtPublic::unmarshal(&mut input)?.into())
@@ -57,11 +54,7 @@ fn to_esapi_public(public: &Tpm2bPublic) -> Result<Public> {
     public.as_inner().marshal(&mut public_area_bytes)?;
 
     Public::unmarshall(&public_area_bytes)
-        .map_err(|e| {
-            Error::invalid_state(format!(
-                "failed to unmarshal tss-esapi public: {e:?}"
-            ))
-        })
+        .map_err(|e| Error::invalid_state(format!("failed to unmarshal tss-esapi public: {e:?}")))
 }
 
 impl From<Tpm2bPublicKeyRsa> for PublicKeyRsa {
@@ -81,4 +74,3 @@ impl From<PublicKeyRsa> for Tpm2bPublicKeyRsa {
             .expect("PublicKeyRsa must be valid for Tpm2bPublicKeyRsa")
     }
 }
-

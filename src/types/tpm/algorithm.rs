@@ -5,20 +5,19 @@ mod rsa;
 mod symmetric;
 
 pub(crate) use self::ecc::{
-    TpmEccCurve, TpmiAlgEccScheme, TpmiEccCurve, TpmlEccCurve, TpmsEccParms, TpmsEccPoint,
-    TpmsSchemeEcdaa, TpmtEccScheme, TpmtSigScheme, TpmuEccScheme, TpmuSigScheme, Tpm2bEccParameter
+    Tpm2bEccParameter, TpmEccCurve, TpmiAlgEccScheme, TpmiEccCurve, TpmlEccCurve, TpmsEccParms,
+    TpmsEccPoint, TpmsSchemeEcdaa, TpmtEccScheme, TpmuEccScheme,
 };
-pub(crate) use self::hash::{TpmiAlgHash, TpmsSchemeHash, TpmtHa, TpmlDigest};
+pub(crate) use self::hash::{TpmiAlgHash, TpmlDigest, TpmsSchemeHash, TpmtHa};
 pub(crate) use self::keyed_hash::{
     TpmiAlgKeyedHashScheme, TpmsKeyedHashParms, TpmsSchemeXor, TpmtKeyedHashScheme,
     TpmuSchemeKeyedHash,
 };
 pub(crate) use self::rsa::{
-    TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme
+    TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme,
 };
 pub(crate) use self::symmetric::{
-    TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmsSymCipherParms, TpmtSymDefObject,
-    TpmuSymMode,
+    TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmsSymCipherParms, TpmtSymDefObject, TpmuSymMode,
 };
 
 use crate::{

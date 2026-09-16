@@ -1,9 +1,9 @@
+use super::{TpmAlgId, TpmsEmpty, TpmsSchemeHash, TpmtSymDefObject};
 use crate::{
     Error, Result,
     macros::newtype,
     types::public::rsa::{RsaKeyBits, RsaScheme},
 };
-use super::{TpmAlgId, TpmsEmpty, TpmsSchemeHash, TpmtSymDefObject};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmsRsaParms {

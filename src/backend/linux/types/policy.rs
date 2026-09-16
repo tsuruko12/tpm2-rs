@@ -1,17 +1,19 @@
 use tracing::debug;
 use tss_esapi::{
-    constants::CommandCode, 
+    constants::CommandCode,
     interface_types::algorithm::HashingAlgorithm,
     structures::{
-        PcrSelectSize, PcrSelection as EsapiPcrSelection, PcrSelectionList, 
-        PcrSlot as EsapiPcrSlot,
-    }    
+        PcrSelectSize, PcrSelection as EsapiPcrSelection, PcrSelectionList, PcrSlot as EsapiPcrSlot,
+    },
 };
 
 use crate::{
     Error, Result,
-    error::BoxError, 
-    types::{PcrSlot, PolicyCommand, tpm::{TpmiAlgHash, TpmlPcrSelection, TpmsPcrSelection}}
+    error::BoxError,
+    types::{
+        PcrSlot, PolicyCommand,
+        tpm::{TpmiAlgHash, TpmlPcrSelection, TpmsPcrSelection},
+    },
 };
 
 impl From<PolicyCommand> for CommandCode {
@@ -63,9 +65,9 @@ impl TryFrom<TpmsPcrSelection> for EsapiPcrSelection {
 
     fn try_from(pcr_selection: TpmsPcrSelection) -> Result<Self> {
         to_esapi_pcr_selection(
-            pcr_selection.hash().try_into()?, 
-            pcr_selection.size_of_select(), 
-            pcr_selection.pcr_select()
+            pcr_selection.hash().try_into()?,
+            pcr_selection.size_of_select(),
+            pcr_selection.pcr_select(),
         )
         .map_err(|e| {
             debug!("{e:?}");
@@ -94,10 +96,8 @@ impl TryFrom<EsapiPcrSelection> for TpmsPcrSelection {
 
     fn try_from(pcr_selection: EsapiPcrSelection) -> Result<Self> {
         let hash = TpmiAlgHash::from(pcr_selection.hashing_algorithm());
-        let pcr_select = pcr_slots_to_select_bytes(
-            &pcr_selection.selected(), 
-            pcr_selection.size_of_select()
-        );
+        let pcr_select =
+            pcr_slots_to_select_bytes(&pcr_selection.selected(), pcr_selection.size_of_select());
 
         Self::new(hash, pcr_select).map_err(|e| {
             debug!("{e:?}");
@@ -108,7 +108,7 @@ impl TryFrom<EsapiPcrSelection> for TpmsPcrSelection {
 
 impl TryFrom<PcrSelectionList> for TpmlPcrSelection {
     type Error = Error;
-    
+
     fn try_from(pcr_selection_list: PcrSelectionList) -> Result<Self> {
         let items = pcr_selection_list
             .get_selections()

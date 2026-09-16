@@ -1,8 +1,12 @@
 use super::{CommandResources, Context};
 use crate::{
-    Error, Result, db::{InternalKeyKind, InternalKeyMeta}, types::{
+    Error, Result,
+    db::{InternalKeyKind, InternalKeyMeta},
+    types::{
         Authorization, CreatedObject, LoadedHandle,
-        tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmiDhObject, TpmiDhPersistent, TpmiRhHierarchy},
+        tpm::{
+            Tpm2bAuth, Tpm2bDigest, Tpm2bPublic, TpmiDhObject, TpmiDhPersistent, TpmiRhHierarchy,
+        },
     },
 };
 
@@ -62,7 +66,9 @@ impl Context {
             let next_handle = TpmiDhPersistent::try_from(session_salt_key_meta.handle.value() + 1)
                 .map_err(|_| Error::resource_exhausted("no persistent handle is available"))?;
             if next_handle.value() > TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value() {
-                return Err(Error::resource_exhausted("no persistent handle is available"));
+                return Err(Error::resource_exhausted(
+                    "no persistent handle is available",
+                ));
             }
 
             key_meta.push(session_salt_key_meta);
@@ -78,7 +84,12 @@ impl Context {
                 Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
                 Some(session_salt_handle),
                 |ctx| {
-                    ctx.create_and_load_key(&rsa_public, empty_auth, &parent, Some(session_salt_handle))
+                    ctx.create_and_load_key(
+                        &rsa_public,
+                        empty_auth,
+                        &parent,
+                        Some(session_salt_handle),
+                    )
                 },
             )?;
             let shared_wrapping_handle = TpmiDhObject::from(shared_wrapping_key_meta.handle);
@@ -97,13 +108,13 @@ impl Context {
                 Ok(key_meta)
             }
             Err(e) => {
-                resources.cleanup(self);       
+                resources.cleanup(self);
                 self.evict_persistent_handles(
                     owner_authorization,
                     &key_meta,
                     Some(&persistent_handles),
                 );
-                
+
                 Err(e)
             }
         }

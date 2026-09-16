@@ -3,9 +3,7 @@ use tracing::debug;
 use tss_esapi::{
     constants::SessionType,
     interface_types::{algorithm::HashingAlgorithm, session_handles::PolicySession},
-    structures::{
-        Digest, DigestList, PcrSelectSize, PcrSelectionList, PcrSelectionListBuilder
-    },
+    structures::{Digest, DigestList, PcrSelectSize, PcrSelectionList, PcrSelectionListBuilder},
 };
 
 use super::{CommandResources, Context, Error, Result};
@@ -146,7 +144,7 @@ impl Context {
     }
 
     fn compute_pcr_digest(
-        &mut self, 
+        &mut self,
         selection_list: PcrSelectionList,
         hash: HashingAlgorithm,
     ) -> Result<Tpm2bDigest> {
@@ -155,11 +153,10 @@ impl Context {
         let mut remaining = selection_list;
 
         while !remaining.is_empty() {
-            let (counter, returned_selection, digest_list) =
-                self
-                    .ctx
-                    .pcr_read(remaining.clone())
-                    .map_err(Error::from_tss_err)?;
+            let (counter, returned_selection, digest_list) = self
+                .ctx
+                .pcr_read(remaining.clone())
+                .map_err(Error::from_tss_err)?;
 
             match update_counter {
                 Some(expected_counter) if expected_counter != counter => {
@@ -179,22 +176,16 @@ impl Context {
             };
 
             if returned_select.is_empty() {
-                return Err(Error::unsupported(
-                    "requested PCR selection is unavailable"
-                ));
+                return Err(Error::unsupported("requested PCR selection is unavailable"));
             }
 
             for digest in digest_list.value() {
                 hasher.update(digest.value());
             }
 
-            remaining
-                .subtract(&returned_selection)
-                .map_err(|e| {
-                    Error::invalid_state(format!(
-                        "failed to update remaining PCR selection: {e:#}"
-                    ))
-                })?;
+            remaining.subtract(&returned_selection).map_err(|e| {
+                Error::invalid_state(format!("failed to update remaining PCR selection: {e:#}"))
+            })?;
         }
 
         hasher.finalize().to_vec().try_into()

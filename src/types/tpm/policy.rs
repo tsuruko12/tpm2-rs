@@ -1,5 +1,5 @@
-use crate::{Error, Result, macros::tpm_list_type, types::PcrSlot};
 use super::algorithm::TpmiAlgHash;
+use crate::{Error, Result, macros::tpm_list_type, types::PcrSlot};
 
 const TPML_COUNT_SIZE: usize = 4;
 

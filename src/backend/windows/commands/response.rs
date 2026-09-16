@@ -1,9 +1,6 @@
 use tracing::debug;
 
-use super::super::{
-    TpmRc,
-    types::Tpm2bNonce,
-};
+use super::super::{TpmRc, types::Tpm2bNonce};
 use super::TpmiStCommandTag;
 use crate::{
     Error, Result,
@@ -17,14 +14,16 @@ pub(in crate::backend::windows) struct Response {
 }
 
 impl Response {
-    pub(in crate::backend::windows) fn parse(input: &mut &[u8], response_handle_count: usize) -> Result<Self> {
+    pub(in crate::backend::windows) fn parse(
+        input: &mut &[u8],
+        response_handle_count: usize,
+    ) -> Result<Self> {
         let response_size = input.len();
         let header = ResponseHeader::unmarshal(input)?;
         if header.response_size as usize != response_size {
             debug!(
                 declared_size = header.response_size,
-                response_size,
-                "response size mismatch"
+                response_size, "response size mismatch"
             );
             return Err(Error::InvalidData);
         }
@@ -48,15 +47,31 @@ impl Response {
                 authorization_area.push(TpmsAuthResponse::unmarshal(input)?);
             }
 
-            (authorization_area, ResponseBody { handles, parameters })
+            (
+                authorization_area,
+                ResponseBody {
+                    handles,
+                    parameters,
+                },
+            )
         } else {
             let params_len = input.len();
             let parameters = read_vec(input, params_len)?;
 
-            (Vec::new(), ResponseBody { handles, parameters })
+            (
+                Vec::new(),
+                ResponseBody {
+                    handles,
+                    parameters,
+                },
+            )
         };
 
-        Ok(Self { header, authorization_area, body })
+        Ok(Self {
+            header,
+            authorization_area,
+            body,
+        })
     }
 }
 
