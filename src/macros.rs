@@ -184,7 +184,9 @@ macro_rules! impl_tpm2b_codec {
     ($name:ty) => {
         impl $crate::types::tpm::TpmMarshal for $name {
             fn marshal(&self, buf: &mut Vec<u8>) -> $crate::error::Result<()> {
-                buf.extend_from_slice(&self.size().to_be_bytes());
+                let size = u16::try_from(self.size())
+                    .map_err(|_| $crate::Error::invalid_state("TPM2B buffer size exceeds u16::MAX"))?;
+                buf.extend_from_slice(&size.to_be_bytes());
                 buf.extend_from_slice(self.as_bytes());
 
                 Ok(())
