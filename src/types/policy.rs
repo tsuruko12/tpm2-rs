@@ -116,7 +116,7 @@ pub enum PcrSlot {
 
 impl PcrSlot {
     pub(crate) const MAX: u8 = Self::Slot23 as u8;
-    pub(crate) const SELECT_SIZE: usize = 3;  
+    pub(crate) const SELECT_SIZE: usize = 3;
 }
 
 impl TryFrom<u8> for PcrSlot {
