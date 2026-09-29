@@ -1,8 +1,9 @@
 use tracing::debug;
 
+use super::Context;
 use crate::{
     cache::AuthorizationTarget,
-    db::{KeyMeta, TpmKeyMeta},
+    db::{InternalKeyMeta, KeyMeta, TpmKeyMeta, WrappingKeyMeta},
     error::{Error, Result},
     hierarchy::Hierarchy,
     types::{
@@ -10,8 +11,6 @@ use crate::{
         tpm::{Tpm2bName, Tpm2bPrivate, Tpm2bPublic, TpmiDhPersistent},
     },
 };
-
-use super::super::Context;
 
 enum KeyLoadData {
     Persistent {
@@ -140,17 +139,24 @@ impl Context {
     }
 
     fn load_stored_key_data(&self, key_name: &str) -> Result<KeyLoadData> {
+        let key_meta = self.store.load_key(key_name)?;
+        match key_meta {
+            KeyMeta::Tpm { .. } => self.load_tpm_key(key_meta),
+            KeyMeta::Symmetric { .. } => self.load_wrappping_key(key_meta),
+        }
+    }
+
+    fn load_tpm_key(&self, key_meta: KeyMeta) -> Result<KeyLoadData> {
         let KeyMeta::Tpm {
+            key_name,
             hierarchy,
             tpm_key_meta,
             persistent_handle,
             parent_name,
             ..
-        } = self.store.load_key(key_name)?
+        } = key_meta
         else {
-            return Err(Error::invalid_state(
-                "unexpected symmetric key as TPM parent",
-            ));
+            return Err(Error::invalid_state("expected TPM key"));
         };
         let TpmKeyMeta {
             public,
@@ -198,6 +204,57 @@ impl Context {
                     })
                 }
             },
+        }
+    }
+
+    fn load_wrappping_key(&self, key_meta: KeyMeta) -> Result<KeyLoadData> {
+        let KeyMeta::Symmetric {
+            key_name,
+            wrapping_key,
+            ..
+        } = key_meta
+        else {
+            return Err(Error::invalid_state("expected symmetric key"));
+        };
+
+        match wrapping_key {
+            WrappingKeyMeta::Dedicated(tpm_key_meta) => {
+                let TpmKeyMeta {
+                    public,
+                    private,
+                    obj_name,
+                    mut policy,
+                } = tpm_key_meta;
+
+                if let Some(policy) = policy.as_mut()
+                    && policy.contains_or()
+                {
+                    let labels = self
+                        .cache
+                        .key_policy_branches(KeyId::Stored(key_name.to_string()))
+                        .ok_or(Error::InvalidPolicy("policy branch was not selected"))?;
+
+                    policy.set_selected_labels(labels)?;
+                }
+
+                Ok(KeyLoadData::Child {
+                    public,
+                    private: private.unwrap(), // already ensured when getting from DB
+                    obj_name,
+                    policy,
+                    parent: None,
+                })
+            }
+            WrappingKeyMeta::Shared => {
+                let InternalKeyMeta {
+                    handle, obj_name, ..
+                } = self.store.load_shared_wrapping_key()?;
+                Ok(KeyLoadData::Persistent {
+                    handle,
+                    obj_name,
+                    policy: None,
+                })
+            }
         }
     }
 
@@ -263,9 +320,40 @@ impl Context {
                     parent: temporary_key.parent.clone(),
                 })
             }
-            KeyData::Symmetric { .. } => Err(Error::invalid_state(
-                "unexpected symmetric key as TPM parent",
-            )),
+            KeyData::Symmetric { wrapping_key, .. } => {
+                let Some(resource) = wrapping_key else {
+                    let InternalKeyMeta {
+                        handle, obj_name, ..
+                    } = self.store.load_shared_wrapping_key()?;
+                    return Ok(KeyLoadData::Persistent {
+                        handle,
+                        obj_name,
+                        policy: None,
+                    });
+                };
+
+                let HandleResource::Transient {
+                    public,
+                    private,
+                    obj_name,
+                } = resource
+                else {
+                    return Err(Error::invalid_state(
+                        "dedicated wrapping key must be transient",
+                    ));
+                };
+                let private = private.as_ref().ok_or_else(|| {
+                    Error::invalid_state("dedicated wrapping key private data is missing")
+                })?;
+
+                Ok(KeyLoadData::Child {
+                    public: public.clone(),
+                    private: private.as_bytes().try_into().unwrap(), // already a valid Tpm2bPrivate
+                    obj_name: obj_name.clone(),
+                    policy,
+                    parent: None,
+                })
+            }
         }
     }
 
