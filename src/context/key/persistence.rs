@@ -1,8 +1,9 @@
 use tracing::debug;
 
-use super::super::Context;
+use super::Context;
 use crate::{
     Error, Result,
+    db::StoredKeyKind,
     types::{Key, KeyId, LoadedObjectHandle, tpm::TpmiDhPersistent},
 };
 
@@ -15,48 +16,18 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// If `key` is temporary, already persistent, or cannot be
-    /// loaded, returns [`Error::InvalidKey`].
+    /// If `key` is temporary, already persistent, or symmetric,
+    /// returns [`Error::InvalidKey`].
     /// If the specified handle is invalid, returns [`Error::InvalidParameter`] .
-    pub fn persist(&mut self, key: &Key, persistent_handle: Option<u32>) -> Result<()> {
+    pub fn persist_key(&mut self, key: &Key, persistent_handle: Option<u32>) -> Result<()> {
         let key_id = key.id();
-
-        if matches!(key_id, KeyId::Temporary(_)) {
-            return Err(Error::invalid_key("temporary key cannot be persisted"));
-        }
+        self.ensure_transient_key(key_id)?;
 
         let owner_authorization = self.owner_authorization()?;
-        let (persistent_handle, search_end) = match persistent_handle {
-            Some(handle) => {
-                let handle = TpmiDhPersistent::try_from(handle)
-                    .ok()
-                    .filter(|handle| {
-                        handle.value() <= TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value()
-                    })
-                    .ok_or_else(|| {
-                        Error::invalid_param(
-                            "persistent handle must be in the range 0x8100_0000 to 0x81FF_FFFF",
-                        )
-                    })?;
-
-                (handle, None)
-            }
-            None => {
-                let start_value = TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.value() + 2;
-                (
-                    start_value
-                        .try_into()
-                        .expect("handle must be in the persistent range"),
-                    Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
-                )
-            }
-        };
+        let (persistent_handle, search_end) = resolve_persistent_handle_range(persistent_handle)?;
 
         let loaded = self.load_key(key_id)?;
-        if loaded.is_persistent() {
-            let _ = self.backend.release_handle(loaded.handle);
-            return Err(Error::invalid_key("specified key is already persistent"));
-        }
+        debug_assert!(!loaded.is_persistent());
 
         let session_salt_handle = match self.load_session_salt_handle() {
             Ok(handle) => LoadedObjectHandle::Persistent(handle),
@@ -65,7 +36,6 @@ impl Context {
                 return Err(e);
             }
         };
-
         let (obj_handle, persistent_handle) = self.backend.persist_handle(
             loaded.handle.inner(),
             persistent_handle,
@@ -98,6 +68,55 @@ impl Context {
 
                 Err(e)
             }
+        }
+    }
+
+    fn ensure_transient_key(&self, key_id: &KeyId) -> Result<()> {
+        if matches!(key_id, KeyId::Temporary(_)) {
+            return Err(Error::invalid_key("temporary key cannot be persisted"));
+        }
+
+        match self.store.get_key_kind(key_id.as_str()) {
+            Ok(kind) => {
+                if kind == StoredKeyKind::Symmetric {
+                    return Err(Error::invalid_key("symmetric key cannot be persisted"));
+                }
+                Ok(())
+            }
+            Err(err) => {
+                if matches!(err, Error::KeyNotFound) {
+                    return Err(Error::corrupted_store_with_source(err));
+                }
+                Err(err)
+            }
+        }
+    }
+}
+
+fn resolve_persistent_handle_range(
+    persistent_handle: Option<u32>,
+) -> Result<(TpmiDhPersistent, Option<TpmiDhPersistent>)> {
+    match persistent_handle {
+        Some(handle) => {
+            let handle = TpmiDhPersistent::try_from(handle)
+                .ok()
+                .filter(|handle| handle.value() <= TpmiDhPersistent::STORAGE_AVAILABLE_LAST.value())
+                .ok_or_else(|| {
+                    Error::invalid_param(
+                        "persistent handle must be in the range 0x8100_0000 to 0x81FF_FFFF",
+                    )
+                })?;
+
+            Ok((handle, None))
+        }
+        None => {
+            let start_value = TpmiDhPersistent::STORAGE_AVAILABLE_FIRST.value() + 2;
+            Ok((
+                start_value
+                    .try_into()
+                    .expect("handle must be in the persistent range"),
+                Some(TpmiDhPersistent::STORAGE_AVAILABLE_LAST),
+            ))
         }
     }
 }
