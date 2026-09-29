@@ -6,7 +6,7 @@ edition = "2024"
 [features]
 default = ["rustcrypto"]
 
-rustcrypto = ["dep:aes-gcm", "dep:sha1", "dep:sha3"]
+rustcrypto = ["dep:aes-gcm"]
 openssl = ["dep:openssl"]
 
 bundled = ["rusqlite/bundled"]
@@ -17,14 +17,15 @@ aes-gcm = { version = "0.10", optional = true }
 asn1 = "0.24"
 bitflags = "2.13"
 block-padding = "0.4"
+der = { version = "0.8", features = ["alloc", "derive"] }
 directories = "6.0"
 hex = "0.4"
 openssl = { version = "0.10", optional = true }
 rand = "0.8"
 rusqlite = { version = "0.40", default-features = false, features = ["fallible_uint"] }
-sha1 = { version = "0.10", optional = true }
+sha1 = "0.10"
 sha2 = "0.10"
-sha3 = { version = "0.10", optional = true }
+sha3 = "0.10"
 thiserror = "2.0.18"
 tracing = "0.1"
 zeroize = { version = "1.9", features = ["derive"]}
