@@ -1,110 +1,217 @@
 mod common;
 
 use common::connect_tpm;
+use std::assert_matches;
 use tpm2_rs::{
     Error, Key, Result,
-    policy::{PcrSlot, Policy, PolicyBranch},
+    policy::{PcrSlot, Policy, PolicyBranch, PolicyCommand},
     public::KeyTemplate,
 };
 
 use crate::common::TestContext;
 
-#[test]
-fn creates_temporary_keys() {
-    let mut test = connect_tpm();
+mod create {
+    use rand::RngCore;
 
-    test.ctx
-        .create_key(KeyTemplate::rsa_sign(), None, None, None, None)
-        .expect("failed to create a temporary RSA key");
+    use super::*;
 
-    test.ctx
-        .create_key(KeyTemplate::aes_gcm_128(), None, None, None, None)
-        .expect("failed to create a temporary symmetric key");
+    #[test]
+    fn creates_key_with_auth_exceeding_sha256_digest_size() {
+        let mut test = connect_tpm();
+
+        let mut auth = [0u8; 64];
+        rand::thread_rng().fill_bytes(&mut auth);
+
+        let _ = create_temporary_key_with_authorization(
+            &mut test,
+            KeyTemplate::ecc_sign(),
+            Some(&auth),
+            None,
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_key_name() {
+        let mut test = connect_tpm();
+        let key_name = "rsa-decrypt";
+
+        let _ = test
+            .ctx
+            .create_key(KeyTemplate::rsa_decrypt(), Some(key_name), None, None, None)
+            .expect("failed to create RSA key");
+
+        assert_matches!(
+            test.ctx
+                .create_key(KeyTemplate::rsa_decrypt(), Some(key_name), None, None, None),
+            Err(Error::KeyAlreadyExists(_)),
+        );
+
+        delete_stored_keys(&mut test, key_name);
+    }
+}
+
+mod persist {
+    use super::*;
+
+    #[test]
+    fn persists_named_keys() {
+        let mut test = connect_tpm();
+
+        let key1 = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::storage_root_key(),
+            Some("srk"),
+            None,
+        );
+        let key2 = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::rsa_sign(),
+            Some("rsa-sign"),
+            Some(&key1),
+        );
+
+        persist_stored_key(&mut test, &key1, 0x8100_8500);
+        persist_stored_key(&mut test, &key2, 0x8100_8501);
+
+        delete_stored_keys(&mut test, key1.name().unwrap());
+
+        for key in [&key1, &key2] {
+            assert_matches!(
+                test.ctx.open_key(key.name().unwrap()),
+                Err(Error::KeyNotFound),
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_persisting_at_used_handle() {
+        let mut test = connect_tpm();
+        let persistent_handle = 0x8100_8500;
+
+        let key1 = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::rsa_decrypt(),
+            Some("rsa-decrypt"),
+            None,
+        );
+        let key2 = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::ecc_sign(),
+            Some("ecc-sign"),
+            None,
+        );
+
+        persist_stored_key(&mut test, &key1, persistent_handle);
+
+        assert_matches!(
+            test.ctx.persist_key(&key2, Some(persistent_handle)),
+            Err(Error::PersistentHandleInUse(_)),
+        )
+    }
+
+    #[test]
+    fn rejects_persisting_sym_key_and_unstored_key() {
+        let mut test = connect_tpm();
+        let persistent_handle = 0x8100_8500;
+
+        let rsa_key =
+            create_key_with_no_authorization(&mut test, KeyTemplate::rsa_decrypt(), None, None);
+        assert_matches!(
+            test.ctx.persist_key(&rsa_key, Some(persistent_handle)),
+            Err(Error::InvalidKey { .. }),
+        );
+
+        let sym_key = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::aes_gcm_128(),
+            Some("aes-gcm-128"),
+            None,
+        );
+        assert_matches!(
+            test.ctx.persist_key(&sym_key, Some(persistent_handle)),
+            Err(Error::InvalidKey { .. }),
+        );
+    }
+}
+
+mod sign {
+    use rand::RngCore;
+
+    use super::*;
+
+    #[test]
+    fn signs_with_oversized_data() {
+        let mut test = connect_tpm();
+
+        let mut data = [0u8; 128];
+        rand::thread_rng().fill_bytes(&mut data);
+
+        let key = create_key_with_no_authorization(&mut test, KeyTemplate::ecc_sign(), None, None);
+
+        if cfg!(target_os = "windows") {
+            test.ctx.sign(&key, &data, None).expect("failed to sign");
+        } else if cfg!(target_os = "linux") {
+            assert_matches!(
+                test.ctx.sign(&key, &data, None),
+                Err(Error::InvalidParameter(_)),
+            );
+        }
+    }
 }
 
 #[test]
-fn creates_and_persists_keys() {
+fn raises_error_with_unselected_policy_branch() {
     let mut test = connect_tpm();
 
-    let (key1, key2) = create_named_keys(&mut test).expect("failed to create named keys");
-
-    let key3 = create_key_with_authorization(&mut test)
-        .expect("failed to create a key with authorization");
-    test.ctx.set_auth_value(&key3, b"AuthValue");
-    test.ctx.set_policy_branch(&key3, "auth");
-
-    let created_keys = [&key1, &key2, &key3];
-    let persistent_handles = [0x8100_8500, 0x8100_8501, 0x8100_8502];
-    for (key, handle) in created_keys.iter().zip(persistent_handles) {
-        persist_stored_key(&mut test, key, handle);
-    }
-
-    delete_stored_keys(&mut test, key1.name().unwrap());
-    delete_stored_keys(&mut test, key3.name().unwrap());
-
-    for key in created_keys {
-        assert!(matches!(
-            test.ctx.open_key(key.name().unwrap()),
-            Err(Error::KeyNotFound)
-        ));
-    }
-}
-
-fn create_named_keys(test: &mut TestContext) -> Result<(Key, Key)> {
-    let name = "srk";
-
-    let srk = test.ctx.create_key(
-        KeyTemplate::storage_root_key(),
-        Some("srk"),
-        None,
-        None,
-        None,
-    )?;
-
-    let duplicate = test.ctx.create_key(
-        KeyTemplate::storage_root_key(),
-        Some(&name),
-        None,
-        None,
-        None,
+    let policy_pcr = PolicyBranch::new(
+        "pcr",
+        Policy::pcr(&[PcrSlot::Slot7]).expect("failed to build PCR policy"),
     );
-    assert!(matches!(duplicate, Err(Error::KeyAlreadyExists(_))));
+    let policy_command = PolicyBranch::new("command", Policy::Command(PolicyCommand::Create));
 
-    let ecc_sign_key = test.ctx.create_key(
-        KeyTemplate::ecc_sign(),
-        Some("ecc-sign"),
+    let srk = create_temporary_key_with_authorization(
+        &mut test,
+        KeyTemplate::storage_root_key(),
         None,
-        None,
-        Some(&srk),
-    )?;
+        Some(Policy::Or(vec![policy_pcr, policy_command])),
+    )
+    .expect("failed to create temporary key");
 
-    Ok((srk, ecc_sign_key))
+    assert_matches!(
+        test.ctx
+            .create_key(KeyTemplate::ecc_sign(), None, None, None, Some(&srk),),
+        Err(Error::InvalidPolicy(_)),
+    );
 }
 
-fn create_key_with_authorization(test: &mut TestContext) -> Result<Key> {
-    let policy_pcr = Policy::pcr(&[PcrSlot::Slot7, PcrSlot::Slot0]).expect("invalid PCR slots");
-    let policy = Policy::or(vec![
-        PolicyBranch::new("auth", Policy::auth_value()),
-        PolicyBranch::new("pcr", policy_pcr),
-    ]);
+fn create_key_with_no_authorization(
+    test: &mut TestContext,
+    template: KeyTemplate,
+    key_name: Option<&str>,
+    parent: Option<&Key>,
+) -> Key {
+    test.ctx
+        .create_key(template, key_name, None, None, parent)
+        .expect("failed to create key")
+}
 
-    test.ctx.create_key(
-        KeyTemplate::rsa_sign(),
-        Some("rsa-sign"),
-        Some(b"AuthValue"),
-        Some(policy),
-        None,
-    )
+fn create_temporary_key_with_authorization(
+    test: &mut TestContext,
+    template: KeyTemplate,
+    auth: Option<&[u8]>,
+    policy: Option<Policy>,
+) -> Result<Key> {
+    test.ctx.create_key(template, None, auth, policy, None)
 }
 
 fn persist_stored_key(test: &mut TestContext, key: &Key, persistent_handle: u32) {
     test.ctx
-        .persist(&key, Some(persistent_handle))
-        .expect("failed to persist a stored key")
+        .persist_key(&key, Some(persistent_handle))
+        .expect("failed to persist stored key")
 }
 
 fn delete_stored_keys(test: &mut TestContext, key_name: &str) {
     test.ctx
         .delete_key(key_name)
-        .expect("failed to persist a stored key: {key_name}");
+        .expect("failed to persist stored key: {key_name}");
 }
