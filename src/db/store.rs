@@ -147,7 +147,7 @@ impl StoredKeyKind {
             PRIMARY | CHILD => Ok(Self::Tpm),
             SYMMETRIC => Ok(Self::Symmetric),
             _ => {
-                debug!("stored key kind is invalid");
+                debug!("invalid stored key kind");
                 Err(Error::corrupted_store())
             }
         }
@@ -325,6 +325,46 @@ impl MetadataStore {
             .map_err(map_provisioning_err)
     }
 
+    pub(crate) fn load_key_public(&self, key_name: &str) -> Result<Option<TpmtPublic>> {
+        let result = self
+            .conn
+            .query_row(
+                r#"
+                SELECT user_keys.kind, tpm_keys.public
+                FROM user_keys
+                LEFT JOIN tpm_keys USING (key_name)
+                WHERE user_keys.key_name = ?1
+                "#,
+                [key_name],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
+            )
+            .optional()
+            .map_err(Error::from_store_err)?;
+
+        let (kind, public) = result.ok_or(Error::KeyNotFound)?;
+        match kind.as_str() {
+            SYMMETRIC => {
+                if public.is_some() {
+                    debug!("unexpected TPM public metadata in symmetric_keys");
+                    return Err(Error::corrupted_store());
+                }
+                Ok(None)
+            }
+            PRIMARY | CHILD => {
+                let public = public.ok_or_else(|| {
+                    debug!("missing public metadata in tpm_keys");
+                    Error::corrupted_store()
+                })?;
+
+                Ok(Some(unmarshal_tpm_public_area(&public)?))
+            }
+            _ => {
+                debug!(%kind, "invalid stored key kind");
+                Err(Error::corrupted_store())
+            }
+        }
+    }
+
     pub(crate) fn load_key(&self, key_name: &str) -> Result<KeyMeta> {
         let kind = self
             .conn
@@ -344,7 +384,7 @@ impl MetadataStore {
                 debug!(
                     %key_name,
                     %kind,
-                    "stored key kind is invalid"
+                    "invalid stored key kind"
                 );
                 Err(Error::corrupted_store())
             }
@@ -557,17 +597,7 @@ impl MetadataStore {
         obj_name: Vec<u8>,
         policy: Option<&[u8]>,
     ) -> Result<TpmKeyMeta> {
-        let mut public_bytes = public.as_slice();
-        let public =
-            TpmtPublic::unmarshal(&mut public_bytes).map_err(Error::corrupted_store_with_source)?;
-
-        if !public_bytes.is_empty() {
-            debug!(
-                remaining_size = public_bytes.len(),
-                "stored TPM public area has trailing bytes"
-            );
-            return Err(Error::corrupted_store());
-        }
+        let public = unmarshal_tpm_public_area(&public)?;
         let private = private
             .map(|private| {
                 Tpm2bPrivate::try_from(private).map_err(Error::corrupted_store_with_source)
@@ -589,7 +619,7 @@ impl MetadataStore {
         let policy = self
             .conn
             .query_row(
-                "SELECT policy FROM hierarchy_policies WHERE hierarchy = ?",
+                "SELECT policy FROM hierarchy_policies WHERE hierarchy = ?1",
                 [hierarchy.as_str()],
                 |row| row.get::<_, Option<Vec<u8>>>(0),
             )
@@ -633,7 +663,6 @@ impl MetadataStore {
 
         let persistent_handle =
             TpmiDhPersistent::try_from(handle).map_err(Error::corrupted_store_with_source)?;
-
         let obj_name = Tpm2bName::try_from(obj_name).map_err(Error::corrupted_store_with_source)?;
 
         Ok(InternalKeyMeta {
@@ -795,6 +824,22 @@ impl MetadataStore {
 
         Ok(())
     }
+}
+
+fn unmarshal_tpm_public_area(bytes: &[u8]) -> Result<TpmtPublic> {
+    let mut bytes = bytes;
+    let public_area =
+        TpmtPublic::unmarshal(&mut bytes).map_err(Error::corrupted_store_with_source)?;
+
+    if !bytes.is_empty() {
+        debug!(
+            remaining_size = bytes.len(),
+            "stored TPM public area has trailing bytes"
+        );
+        return Err(Error::corrupted_store());
+    }
+
+    Ok(public_area)
 }
 
 fn save_tpm_key_meta(
