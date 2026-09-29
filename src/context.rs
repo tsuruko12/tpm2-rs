@@ -4,11 +4,12 @@ mod provision;
 mod random;
 
 use crate::{
+    Error,
     backend::BackendContext,
     cache::Cache,
     db::MetadataStore,
     error::Result,
-    types::{BackendObjectHandle, LoadedHandle},
+    types::{BackendObjectHandle, HandleResource, Key, KeyData, LoadedHandle, tpm::TpmtPublic},
 };
 
 /// Provides access to a TPM and its managed key store.
@@ -65,5 +66,28 @@ impl Context {
     fn load_shared_wrapping_handle(&mut self) -> Result<LoadedHandle> {
         let key_meta = self.store.load_shared_wrapping_key()?;
         self.backend.resolve_internal_key(key_meta)
+    }
+
+    fn get_key_public_area(&self, key: &Key) -> Result<Option<TpmtPublic>> {
+        match key.name() {
+            Some(name) => self.store.load_key_public(name),
+            None => {
+                let temp_key = self
+                    .cache
+                    .temporary_key(key.id().as_str())
+                    .ok_or_else(|| Error::invalid_state("temporary key must exist in cache"))?;
+                match &temp_key.data {
+                    KeyData::Ecc(resource) | KeyData::Rsa(resource) => {
+                        let HandleResource::Transient { public, .. } = resource else {
+                            return Err(Error::invalid_state(
+                                "TemporaryKey must contain HandleResource::Transient",
+                            ));
+                        };
+                        Ok(Some(public.as_inner().clone()))
+                    }
+                    _ => Ok(None),
+                }
+            }
+        }
     }
 }
