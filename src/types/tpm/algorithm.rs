@@ -2,6 +2,7 @@ mod ecc;
 mod hash;
 mod keyed_hash;
 mod rsa;
+mod signature;
 mod symmetric;
 
 pub(crate) use self::ecc::{
@@ -16,6 +17,7 @@ pub(crate) use self::keyed_hash::{
 pub(crate) use self::rsa::{
     TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsRsaParms, TpmtRsaScheme, TpmuRsaScheme,
 };
+pub(crate) use self::signature::{TpmtSigScheme, TpmuSigScheme};
 pub(crate) use self::symmetric::{
     TpmKeyBits, TpmiAlgSymMode, TpmiAlgSymObject, TpmsSymCipherParms, TpmtSymDefObject, TpmuSymMode,
 };
