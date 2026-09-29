@@ -43,7 +43,7 @@ impl Context {
             .contains(TpmaObject::RESTRICTED);
         let (digest, validation) = if is_restricted {
             self.backend
-                .create_validation_tk(data, hash_alg, TpmiRhHierarchy::OWNER)?
+                .create_hash_validation_tk(data, hash_alg, TpmiRhHierarchy::OWNER)?
         } else {
             (hash(data, hash_alg)?, TpmtTkHashCheck::null())
         };
