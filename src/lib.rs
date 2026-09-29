@@ -15,7 +15,7 @@ mod types;
 pub use crate::{
     context::Context,
     error::{Error, Result},
-    types::{algorithm, hierarchy, key::Key, policy, public},
+    types::{algorithm, hierarchy, key::Key, policy, public, signature},
 };
 
 use rand::{RngCore, rngs::OsRng};
