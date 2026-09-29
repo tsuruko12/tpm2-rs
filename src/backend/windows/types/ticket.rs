@@ -1,6 +1,4 @@
-use crate::types::tpm::{Tpm2bDigest, TpmiRhHierarchy};
-
-use super::super::commands::TpmSt;
+use crate::types::tpm::{Tpm2bDigest, TpmSt, TpmiRhHierarchy};
 
 #[derive(Clone)]
 pub(in crate::backend::windows) struct TpmtTkCreation {
