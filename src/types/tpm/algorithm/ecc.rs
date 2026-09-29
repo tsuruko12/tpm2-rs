@@ -112,6 +112,10 @@ pub(crate) struct TpmtEccScheme {
 }
 
 impl TpmtEccScheme {
+    pub(crate) fn details(&self) -> TpmuEccScheme {
+        self.details
+    }
+
     pub(crate) fn ecdsa(scheme_hash: TpmsSchemeHash) -> Self {
         Self {
             scheme: TpmiAlgEccScheme::ECDSA,
@@ -178,125 +182,9 @@ pub(crate) enum TpmuEccScheme {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TpmtSigScheme {
-    scheme: TpmiAlgSigScheme,
-    details: TpmuSigScheme,
-}
-
-impl TpmtSigScheme {
-    pub(crate) fn rsa_ssa(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::RSA_SSA,
-            details: TpmuSigScheme::RsaSsa(scheme_hash),
-        }
-    }
-
-    pub(crate) fn rsa_pss(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::RSA_PSS,
-            details: TpmuSigScheme::RsaPss(scheme_hash),
-        }
-    }
-
-    pub(crate) fn ecdsa(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::ECDSA,
-            details: TpmuSigScheme::Ecdsa(scheme_hash),
-        }
-    }
-
-    pub(crate) fn ecdaa(scheme_ecdaa: TpmsSchemeEcdaa) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::ECDAA,
-            details: TpmuSigScheme::Ecdaa(scheme_ecdaa),
-        }
-    }
-
-    pub(crate) fn sm2(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::SM2,
-            details: TpmuSigScheme::Sm2(scheme_hash),
-        }
-    }
-
-    pub(crate) fn ec_schnorr(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::EC_SCHNORR,
-            details: TpmuSigScheme::EcSchnorr(scheme_hash),
-        }
-    }
-
-    pub(crate) fn hmac(scheme_hash: TpmsSchemeHash) -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::HMAC,
-            details: TpmuSigScheme::Hmac(scheme_hash),
-        }
-    }
-
-    pub(crate) fn null() -> Self {
-        Self {
-            scheme: TpmiAlgSigScheme::NULL,
-            details: TpmuSigScheme::Null,
-        }
-    }
-
-    pub(crate) fn into_parts(self) -> (TpmiAlgSigScheme, TpmuSigScheme) {
-        (self.scheme, self.details)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TpmuSigScheme {
-    RsaSsa(TpmsSchemeHash),
-    RsaPss(TpmsSchemeHash),
-    Ecdsa(TpmsSchemeHash),
-    Sm2(TpmsSchemeHash),
-    EcSchnorr(TpmsSchemeHash),
-    Eddsa(TpmsSchemeHash),
-    Hmac(TpmsSchemeHash),
-    Ecdaa(TpmsSchemeEcdaa),
-    Null,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(crate) struct TpmsSchemeEcdaa {
     pub(crate) hash_alg: TpmiAlgHash,
     pub(crate) count: u16,
-}
-
-newtype!(TpmiAlgSigScheme(TpmAlgId));
-
-impl TpmiAlgSigScheme {
-    pub(crate) const RSA_SSA: Self = Self(TpmAlgId::RsaSsa);
-    pub(crate) const RSA_PSS: Self = Self(TpmAlgId::RsaPss);
-    pub(crate) const ECDSA: Self = Self(TpmAlgId::Ecdsa);
-    pub(crate) const ECDAA: Self = Self(TpmAlgId::Ecdaa);
-    pub(crate) const SM2: Self = Self(TpmAlgId::Sm2);
-    pub(crate) const EC_SCHNORR: Self = Self(TpmAlgId::EcSchnorr);
-    pub(crate) const HMAC: Self = Self(TpmAlgId::Hmac);
-    pub(crate) const NULL: Self = Self(TpmAlgId::Null);
-}
-
-impl TryFrom<TpmAlgId> for TpmiAlgSigScheme {
-    type Error = Error;
-
-    fn try_from(alg: TpmAlgId) -> Result<Self> {
-        match alg {
-            TpmAlgId::RsaSsa
-            | TpmAlgId::RsaPss
-            | TpmAlgId::Ecdsa
-            | TpmAlgId::Ecdaa
-            | TpmAlgId::Sm2
-            | TpmAlgId::EcSchnorr
-            | TpmAlgId::EdDsa
-            | TpmAlgId::HashEdDsa
-            | TpmAlgId::Hmac
-            | TpmAlgId::MlDsa
-            | TpmAlgId::HashMlDsa
-            | TpmAlgId::Null => Ok(Self(alg)),
-            _ => Err(Error::conversion::<TpmAlgId, TpmiAlgSigScheme>(Some(&alg))),
-        }
-    }
 }
 
 newtype!(TpmiAlgEccScheme(TpmAlgId));
@@ -411,3 +299,10 @@ impl TpmsEccPoint {
 }
 
 tpm2b_type!(Tpm2bEccParameter, EccCurve::MAX_BITS.div_ceil(8));
+
+#[derive(Debug, Clone)]
+pub(crate) struct TpmsSignatureEcc {
+    hash: TpmiAlgHash, // NULL is not allowed
+    signature_r: Tpm2bEccParameter,
+    signature_s: Tpm2bEccParameter,
+}
