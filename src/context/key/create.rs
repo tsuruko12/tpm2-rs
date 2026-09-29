@@ -1,3 +1,4 @@
+use super::Context;
 use crate::{
     cache::TemporaryKey,
     db::{KeyMeta, TpmKeyMeta, WrappingKeyMeta},
@@ -10,8 +11,6 @@ use crate::{
         tpm::{Tpm2bAuth, Tpm2bPublicKeyRsa},
     },
 };
-
-use super::super::Context;
 
 enum CreatedKey {
     Tpm(CreatedKeyData),
