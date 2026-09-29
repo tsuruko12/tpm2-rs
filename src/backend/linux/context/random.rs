@@ -34,7 +34,6 @@ impl Context {
                 let bytes_requested = remaining.min(u16::MAX as usize) as u16;
 
                 let chunk = self.get_random_chunk(&mut resources, bytes_requested)?;
-
                 bytes.extend_from_slice(&chunk);
             }
 
