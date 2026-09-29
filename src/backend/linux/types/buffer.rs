@@ -1,6 +1,6 @@
-use tss_esapi::structures::{Auth, Digest, Name, Private};
+use tss_esapi::structures::{Auth, Digest, MaxBuffer, Name, Private};
 
-use crate::types::tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bPrivate};
+use crate::types::tpm::{Tpm2bAuth, Tpm2bDigest, Tpm2bMaxBuffer, Tpm2bName, Tpm2bPrivate};
 
 impl From<Tpm2bDigest> for Digest {
     fn from(digest: Tpm2bDigest) -> Self {
@@ -65,5 +65,13 @@ impl From<Name> for Tpm2bName {
         name.value()
             .try_into()
             .expect("Name must be valid for Tpm2bName")
+    }
+}
+
+impl From<Tpm2bMaxBuffer> for MaxBuffer {
+    fn from(max_buf: Tpm2bMaxBuffer) -> Self {
+        max_buf
+            .try_into()
+            .expect("Tpm2bMaxBuffer must be valid for MaxBuffer")
     }
 }

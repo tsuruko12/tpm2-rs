@@ -51,6 +51,22 @@ impl From<HashAlgorithm> for HashingAlgorithm {
     }
 }
 
+impl TryFrom<HashingAlgorithm> for HashAlgorithm {
+    type Error = Error;
+
+    fn try_from(hash_alg: HashingAlgorithm) -> Result<Self> {
+        match hash_alg {
+            HashingAlgorithm::Sha1 => Ok(Self::Sha1),
+            HashingAlgorithm::Sha256 => Ok(Self::Sha256),
+            HashingAlgorithm::Sha384 => Ok(Self::Sha384),
+            HashingAlgorithm::Sha512 => Ok(Self::Sha512),
+            _ => Err(Error::conversion::<HashingAlgorithm, HashAlgorithm>(Some(
+                &hash_alg,
+            ))),
+        }
+    }
+}
+
 impl From<HashScheme> for TpmsSchemeHash {
     fn from(hash_scheme: HashScheme) -> Self {
         Self {

@@ -63,3 +63,14 @@ impl TryFrom<TpmiRhHierarchy> for EsapiHierarchy {
         }
     }
 }
+
+impl From<EsapiHierarchy> for TpmiRhHierarchy {
+    fn from(hierarchy: EsapiHierarchy) -> Self {
+        match hierarchy {
+            EsapiHierarchy::Endorsement => Self::ENDORSEMENT,
+            EsapiHierarchy::Owner => Self::OWNER,
+            EsapiHierarchy::Platform => Self::PLATFORM,
+            EsapiHierarchy::Null => Self::NULL,
+        }
+    }
+}
