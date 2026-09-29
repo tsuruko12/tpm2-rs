@@ -3,8 +3,7 @@ use tracing::debug;
 use super::{
     TpmRc,
     commands::{
-        Command, CommandHeader, ResponseHeader, TpmSt, TpmiStCommandTag, TpmsAuthCommand,
-        TpmsAuthResponse,
+        Command, CommandHeader, ResponseHeader, TpmiStCommandTag, TpmsAuthCommand, TpmsAuthResponse,
     },
     types::{
         Tpm2bCreationData, Tpm2bData, Tpm2bEncryptedSecret, Tpm2bNonce, TpmSe, TpmaLocality,
@@ -15,9 +14,9 @@ use crate::{
     error::{Error, Result},
     types::tpm::{
         Tpm2bAuth, Tpm2bDigest, Tpm2bName, Tpm2bSensitiveData, TpmAlgId, TpmCap, TpmCc,
-        TpmEccCurve, TpmHandle, TpmMarshal, TpmPt, TpmPtPcr, TpmUnmarshal, TpmaAlgorithm, TpmaCc,
-        TpmaSession, TpmiAlgHash, TpmiRhHierarchy, TpmlAlgProperty, TpmlCc, TpmlCca, TpmlEccCurve,
-        TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
+        TpmEccCurve, TpmHandle, TpmMarshal, TpmPt, TpmPtPcr, TpmSt, TpmUnmarshal, TpmaAlgorithm,
+        TpmaCc, TpmaSession, TpmiAlgHash, TpmiRhHierarchy, TpmlAlgProperty, TpmlCc, TpmlCca,
+        TpmlEccCurve, TpmlHandle, TpmlPcrSelection, TpmlTaggedPcrProperty, TpmlTaggedTpmProperty,
         TpmsAlgProperty, TpmsEmpty, TpmsPcrSelection, TpmsTaggedPcrSelect, TpmsTaggedProperty,
         TpmuRsaScheme, ensure_consumed, marshal_list, marshal_tpm2b, read_tpm2b, read_vec,
         unmarshal_list,
