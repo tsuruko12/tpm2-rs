@@ -1,4 +1,4 @@
-use super::super::Context;
+use super::Context;
 use crate::{
     Result,
     db::StoredKeyKind,
