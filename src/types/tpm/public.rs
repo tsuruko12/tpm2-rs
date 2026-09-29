@@ -3,8 +3,9 @@ use bitflags::bitflags;
 use super::{
     Tpm2bDigest, TpmAlgId, TpmHandle, TpmiAlgHash,
     algorithm::{
-        TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint, TpmsKeyedHashParms,
-        TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme,
+        TpmiAlgEccScheme, TpmiAlgRsaScheme, TpmiRsaKeyBits, TpmsEccParms, TpmsEccPoint,
+        TpmsKeyedHashParms, TpmsRsaParms, TpmsSymCipherParms, TpmtHa, TpmtRsaScheme, TpmtSigScheme,
+        TpmuEccScheme, TpmuRsaScheme,
     },
 };
 use crate::{
@@ -228,6 +229,32 @@ pub(crate) enum TpmuPublicParms {
     KeyedHashDetail(TpmsKeyedHashParms),
     RsaDetail(TpmsRsaParms),
     EccDetail(TpmsEccParms),
+}
+
+impl TpmuPublicParms {
+    pub(crate) fn to_sig_scheme(self) -> Result<TpmtSigScheme> {
+        // assumes the scheme is supported by the template
+        let scheme = match self {
+            Self::RsaDetail(params) => match params.scheme().into_parts() {
+                (TpmiAlgRsaScheme::RSA_SSA, TpmuRsaScheme::RsaSsa(hash)) => {
+                    Some(TpmtSigScheme::rsa_ssa(hash))
+                }
+                (TpmiAlgRsaScheme::RSA_PSS, TpmuRsaScheme::RsaPss(hash)) => {
+                    Some(TpmtSigScheme::rsa_pss(hash))
+                }
+                _ => None,
+            },
+            Self::EccDetail(params) => match params.scheme().into_parts() {
+                (TpmiAlgEccScheme::ECDSA, TpmuEccScheme::Ecdsa(hash)) => {
+                    Some(TpmtSigScheme::ecdsa(hash))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+
+        scheme.ok_or_else(|| Error::invalid_key("invalid key for signing"))
+    }
 }
 
 newtype!(TpmiAlgPublic(TpmAlgId));
