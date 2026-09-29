@@ -1,4 +1,9 @@
-use super::{TpmAlgId, TpmsEmpty, TpmsSchemeHash, TpmtSymDefObject};
+use super::super::{
+    algorithm::{
+        TpmAlgId, TpmiAlgHash, TpmsEmpty, hash::TpmsSchemeHash, symmetric::TpmtSymDefObject,
+    },
+    public::Tpm2bPublicKeyRsa,
+};
 use crate::{
     Error, Result,
     macros::newtype,
@@ -180,4 +185,10 @@ impl From<RsaKeyBits> for TpmiRsaKeyBits {
             RsaKeyBits::Bits4096 => Self::BITS4096,
         }
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct TpmsSignatureRsa {
+    hash: TpmiAlgHash, // NULL is not allowed
+    sig: Tpm2bPublicKeyRsa,
 }
