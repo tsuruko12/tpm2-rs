@@ -1,10 +1,14 @@
-use super::super::{algorithm::HashAlgorithm, tpm::TpmtSymDefObject};
+use super::super::{
+    algorithm::HashAlgorithm, tpm::TpmtSymDefObject,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RsaTemplate {
     restricted: bool,
     exportable: bool,
     key_bits: RsaKeyBits,
+    decrypt: bool,
+    sign: bool,
     scheme: Option<RsaScheme>,
     symmetric: TpmtSymDefObject,
 }
@@ -15,6 +19,8 @@ impl RsaTemplate {
             restricted: true,
             exportable: false,
             key_bits: RsaKeyBits::DEFAULT,
+            decrypt: true,
+            sign: false,
             scheme: None,
             symmetric: TpmtSymDefObject::aes_128_cfb(),
         }
@@ -25,6 +31,8 @@ impl RsaTemplate {
             restricted: false,
             exportable: false,
             key_bits,
+            decrypt: true,
+            sign: false,
             scheme: Some(scheme),
             symmetric: TpmtSymDefObject::null(),
         }
@@ -33,13 +41,65 @@ impl RsaTemplate {
     pub(super) fn is_storage_parent(&self) -> bool {
         self.restricted && self.scheme.is_none() && !self.symmetric.is_null()
     }
+    
+    pub fn decrypt(
+        key_bits: RsaKeyBits, 
+        scheme: Option<RsaDecryptScheme>,
+    ) -> Self {
+        Self {
+            restricted: false,
+            exportable: false,
+            key_bits,
+            decrypt: true,
+            sign: false,
+            scheme: scheme.map(Into::into),
+            symmetric: TpmtSymDefObject::null(),
+        }
+    }
 
-    pub(super) fn set_exportable(&mut self) {
-        self.exportable = true;
+    pub fn sign(
+        key_bits: RsaKeyBits, 
+        scheme: Option<RsaSignScheme>,
+    ) -> Self {
+        Self {
+            restricted: false,
+            exportable: false,
+            key_bits,
+            decrypt: false,
+            sign: true,
+            scheme: scheme.map(Into::into),
+            symmetric: TpmtSymDefObject::null(),
+        }
+    }
+
+    pub fn sign_decrypt(key_bits: RsaKeyBits) -> Self {
+        Self {
+            restricted: false,
+            exportable: false,
+            key_bits,
+            decrypt: true,
+            sign: true,
+            scheme: None,
+            symmetric: TpmtSymDefObject::null(),
+        }
+    }
+
+    pub fn with_exportable(mut self, exportable: bool) -> Self {
+        self.exportable = exportable;
+        self
+    }
+
+    pub fn with_restricted(mut self, restricted: bool) -> Self {
+        self.restricted = restricted;
+        self
     }
 
     pub fn exportable(&self) -> bool {
         self.exportable
+    }
+
+    pub fn restricted(&self) -> bool {
+        self.restricted
     }
 
     pub fn key_bits(&self) -> RsaKeyBits {
@@ -85,8 +145,32 @@ impl RsaScheme {
     }
 }
 
+impl From<RsaDecryptScheme> for RsaScheme {
+    fn from(rsa_decrypt_scheme: RsaDecryptScheme) -> Self {
+        match rsa_decrypt_scheme {
+            RsaDecryptScheme::Oaep(hash_alg) => Self::Oaep(hash_alg),
+            RsaDecryptScheme::RsaEs => Self::RsaEs,
+        }
+    }
+}
+
+impl From<RsaSignScheme> for RsaScheme {
+    fn from(rsa_sign_scheme: RsaSignScheme) -> Self {
+        match rsa_sign_scheme {
+            RsaSignScheme::RsaSsa(hash_alg) => Self::RsaSsa(hash_alg),
+            RsaSignScheme::RsaPss(hash_alg) => Self::RsaPss(hash_alg),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RsaSignatureScheme {
-    RsaSsa,
-    RsaPss,
+pub enum RsaDecryptScheme {
+    Oaep(HashAlgorithm),
+    RsaEs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RsaSignScheme {
+    RsaSsa(HashAlgorithm),
+    RsaPss(HashAlgorithm),
 }
