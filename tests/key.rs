@@ -59,7 +59,7 @@ mod persist {
 
         let key1 = create_key_with_no_authorization(
             &mut test,
-            KeyTemplate::storage_root_key(),
+            KeyTemplate::storage_root(),
             Some("srk"),
             None,
         );
@@ -106,7 +106,10 @@ mod persist {
         assert_matches!(
             test.ctx.persist_key(&key2, Some(persistent_handle)),
             Err(Error::PersistentHandleInUse(_)),
-        )
+        );
+
+        delete_stored_keys(&mut test, "rsa-decrypt");
+        delete_stored_keys(&mut test, "ecc-sign");
     }
 
     #[test]
@@ -131,6 +134,8 @@ mod persist {
             test.ctx.persist_key(&sym_key, Some(persistent_handle)),
             Err(Error::InvalidKey { .. }),
         );
+
+        delete_stored_keys(&mut test, "aes-gcm-128");
     }
 }
 
@@ -140,13 +145,18 @@ mod sign {
     use super::*;
 
     #[test]
-    fn signs_with_oversized_data() {
+    fn signs_with_restricted_key() {
         let mut test = connect_tpm();
 
-        let mut data = [0u8; 128];
+        let mut data = [0u8; 1025];
         rand::thread_rng().fill_bytes(&mut data);
 
-        let key = create_key_with_no_authorization(&mut test, KeyTemplate::ecc_sign(), None, None);
+        let key = create_key_with_no_authorization(
+            &mut test, 
+            KeyTemplate::attestation_sign(), 
+            None, 
+            None,
+        );
 
         if cfg!(target_os = "windows") {
             test.ctx.sign(&key, &data, None).expect("failed to sign");
@@ -171,7 +181,7 @@ fn raises_error_with_unselected_policy_branch() {
 
     let srk = create_temporary_key_with_authorization(
         &mut test,
-        KeyTemplate::storage_root_key(),
+        KeyTemplate::storage_root(),
         None,
         Some(Policy::Or(vec![policy_pcr, policy_command])),
     )
