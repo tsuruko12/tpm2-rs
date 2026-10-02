@@ -36,10 +36,8 @@ impl CreatedKey {
                 };
                 let data = match template {
                     KeyTemplate::Ecc(_) => KeyData::Ecc(handle_resource),
-                    KeyTemplate::Rsa(_) if template.is_storage_parent() => {
-                        KeyData::Srk(handle_resource)
-                    }
                     KeyTemplate::Rsa(_) => KeyData::Rsa(handle_resource),
+                    KeyTemplate::Srk(_) => KeyData::Srk(handle_resource),
                     KeyTemplate::Symmetric(_) => {
                         return Err(Error::invalid_state(
                             "created key type does not match its template",
@@ -182,10 +180,10 @@ impl Context {
             .unwrap_or_default();
         let parent_id = parent.map(|key| key.id().clone());
 
-        let created_key = if template.is_storage_parent() {
+        let created_key = if matches!(template, KeyTemplate::Srk(_)) {
             self.create_key_from_template(template, auth.clone(), &mut policy, None)?
         } else {
-            let wrapping_parent = if matches!(&template, KeyTemplate::Symmetric(_)) {
+            let loaded_parent = if matches!(&template, KeyTemplate::Symmetric(_)) {
                 self.load_shared_wrapping_handle()?
             } else {
                 self.load_parent(parent)?
@@ -195,16 +193,16 @@ impl Context {
                 template,
                 auth.clone(),
                 &mut policy,
-                Some(&wrapping_parent),
+                Some(&loaded_parent),
             );
 
             match result {
                 Ok(created_key) => {
-                    self.backend.release_handle(wrapping_parent.handle)?;
+                    self.backend.release_handle(loaded_parent.handle)?;
                     created_key
                 }
                 Err(e) => {
-                    let _ = self.backend.release_handle(wrapping_parent.handle);
+                    let _ = self.backend.release_handle(loaded_parent.handle);
                     return Err(e);
                 }
             }
@@ -300,6 +298,7 @@ impl Context {
 
                 result.map(|(key, wrapping_key)| CreatedKey::Symmetric { key, wrapping_key })
             }
+            _ => Err(Error::invalid_state("unexpected key template"))
         }
     }
 
