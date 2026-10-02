@@ -47,7 +47,8 @@ impl Tpm2bPublic {
 
         match template {
             KeyTemplate::Ecc(template) => TpmtPublic::ecc(template, auth_policy).into(),
-            KeyTemplate::Rsa(template) => TpmtPublic::rsa(template, auth_policy).into(),
+            KeyTemplate::Rsa(template)
+            | KeyTemplate::Srk(template) => TpmtPublic::rsa(template, auth_policy).into(),
             KeyTemplate::Symmetric(_) => Self::rsa_decrypt(auth_policy),
         }
     }
