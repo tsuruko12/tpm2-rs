@@ -43,4 +43,4 @@ impl Tpm2bAuth {
 
 tpm2b_type!(Tpm2bLabel, 32);
 
-tpm2b_type!(Tpm2bMaxBuffer, 1024); // max size is at least 1,024
+tpm2b_type!(Tpm2bMaxBuffer, 1024); // max size is at least 1024 bytes
