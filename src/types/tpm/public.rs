@@ -12,10 +12,13 @@ use crate::{
     Error, Result,
     macros::{newtype, tpm2b_type, tpm2b_zeroize_type},
     public::RsaKeyBits,
-    types::public::{
-        KeyTemplate,
-        ecc::EccTemplate,
-        rsa::{RsaScheme, RsaTemplate},
+    types::{
+        public::{
+            KeyTemplate,
+            ecc::EccTemplate,
+            rsa::{RsaScheme, RsaTemplate},
+        },
+        tpm::TpmtSymDefObject,
     },
 };
 
@@ -47,19 +50,20 @@ impl Tpm2bPublic {
 
         match template {
             KeyTemplate::Ecc(template) => TpmtPublic::ecc(template, auth_policy).into(),
-            KeyTemplate::Rsa(template)
-            | KeyTemplate::Srk(template) => TpmtPublic::rsa(template, auth_policy).into(),
+            KeyTemplate::Rsa(template) | KeyTemplate::Srk(template) => {
+                TpmtPublic::rsa(template, auth_policy).into()
+            }
             KeyTemplate::Symmetric(_) => Self::rsa_decrypt(auth_policy),
         }
     }
 
-    pub(crate) fn storage_parent() -> Self {
+    pub(crate) fn storage_parent(key_bits: TpmiRsaKeyBits) -> Self {
         TpmtPublic::new(
             TpmiAlgPublic::RSA,
             TpmiAlgHash::SHA256,
             TpmaObject::storage_parent(),
             Tpm2bDigest::default(),
-            TpmuPublicParms::RsaDetail(TpmsRsaParms::storage_parent()),
+            TpmuPublicParms::RsaDetail(TpmsRsaParms::storage_parent(key_bits)),
             TpmuPublicId::Rsa(Tpm2bPublicKeyRsa::default()),
         )
         .into()
@@ -165,7 +169,7 @@ impl TpmtPublic {
         Self {
             alg_type: TpmiAlgPublic::ECC,
             name_alg: TpmiAlgHash::SHA256,
-            object_attributes: TpmaObject::sign(false, template.exportable()),
+            object_attributes: TpmaObject::sign(template.is_restricted(), template.is_exportable()),
             auth_policy,
             parameters,
             unique: TpmuPublicId::Ecc(TpmsEccPoint::default()),
@@ -173,7 +177,7 @@ impl TpmtPublic {
     }
 
     fn rsa(template: RsaTemplate, auth_policy: Tpm2bDigest) -> Self {
-        let duplicable = template.exportable();
+        let duplicable = template.is_exportable();
         let (rsa_params, object_attributes) = match template.scheme() {
             Some(scheme) => {
                 let params = TpmsRsaParms::unrestricted(scheme.into(), template.key_bits().into());
@@ -185,7 +189,24 @@ impl TpmtPublic {
 
                 (params, attrs)
             }
-            None => (TpmsRsaParms::storage_parent(), TpmaObject::storage_parent()),
+            None => {
+                if template.is_storage_parent() {
+                    (
+                        TpmsRsaParms::storage_parent(TpmiRsaKeyBits::BITS3072),
+                        TpmaObject::storage_parent(),
+                    )
+                } else {
+                    (
+                        TpmsRsaParms::new(
+                            TpmtSymDefObject::null(),
+                            TpmtRsaScheme::null(),
+                            TpmiRsaKeyBits::BITS3072,
+                            0,
+                        ),
+                        TpmaObject::sign_decrypt(template.is_restricted(), duplicable),
+                    )
+                }
+            }
         };
         let parameters = TpmuPublicParms::RsaDetail(rsa_params);
 
@@ -224,6 +245,106 @@ impl TpmtPublic {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_storage_parent(public: &Tpm2bPublic) {
+        assert!(public.is_storage_parent());
+
+        let public = public.as_inner();
+        assert_eq!(public.alg_type(), TpmiAlgPublic::RSA);
+        assert_eq!(public.name_alg(), TpmiAlgHash::SHA256);
+        assert_eq!(
+            public.object_attributes().bits(),
+            TpmaObject::storage_parent().bits()
+        );
+
+        match public.parameters() {
+            TpmuPublicParms::RsaDetail(params) => {
+                assert_eq!(params.key_bits(), TpmiRsaKeyBits::BITS3072);
+                assert_eq!(params.symmetric(), TpmtSymDefObject::aes_128_cfb());
+                assert_eq!(params.scheme().into_parts().0, TpmiAlgRsaScheme::NULL);
+                assert_eq!(params.exponent(), 0);
+            }
+            _ => panic!("unexpected parameters type"),
+        }
+    }
+
+    #[test]
+    fn from_sign_decrypt_template() {
+        let public = TpmtPublic::rsa(
+            RsaTemplate::sign_decrypt(RsaKeyBits::Bits3072),
+            Tpm2bDigest::default(),
+        );
+
+        assert_eq!(public.alg_type, TpmiAlgPublic::RSA);
+        assert!(public.object_attributes.contains(TpmaObject::SIGN_ENCRYPT));
+        assert!(public.object_attributes.contains(TpmaObject::DECRYPT));
+
+        match public.parameters {
+            TpmuPublicParms::RsaDetail(params) => {
+                assert_eq!(params.scheme().into_parts().0, TpmiAlgRsaScheme::NULL);
+            }
+            _ => panic!("unexpected parameters type"),
+        }
+    }
+
+    #[test]
+    fn from_storage_parent_template() {
+        let public =
+            Tpm2bPublic::from_template(KeyTemplate::storage_parent(), Tpm2bDigest::default());
+
+        assert_storage_parent(&public);
+    }
+
+    #[test]
+    fn from_attestation_sign_template() {
+        let public =
+            Tpm2bPublic::from_template(KeyTemplate::attestation_sign(), Tpm2bDigest::default());
+        let public = public.as_inner();
+
+        assert_eq!(public.alg_type(), TpmiAlgPublic::ECC);
+        assert_eq!(public.name_alg(), TpmiAlgHash::SHA256);
+        assert_eq!(
+            public.object_attributes().bits(),
+            TpmaObject::sign(true, false).bits()
+        );
+
+        match public.parameters() {
+            TpmuPublicParms::EccDetail(params) => {
+                assert_eq!(
+                    params.curve_id(),
+                    super::super::algorithm::TpmiEccCurve::NIST_P256
+                );
+                assert!(params.symmetric().is_null());
+                match params.scheme().into_parts() {
+                    (TpmiAlgEccScheme::ECDSA, TpmuEccScheme::Ecdsa(hash)) => {
+                        assert_eq!(hash.hash_alg, TpmiAlgHash::SHA256);
+                    }
+                    _ => panic!("unexpected ECC scheme"),
+                }
+            }
+            _ => panic!("unexpected parameters type"),
+        }
+    }
+
+    #[test]
+    fn from_srk_template() {
+        let KeyTemplate::Srk(template) = KeyTemplate::storage_root() else {
+            panic!("unexpected storage root template type");
+        };
+
+        let public = Tpm2bPublic::from_template(KeyTemplate::Srk(template), Tpm2bDigest::default());
+
+        assert_storage_parent(&public);
+        assert_storage_parent(&Tpm2bPublic::from_template(
+            KeyTemplate::storage_root(),
+            Tpm2bDigest::default(),
+        ));
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TpmuPublicParms {
     SymDetail(TpmsSymCipherParms),
@@ -243,6 +364,7 @@ impl TpmuPublicParms {
                 (TpmiAlgRsaScheme::RSA_PSS, TpmuRsaScheme::RsaPss(hash)) => {
                     Some(TpmtSigScheme::rsa_pss(hash))
                 }
+                (TpmiAlgRsaScheme::NULL, _) => Some(TpmtSigScheme::null()),
                 _ => None,
             },
             Self::EccDetail(params) => match params.scheme().into_parts() {
@@ -309,8 +431,8 @@ impl TpmaObject {
         Self::SENSITIVE_DATA_ORIGIN | Self::USER_WITH_AUTH
     }
 
-    fn sign(restricted: bool, duplicable: bool) -> Self {
-        let mut attrs = Self::base() | Self::SIGN_ENCRYPT;
+    fn new(restricted: bool, duplicable: bool, sign: bool, decrypt: bool) -> Self {
+        let mut attrs = Self::base();
 
         if restricted {
             attrs |= Self::RESTRICTED;
@@ -318,23 +440,38 @@ impl TpmaObject {
 
         if !duplicable {
             attrs |= Self::FIXED_TPM | Self::FIXED_PARENT;
+        }
+
+        if sign {
+            attrs |= Self::SIGN_ENCRYPT;
+        }
+
+        if decrypt {
+            attrs |= Self::DECRYPT;
         }
 
         attrs
     }
 
+    fn sign(restricted: bool, duplicable: bool) -> Self {
+        let sign = true;
+        let decrypt = false;
+
+        Self::new(restricted, duplicable, sign, decrypt)
+    }
+
     fn decrypt(restricted: bool, duplicable: bool) -> Self {
-        let mut attrs = Self::base() | Self::DECRYPT;
+        let sign = false;
+        let decrypt = true;
 
-        if restricted {
-            attrs |= Self::RESTRICTED;
-        }
+        Self::new(restricted, duplicable, sign, decrypt)
+    }
 
-        if !duplicable {
-            attrs |= Self::FIXED_TPM | Self::FIXED_PARENT;
-        }
+    fn sign_decrypt(restricted: bool, duplicable: bool) -> Self {
+        let sign = true;
+        let decrypt = true;
 
-        attrs
+        Self::new(restricted, duplicable, sign, decrypt)
     }
 
     fn storage_parent() -> Self {
