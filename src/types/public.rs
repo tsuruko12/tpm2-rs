@@ -22,7 +22,7 @@ pub enum KeyTemplate {
 
 impl KeyTemplate {
     pub fn storage_root() -> Self {
-        Self::Rsa(RsaTemplate::storage_parent())
+        Self::Srk(RsaTemplate::storage_parent())
     }
 
     pub fn storage_parent() -> Self {
@@ -31,25 +31,25 @@ impl KeyTemplate {
 
     pub fn rsa_decrypt() -> Self {
         let scheme = RsaScheme::Oaep(HashAlgorithm::DEFAULT);
-        Self::Rsa(RsaTemplate::fixed(RsaKeyBits::DEFAULT, scheme))
+        Self::Rsa(RsaTemplate::unrestricted_decrypt(
+            RsaKeyBits::DEFAULT,
+            scheme,
+        ))
     }
 
     pub fn rsa_sign() -> Self {
         let scheme = RsaScheme::RsaPss(HashAlgorithm::DEFAULT);
-        Self::Rsa(RsaTemplate::fixed(RsaKeyBits::DEFAULT, scheme))
+        Self::Rsa(RsaTemplate::unrestricted_sign(RsaKeyBits::DEFAULT, scheme))
     }
 
     pub fn ecc_sign() -> Self {
         let scheme = EccScheme::Ecdsa(HashAlgorithm::DEFAULT);
-        Self::Ecc(EccTemplate::fixed(EccCurve::DEFAULT, scheme))
+        Self::Ecc(EccTemplate::unrestricted(EccCurve::DEFAULT, scheme))
     }
 
     pub fn attestation_sign() -> Self {
-        let scheme = EccScheme::Ecdsa(HashAlgorithm::DEFAULT);
-        Self::Ecc(
-            EccTemplate::fixed(EccCurve::DEFAULT, scheme)
-                .with_restricted(true)
-        )
+        let scheme: EccScheme = EccScheme::Ecdsa(HashAlgorithm::DEFAULT);
+        Self::Ecc(EccTemplate::restricted(EccCurve::DEFAULT, scheme))
     }
 
     pub fn aes_gcm_128() -> Self {
@@ -74,13 +74,5 @@ impl KeyTemplate {
 
     pub fn ecc(template: EccTemplate) -> Self {
         Self::Ecc(template)
-    }
-
-    pub(crate) fn is_storage_parent(&self) -> bool {
-        match self {
-            Self::Srk(_) => true,
-            Self::Rsa(template) => template.is_storage_parent(),
-            _ => false,
-        }
     }
 }
