@@ -1,6 +1,4 @@
-use super::super::{
-    algorithm::HashAlgorithm, tpm::TpmtSymDefObject,
-};
+use super::super::{algorithm::HashAlgorithm, tpm::TpmtSymDefObject};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RsaTemplate {
@@ -14,62 +12,12 @@ pub struct RsaTemplate {
 }
 
 impl RsaTemplate {
-    pub(super) fn storage_parent() -> Self {
-        Self {
-            restricted: true,
-            exportable: false,
-            key_bits: RsaKeyBits::DEFAULT,
-            decrypt: true,
-            sign: false,
-            scheme: None,
-            symmetric: TpmtSymDefObject::aes_128_cfb(),
-        }
+    pub fn decrypt(key_bits: RsaKeyBits, scheme: RsaDecryptScheme) -> Self {
+        Self::unrestricted_decrypt(key_bits, scheme.into())
     }
 
-    pub(super) fn fixed(key_bits: RsaKeyBits, scheme: RsaScheme) -> Self {
-        Self {
-            restricted: false,
-            exportable: false,
-            key_bits,
-            decrypt: true,
-            sign: false,
-            scheme: Some(scheme),
-            symmetric: TpmtSymDefObject::null(),
-        }
-    }
-
-    pub(super) fn is_storage_parent(&self) -> bool {
-        self.restricted && self.scheme.is_none() && !self.symmetric.is_null()
-    }
-    
-    pub fn decrypt(
-        key_bits: RsaKeyBits, 
-        scheme: Option<RsaDecryptScheme>,
-    ) -> Self {
-        Self {
-            restricted: false,
-            exportable: false,
-            key_bits,
-            decrypt: true,
-            sign: false,
-            scheme: scheme.map(Into::into),
-            symmetric: TpmtSymDefObject::null(),
-        }
-    }
-
-    pub fn sign(
-        key_bits: RsaKeyBits, 
-        scheme: Option<RsaSignScheme>,
-    ) -> Self {
-        Self {
-            restricted: false,
-            exportable: false,
-            key_bits,
-            decrypt: false,
-            sign: true,
-            scheme: scheme.map(Into::into),
-            symmetric: TpmtSymDefObject::null(),
-        }
+    pub fn sign(key_bits: RsaKeyBits, scheme: RsaSignScheme) -> Self {
+        Self::unrestricted_sign(key_bits, scheme.into())
     }
 
     pub fn sign_decrypt(key_bits: RsaKeyBits) -> Self {
@@ -84,29 +32,64 @@ impl RsaTemplate {
         }
     }
 
+    pub(super) fn storage_parent() -> Self {
+        Self {
+            restricted: true,
+            exportable: false,
+            key_bits: RsaKeyBits::DEFAULT,
+            decrypt: true,
+            sign: false,
+            scheme: None,
+            symmetric: TpmtSymDefObject::aes_128_cfb(),
+        }
+    }
+
+    pub(super) fn unrestricted_decrypt(key_bits: RsaKeyBits, scheme: RsaScheme) -> Self {
+        Self {
+            restricted: false,
+            exportable: false,
+            key_bits,
+            decrypt: true,
+            sign: false,
+            scheme: Some(scheme),
+            symmetric: TpmtSymDefObject::null(),
+        }
+    }
+
+    pub(super) fn unrestricted_sign(key_bits: RsaKeyBits, scheme: RsaScheme) -> Self {
+        Self {
+            restricted: false,
+            exportable: false,
+            key_bits,
+            decrypt: false,
+            sign: true,
+            scheme: Some(scheme),
+            symmetric: TpmtSymDefObject::null(),
+        }
+    }
+
+    pub(crate) fn is_storage_parent(&self) -> bool {
+        self.restricted && self.scheme.is_none() && !self.symmetric.is_null()
+    }
+
     pub fn with_exportable(mut self, exportable: bool) -> Self {
         self.exportable = exportable;
         self
     }
 
-    pub fn with_restricted(mut self, restricted: bool) -> Self {
-        self.restricted = restricted;
-        self
-    }
-
-    pub fn exportable(&self) -> bool {
+    pub(crate) fn is_exportable(&self) -> bool {
         self.exportable
     }
 
-    pub fn restricted(&self) -> bool {
+    pub(crate) fn is_restricted(&self) -> bool {
         self.restricted
     }
 
-    pub fn key_bits(&self) -> RsaKeyBits {
+    pub(crate) fn key_bits(&self) -> RsaKeyBits {
         self.key_bits
     }
 
-    pub fn scheme(&self) -> Option<RsaScheme> {
+    pub(crate) fn scheme(&self) -> Option<RsaScheme> {
         self.scheme
     }
 }

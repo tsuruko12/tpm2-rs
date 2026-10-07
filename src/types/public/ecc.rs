@@ -10,15 +10,19 @@ pub struct EccTemplate {
 
 impl EccTemplate {
     pub fn sign(curve: EccCurve, scheme: EccScheme) -> Self {
+        Self::unrestricted(curve, scheme)
+    }
+
+    pub(super) fn restricted(curve: EccCurve, scheme: EccScheme) -> Self {
         Self {
             exportable: false,
-            restricted: false,
+            restricted: true,
             curve,
             scheme,
         }
     }
 
-    pub(super) fn fixed(curve: EccCurve, scheme: EccScheme) -> Self {
+    pub(super) fn unrestricted(curve: EccCurve, scheme: EccScheme) -> Self {
         Self {
             exportable: false,
             restricted: false,
@@ -32,24 +36,19 @@ impl EccTemplate {
         self
     }
 
-    pub fn with_restricted(mut self, restricted: bool) -> Self {
-        self.restricted = restricted;
-        self
-    }
-
-    pub fn exportable(&self) -> bool {
+    pub(crate) fn is_exportable(&self) -> bool {
         self.exportable
     }
 
-    pub fn restricted(&self) -> bool {
+    pub(crate) fn is_restricted(&self) -> bool {
         self.restricted
     }
 
-    pub fn curve(&self) -> EccCurve {
+    pub(crate) fn curve(&self) -> EccCurve {
         self.curve
     }
 
-    pub fn scheme(&self) -> EccScheme {
+    pub(crate) fn scheme(&self) -> EccScheme {
         self.scheme
     }
 }
