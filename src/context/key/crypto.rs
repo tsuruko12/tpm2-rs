@@ -29,7 +29,7 @@ impl Context {
             None => {
                 let Some(scheme) = scheme else {
                     return Err(Error::invalid_param(
-                        "scheme must be specified when key scheme is NULL",
+                        "scheme must be specified for this key",
                     ));
                 };
                 sig_scheme = scheme.into();
