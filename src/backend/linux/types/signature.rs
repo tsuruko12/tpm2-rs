@@ -1,3 +1,5 @@
+use der::Encode;
+use tracing::debug;
 use tss_esapi::structures::{
     EcDaaScheme, EccSignature as EsapiEccSignature, HmacScheme, RsaSignature as EsapiRsaSignature,
     Signature as EsapiSignature, SignatureScheme as EsapiSignatureScheme,
@@ -5,7 +7,7 @@ use tss_esapi::structures::{
 
 use crate::{
     Error, Result,
-    algorithm::{EccSignature, RsaSignature},
+    signature::{EccSignature, EcdsaDerSignature, EcdsaSignature, RsaSignature},
     types::{
         Signature,
         tpm::{TpmsSchemeEcdaa, TpmtSigScheme, TpmuSigScheme},
@@ -17,7 +19,21 @@ impl TryFrom<EsapiSignature> for Signature {
 
     fn try_from(signature: EsapiSignature) -> Result<Self> {
         match signature {
-            EsapiSignature::EcDsa(ecc_sig) => Ok(Self::Ecdsa(ecc_sig.try_into()?)),
+            EsapiSignature::EcDsa(ecc_sig) => {
+                let ecdsa_der_sig = EcdsaDerSignature::new(
+                    ecc_sig.signature_r().value(),
+                    ecc_sig.signature_s().value(),
+                )?;
+                let encoded = ecdsa_der_sig.to_der().map_err(|e| {
+                    debug!("{e:?}");
+                    Error::invalid_state("failed to encode ECDSA signature to DER")
+                })?;
+
+                Ok(Self::Ecdsa(EcdsaSignature::new(
+                    ecc_sig.hashing_algorithm().try_into()?,
+                    encoded,
+                )))
+            }
             EsapiSignature::RsaPss(rsa_sig) => Ok(Self::RsaPss(rsa_sig.try_into()?)),
             EsapiSignature::RsaSsa(rsa_sig) => Ok(Self::RsaSsa(rsa_sig.try_into()?)),
             _ => Err(Error::conversion::<EsapiSignature, Signature>(None)),
