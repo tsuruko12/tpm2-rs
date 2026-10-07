@@ -44,11 +44,11 @@ impl TpmsRsaParms {
         }
     }
 
-    pub(crate) fn storage_parent() -> Self {
+    pub(crate) fn storage_parent(key_bits: TpmiRsaKeyBits) -> Self {
         Self {
             symmetric: TpmtSymDefObject::aes_128_cfb(),
             scheme: TpmtRsaScheme::null(),
-            key_bits: TpmiRsaKeyBits::BITS3072,
+            key_bits,
             exponent: Self::DEFAULT_EXPONENT,
         }
     }
