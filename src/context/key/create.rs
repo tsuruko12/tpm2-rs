@@ -87,6 +87,16 @@ impl CreatedKey {
         parent_name: Option<String>,
     ) -> Result<KeyMeta> {
         match (template, self) {
+            (KeyTemplate::Srk(_), Self::Tpm(key_data)) => {
+                let tpm_key_meta = TpmKeyMeta {
+                    public: key_data.public,
+                    private: key_data.private,
+                    obj_name: key_data.name,
+                    policy,
+                };
+
+                Ok(KeyMeta::owner_primary(key_name, tpm_key_meta, None))
+            }
             (KeyTemplate::Rsa(_), Self::Tpm(key_data)) => {
                 let tpm_key_meta = TpmKeyMeta {
                     public: key_data.public,
@@ -95,11 +105,7 @@ impl CreatedKey {
                     policy,
                 };
 
-                if template.is_storage_parent() {
-                    Ok(KeyMeta::owner_primary(key_name, tpm_key_meta, None))
-                } else {
-                    Ok(KeyMeta::child(key_name, tpm_key_meta, None, parent_name))
-                }
+                Ok(KeyMeta::child(key_name, tpm_key_meta, None, parent_name))
             }
             (KeyTemplate::Ecc(_), Self::Tpm(key_data)) => Ok(KeyMeta::child(
                 key_name,
@@ -231,7 +237,7 @@ impl Context {
             }
         }
 
-        if template.is_storage_parent() || matches!(&template, KeyTemplate::Symmetric(_)) {
+        if matches!(&template, KeyTemplate::Srk(_) | KeyTemplate::Symmetric(_)) {
             if parent.is_some() {
                 return Err(Error::invalid_param(
                     "parent cannot be specified for storage root or symmetric keys",
@@ -298,7 +304,7 @@ impl Context {
 
                 result.map(|(key, wrapping_key)| CreatedKey::Symmetric { key, wrapping_key })
             }
-            _ => Err(Error::invalid_state("unexpected key template"))
+            _ => Err(Error::invalid_state("unexpected key template")),
         }
     }
 
