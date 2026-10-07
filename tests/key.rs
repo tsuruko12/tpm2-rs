@@ -35,10 +35,12 @@ mod create {
         let mut test = connect_tpm();
         let key_name = "rsa-decrypt";
 
-        let _ = test
-            .ctx
-            .create_key(KeyTemplate::rsa_decrypt(), Some(key_name), None, None, None)
-            .expect("failed to create RSA key");
+        let _ = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::rsa_decrypt(),
+            Some(key_name),
+            None,
+        );
 
         assert_matches!(
             test.ctx
@@ -47,6 +49,36 @@ mod create {
         );
 
         delete_stored_keys(&mut test, key_name);
+    }
+
+    #[test]
+    fn rejects_parent_key() {
+        let mut test = connect_tpm();
+
+        let storage_key =
+            create_key_with_no_authorization(&mut test, KeyTemplate::aes_gcm_128(), None, None);
+
+        assert_matches!(
+            test.ctx.create_key(
+                KeyTemplate::aes_gcm_128(),
+                None,
+                None,
+                None,
+                Some(&storage_key),
+            ),
+            Err(Error::InvalidParameter(_)),
+        );
+
+        assert_matches!(
+            test.ctx.create_key(
+                KeyTemplate::storage_root(),
+                None,
+                None,
+                None,
+                Some(&storage_key),
+            ),
+            Err(Error::InvalidParameter(_)),
+        );
     }
 }
 
@@ -140,9 +172,15 @@ mod persist {
 }
 
 mod sign {
+    use der::Decode;
     use rand::RngCore;
 
     use super::*;
+    use tpm2_rs::{
+        algorithm::HashAlgorithm,
+        public::{RsaKeyBits, RsaTemplate},
+        signature::Signature,
+    };
 
     #[test]
     fn signs_with_restricted_key() {
@@ -152,20 +190,73 @@ mod sign {
         rand::thread_rng().fill_bytes(&mut data);
 
         let key = create_key_with_no_authorization(
-            &mut test, 
-            KeyTemplate::attestation_sign(), 
-            None, 
+            &mut test,
+            KeyTemplate::attestation_sign(),
+            None,
             None,
         );
 
         if cfg!(target_os = "windows") {
-            test.ctx.sign(&key, &data, None).expect("failed to sign");
+            let signature = test.ctx.sign(&key, &data, None).expect("failed to sign");
+            match signature {
+                Signature::Ecdsa(ecdsa_sig) => {
+                    assert_eq!(ecdsa_sig.hash_alg(), HashAlgorithm::Sha256);
+                    Decode::from_der(ecdsa_sig.value()).expect("failed to decode")
+                }
+                _ => panic!("unexpected signature type"),
+            }
         } else if cfg!(target_os = "linux") {
             assert_matches!(
                 test.ctx.sign(&key, &data, None),
                 Err(Error::InvalidParameter(_)),
             );
         }
+    }
+
+    #[test]
+    fn signs_with_rsa_key() {
+        let mut test = connect_tpm();
+
+        let data = b"test message for RSA signature";
+        let key = create_key_with_no_authorization(&mut test, KeyTemplate::rsa_sign(), None, None);
+
+        let signature = test.ctx.sign(&key, data, None).expect("failed to sign");
+        match signature {
+            Signature::RsaPss(rsa_sig) => {
+                assert_eq!(rsa_sig.hash_alg(), HashAlgorithm::Sha256);
+            }
+            _ => panic!("unexpected signature type"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_key() {
+        let mut test = connect_tpm();
+
+        let data = b"test message for ECDSA signature";
+        let key =
+            create_key_with_no_authorization(&mut test, KeyTemplate::aes_gcm_128(), None, None);
+
+        assert_matches!(
+            test.ctx.sign(&key, data, None),
+            Err(Error::InvalidKey { .. }),
+        );
+    }
+
+    #[test]
+    fn requires_option_scheme() {
+        let mut test = connect_tpm();
+
+        let rsa_template = RsaTemplate::sign_decrypt(RsaKeyBits::Bits2048);
+        let data = b"test message";
+
+        let key =
+            create_key_with_no_authorization(&mut test, KeyTemplate::rsa(rsa_template), None, None);
+
+        assert_matches!(
+            test.ctx.sign(&key, data, None),
+            Err(Error::InvalidParameter(_)),
+        );
     }
 }
 
