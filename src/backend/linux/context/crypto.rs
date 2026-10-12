@@ -47,7 +47,32 @@ impl Context {
                 })
                 .map_err(Error::from_tss_err)?;
 
+            resources.release_all_handles(self)?;
+
             Signature::try_from(signature)
+        })();
+
+        self.finalize_command(result, &mut resources)
+    }
+
+    pub(crate) fn verify_signature(
+        &mut self,
+        loaded: LoadedHandle,
+        digest: Tpm2bDigest,
+        signature: &Signature,
+    ) -> Result<()> {
+        let obj_handle = loaded.handle.inner();
+
+        let mut resources = CommandResources::default();
+        resources.add_handle(loaded.handle);
+
+        let result = (|| {
+            let _ = self
+                .ctx
+                .verify_signature(obj_handle.into(), digest.into(), signature.try_into()?)
+                .map_err(Error::from_tss_err)?;
+
+            resources.release(self)
         })();
 
         self.finalize_command(result, &mut resources)
@@ -60,10 +85,7 @@ impl Context {
         hierarchy: TpmiRhHierarchy,
     ) -> Result<(Tpm2bDigest, TpmtTkHashCheck)> {
         if data.len() > MaxBuffer::MAX_SIZE {
-            return Err(Error::invalid_param(format!(
-                "data size must not exceed {} bytes",
-                MaxBuffer::MAX_SIZE,
-            )));
+            return Err(Error::invalid_param("data size exceeds maximum size"));
         }
 
         let (out_hash, validation) = self
