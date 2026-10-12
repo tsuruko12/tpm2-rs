@@ -1,8 +1,9 @@
-use der::Encode;
+use der::{Decode, Encode};
 use tracing::debug;
 use tss_esapi::structures::{
-    EcDaaScheme, EccSignature as EsapiEccSignature, HmacScheme, RsaSignature as EsapiRsaSignature,
-    Signature as EsapiSignature, SignatureScheme as EsapiSignatureScheme,
+    EcDaaScheme, EccParameter, EccSignature as EsapiEccSignature, HmacScheme,
+    RsaSignature as EsapiRsaSignature, Signature as EsapiSignature,
+    SignatureScheme as EsapiSignatureScheme,
 };
 
 use crate::{
@@ -25,8 +26,7 @@ impl TryFrom<EsapiSignature> for Signature {
                     ecc_sig.signature_s().value(),
                 )?;
                 let encoded = ecdsa_der_sig.to_der().map_err(|e| {
-                    debug!("{e:?}");
-                    Error::invalid_state("failed to encode ECDSA signature to DER")
+                    Error::invalid_state(format!("failed to encode ECDSA signature to DER: {e:?}",))
                 })?;
 
                 Ok(Self::Ecdsa(EcdsaSignature::new(
@@ -41,14 +41,69 @@ impl TryFrom<EsapiSignature> for Signature {
     }
 }
 
+impl TryFrom<&Signature> for EsapiSignature {
+    type Error = Error;
+
+    fn try_from(signature: &Signature) -> Result<Self> {
+        match signature {
+            Signature::Ecdsa(ecdsa_sig) => {
+                let ecdsa_der_sig =
+                    EcdsaDerSignature::from_der(ecdsa_sig.value()).map_err(|e| {
+                        debug!("failed to decode DER: {e}");
+                        Error::InvalidSignature
+                    })?;
+                let r = EccParameter::try_from(ecdsa_der_sig.r.as_bytes()).map_err(|e| {
+                    debug!("invalid ECC signature r: {e:?}");
+                    Error::InvalidSignature
+                })?;
+                let s = EccParameter::try_from(ecdsa_der_sig.s.as_bytes()).map_err(|e| {
+                    debug!("invalid ECC signature s: {e:?}");
+                    Error::InvalidSignature
+                })?;
+                let ecc_sig = EsapiEccSignature::create(ecdsa_sig.hash_alg().into(), r, s)
+                    .map_err(|e| {
+                        debug!("{e:?}");
+                        Error::Internal
+                    })?;
+
+                Ok(Self::EcDsa(ecc_sig))
+            }
+            Signature::RsaPss(rsa_sig) => {
+                let esapi_rsa_sig = EsapiRsaSignature::create(
+                    rsa_sig.hash_alg().into(),
+                    rsa_sig
+                        .value()
+                        .try_into()
+                        .map_err(|_| Error::conversion::<&[u8], EsapiRsaSignature>(None))?,
+                )
+                .map_err(|_| Error::invalid_state("Signature does not allow Null scheme"))?;
+
+                Ok(Self::RsaPss(esapi_rsa_sig))
+            }
+            Signature::RsaSsa(rsa_sig) => {
+                let esapi_rsa_sig = EsapiRsaSignature::create(
+                    rsa_sig.hash_alg().into(),
+                    rsa_sig
+                        .value()
+                        .try_into()
+                        .map_err(|_| Error::conversion::<&[u8], EsapiRsaSignature>(None))?,
+                )
+                .map_err(|_| Error::invalid_state("Signature does not allow Null scheme"))?;
+
+                Ok(Self::RsaSsa(esapi_rsa_sig))
+            }
+        }
+    }
+}
+
 impl TryFrom<EsapiEccSignature> for EccSignature {
     type Error = Error;
 
     fn try_from(ecc_sig: EsapiEccSignature) -> Result<Self> {
         Ok(Self::new(
             ecc_sig.hashing_algorithm().try_into()?,
-            ecc_sig.signature_r().value(),
-            ecc_sig.signature_s().value(),
+            ecc_sig.signature_r().value().try_into()?,
+            ecc_sig.signature_s().value().try_into()?,
         ))
     }
 }
@@ -59,7 +114,11 @@ impl TryFrom<EsapiRsaSignature> for RsaSignature {
     fn try_from(rsa_sig: EsapiRsaSignature) -> Result<Self> {
         Ok(Self::new(
             rsa_sig.hashing_algorithm().try_into()?,
-            rsa_sig.signature().value(),
+            rsa_sig
+                .signature()
+                .value()
+                .try_into()
+                .expect("PublicKeyRsa must be valid for Tpm2bPublicKeyRsa"),
         ))
     }
 }
