@@ -15,7 +15,7 @@ macro_rules! tpm2b_type {
     };
 
     ($vis:vis $name:ident, $max:expr) => {
-        #[derive(Debug, Default, Clone)]
+        #[derive(Debug, Default, Clone, PartialEq, Eq)]
         $vis struct $name(Vec<u8>);
 
         $crate::macros::impl_tpm2b_size_consts!($name, $max);
