@@ -42,6 +42,7 @@ impl Error {
                         Tss2ResponseCodeKind::Parent | Tss2ResponseCodeKind::Key => {
                             Self::invalid_key("invalid key for this operation")
                         }
+                        Tss2ResponseCodeKind::Signature => Self::VerificationFailed(err.into()),
                         Tss2ResponseCodeKind::KeySize | Tss2ResponseCodeKind::Curve => {
                             Self::unsupported_with_source("unsupported key size or curve", err)
                         }
