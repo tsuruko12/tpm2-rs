@@ -4,6 +4,7 @@ use common::connect_tpm;
 use std::assert_matches;
 use tpm2_rs::{
     Error, Key, Result,
+    algorithm::HashAlgorithm,
     policy::{PcrSlot, Policy, PolicyBranch, PolicyCommand},
     public::KeyTemplate,
 };
@@ -171,23 +172,18 @@ mod persist {
     }
 }
 
-mod sign {
-    use der::Decode;
+mod signature {
     use rand::RngCore;
 
     use super::*;
     use tpm2_rs::{
-        algorithm::HashAlgorithm,
-        public::{RsaKeyBits, RsaTemplate},
+        public::{RsaKeyBits, RsaTemplate, rsa::RsaSignScheme},
         signature::Signature,
     };
 
     #[test]
-    fn signs_with_restricted_key() {
+    fn signs_and_verifies_with_restricted_key() {
         let mut test = connect_tpm();
-
-        let mut data = [0u8; 1025];
-        rand::thread_rng().fill_bytes(&mut data);
 
         let key = create_key_with_no_authorization(
             &mut test,
@@ -196,44 +192,94 @@ mod sign {
             None,
         );
 
-        if cfg!(target_os = "windows") {
-            let signature = test.ctx.sign(&key, &data, None).expect("failed to sign");
-            match signature {
-                Signature::Ecdsa(ecdsa_sig) => {
-                    assert_eq!(ecdsa_sig.hash_alg(), HashAlgorithm::Sha256);
-                    Decode::from_der(ecdsa_sig.value()).expect("failed to decode")
-                }
-                _ => panic!("unexpected signature type"),
-            }
-        } else if cfg!(target_os = "linux") {
+        #[cfg(target_os = "windows")]
+        let data = {
+            let mut data = [0u8; 1025];
+            rand::thread_rng().fill_bytes(&mut data);
+            data.to_vec()
+        };
+
+        #[cfg(target_os = "linux")]
+        let data = {
+            let mut oversized = [0u8; 1025];
+            rand::thread_rng().fill_bytes(&mut oversized);
+
             assert_matches!(
-                test.ctx.sign(&key, &data, None),
+                test.ctx.sign(&key, &oversized, None),
                 Err(Error::InvalidParameter(_)),
             );
-        }
-    }
 
-    #[test]
-    fn signs_with_rsa_key() {
-        let mut test = connect_tpm();
+            b"test message".to_vec()
+        };
 
-        let data = b"test message for RSA signature";
-        let key = create_key_with_no_authorization(&mut test, KeyTemplate::rsa_sign(), None, None);
+        let signature = test.ctx.sign(&key, &data, None).expect("failed to sign");
 
-        let signature = test.ctx.sign(&key, data, None).expect("failed to sign");
-        match signature {
-            Signature::RsaPss(rsa_sig) => {
-                assert_eq!(rsa_sig.hash_alg(), HashAlgorithm::Sha256);
+        match &signature {
+            Signature::Ecdsa(sig) => {
+                assert_eq!(sig.hash_alg(), HashAlgorithm::Sha256);
             }
             _ => panic!("unexpected signature type"),
         }
+
+        test.ctx
+            .verify_signature(&key, &data, &signature)
+            .expect("failed to verify signature");
+    }
+
+    #[test]
+    fn signs_and_verifies_with_rsa_key() {
+        let mut test = connect_tpm();
+
+        let data = b"test message";
+        let rsa_template = RsaTemplate::sign(
+            RsaKeyBits::Bits2048,
+            RsaSignScheme::RsaSsa(HashAlgorithm::Sha1),
+        );
+        let key =
+            create_key_with_no_authorization(&mut test, KeyTemplate::rsa(rsa_template), None, None);
+
+        let signature = test.ctx.sign(&key, data, None).expect("failed to sign");
+        match &signature {
+            Signature::RsaSsa(rsa_sig) => {
+                assert_eq!(rsa_sig.hash_alg(), HashAlgorithm::Sha1);
+            }
+            _ => panic!("unexpected signature type"),
+        }
+
+        test.ctx
+            .verify_signature(&key, data, &signature)
+            .expect("failed to verify signature");
+
+        assert_matches!(
+            test.ctx
+                .verify_signature(&key, b"different message", &signature),
+            Err(Error::VerificationFailed(_)),
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_ecdsa_signature() {
+        let mut test = connect_tpm();
+        let key = create_key_with_no_authorization(
+            &mut test,
+            KeyTemplate::attestation_sign(),
+            None,
+            None,
+        );
+        let signature = Signature::ecdsa(HashAlgorithm::Sha256, &[0x30, 0x00])
+            .expect("failed to create test signature");
+
+        assert_matches!(
+            test.ctx.verify_signature(&key, b"test message", &signature),
+            Err(Error::InvalidSignature),
+        );
     }
 
     #[test]
     fn rejects_invalid_key() {
         let mut test = connect_tpm();
 
-        let data = b"test message for ECDSA signature";
+        let data = b"test message";
         let key =
             create_key_with_no_authorization(&mut test, KeyTemplate::aes_gcm_128(), None, None);
 
@@ -241,10 +287,17 @@ mod sign {
             test.ctx.sign(&key, data, None),
             Err(Error::InvalidKey { .. }),
         );
+
+        let signature = Signature::rsa_pss(HashAlgorithm::Sha256, &[0u8; 256])
+            .expect("failed to create signature");
+        assert_matches!(
+            test.ctx.verify_signature(&key, data, &signature),
+            Err(Error::InvalidKey { .. }),
+        );
     }
 
     #[test]
-    fn requires_option_scheme() {
+    fn requires_scheme_for_null_key_scheme() {
         let mut test = connect_tpm();
 
         let rsa_template = RsaTemplate::sign_decrypt(RsaKeyBits::Bits2048);
