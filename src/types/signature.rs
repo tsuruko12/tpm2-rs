@@ -1,21 +1,40 @@
 use der::{Sequence, asn1::UintRef};
+use tracing::debug;
 
+use super::{
+    algorithm::HashAlgorithm,
+    tpm::{Tpm2bEccParameter, Tpm2bPublicKeyRsa},
+};
 use crate::{Error, Result};
 
-use super::algorithm::HashAlgorithm;
+const SEQUENCE_TAG: u8 = 0x30;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct RsaSignature {
     hash_alg: HashAlgorithm,
-    value: Vec<u8>,
+    value: Tpm2bPublicKeyRsa,
 }
 
+impl std::fmt::Debug for RsaSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RsaSignature")
+            .field("hash_alg", &self.hash_alg)
+            .field("value", &self.value.as_bytes())
+            .finish()
+    }
+}
+
+impl PartialEq for RsaSignature {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash_alg == other.hash_alg && self.value.as_bytes() == other.value.as_bytes()
+    }
+}
+
+impl Eq for RsaSignature {}
+
 impl RsaSignature {
-    pub(crate) fn new(hash_alg: HashAlgorithm, value: &[u8]) -> Self {
-        Self {
-            hash_alg,
-            value: value.to_vec(),
-        }
+    pub(crate) fn new(hash_alg: HashAlgorithm, value: Tpm2bPublicKeyRsa) -> Self {
+        Self { hash_alg, value }
     }
 
     pub fn hash_alg(&self) -> HashAlgorithm {
@@ -23,36 +42,42 @@ impl RsaSignature {
     }
 
     pub fn value(&self) -> &[u8] {
-        &self.value
+        self.value.as_bytes()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct EccSignature {
-    hash_algorithm: HashAlgorithm,
-    r: Vec<u8>,
-    s: Vec<u8>,
+    hash_alg: HashAlgorithm,
+    r: Tpm2bEccParameter,
+    s: Tpm2bEccParameter,
+}
+
+impl std::fmt::Debug for EccSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EccSignature")
+            .field("hash_alg", &self.hash_alg)
+            .field("r", &self.r.as_bytes())
+            .field("s", &self.s.as_bytes())
+            .finish()
+    }
 }
 
 impl EccSignature {
-    pub(crate) fn new(hash_algorithm: HashAlgorithm, r: &[u8], s: &[u8]) -> Self {
-        Self {
-            hash_algorithm,
-            r: r.to_vec(),
-            s: s.to_vec(),
-        }
+    pub(crate) fn new(hash_alg: HashAlgorithm, r: Tpm2bEccParameter, s: Tpm2bEccParameter) -> Self {
+        Self { hash_alg, r, s }
     }
 
-    pub fn hash_algorithm(&self) -> HashAlgorithm {
-        self.hash_algorithm
+    pub fn hash_alg(&self) -> HashAlgorithm {
+        self.hash_alg
     }
 
     pub fn r(&self) -> &[u8] {
-        &self.r
+        self.r.as_bytes()
     }
 
     pub fn s(&self) -> &[u8] {
-        &self.s
+        self.s.as_bytes()
     }
 }
 
@@ -79,9 +104,63 @@ impl EcdsaSignature {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Signature {
+    Ecdsa(EcdsaSignature),
     RsaSsa(RsaSignature),
     RsaPss(RsaSignature),
-    Ecdsa(EcdsaSignature),
+}
+
+impl Signature {
+    pub fn ecdsa(hash_alg: HashAlgorithm, value: &[u8]) -> Result<Self> {
+        if value.first().copied() != Some(SEQUENCE_TAG) {
+            debug!("invalid ECDSA signature: value is not DER-encoded");
+            return Err(Error::InvalidSignature);
+        }
+
+        let ecc_sig = EcdsaSignature {
+            hash_alg,
+            value: value.to_vec(),
+        };
+
+        Ok(Self::Ecdsa(ecc_sig))
+    }
+
+    pub fn rsa_pss(hash_alg: HashAlgorithm, value: &[u8]) -> Result<Self> {
+        let rsa_sig = RsaSignature {
+            hash_alg,
+            value: value.try_into().map_err(|e| {
+                debug!("{e:?}");
+                Error::InvalidSignature
+            })?,
+        };
+
+        Ok(Self::RsaPss(rsa_sig))
+    }
+
+    pub fn rsa_ssa(hash_alg: HashAlgorithm, value: &[u8]) -> Result<Self> {
+        let rsa_sig = RsaSignature {
+            hash_alg,
+            value: value.try_into().map_err(|e| {
+                debug!("{e:?}");
+                Error::InvalidSignature
+            })?,
+        };
+
+        Ok(Self::RsaSsa(rsa_sig))
+    }
+
+    pub fn hash_alg(&self) -> HashAlgorithm {
+        match self {
+            Self::RsaPss(rsa_sig) | Self::RsaSsa(rsa_sig) => rsa_sig.hash_alg,
+            Self::Ecdsa(ecdsa_sig) => ecdsa_sig.hash_alg,
+        }
+    }
+
+    pub fn value(&self) -> &[u8] {
+        match self {
+            Self::RsaPss(rsa_sig) | Self::RsaSsa(rsa_sig) => rsa_sig.value(),
+            Self::Ecdsa(ecdsa_sig) => ecdsa_sig.value(),
+        }
+    }
 }
 
 #[non_exhaustive]
