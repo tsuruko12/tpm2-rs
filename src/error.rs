@@ -16,10 +16,10 @@ pub enum Error {
     AuthorizationFailed(#[source] BoxError),
     #[error("{0}")]
     InvalidPolicy(&'static str),
-    #[error("{name} exceeds the maximum size of {max} bytes")]
-    TooLong { name: &'static str, max: usize },
+    #[error("invalid signature")]
+    InvalidSignature,
     #[error("signature verification failed")]
-    InvalidSignature(#[source] BoxError),
+    VerificationFailed(#[source] BoxError),
     #[error("{context}")]
     InvalidKey {
         context: &'static str,
@@ -93,10 +93,6 @@ impl Error {
             context,
             source: None,
         }
-    }
-
-    pub(crate) fn invalid_signature(source: impl Into<BoxError>) -> Self {
-        Self::InvalidSignature(source.into())
     }
 
     pub(crate) fn invalid_param(context: impl Into<String>) -> Self {
