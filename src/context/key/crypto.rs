@@ -11,6 +11,8 @@ use crate::{
     },
 };
 
+// For now, the sign API uses the owner hierarchy when creating a hash validation ticket
+
 impl Context {
     pub fn sign(
         &mut self,
@@ -18,9 +20,8 @@ impl Context {
         data: &[u8],
         scheme: Option<SignatureScheme>,
     ) -> Result<Signature> {
-        let public_area = self.get_key_public_area(key)?;
-        let Some(public_area) = public_area else {
-            return Err(Error::invalid_key("provided key is invalid for signing"));
+        let Some(public_area) = self.get_key_public_area(key)? else {
+            return Err(Error::invalid_key("invalid key for signing"));
         };
 
         let mut sig_scheme = public_area.parameters().to_sig_scheme()?;
@@ -59,6 +60,22 @@ impl Context {
 
         self.backend
             .sign(loaded, digest, sig_scheme, validation, session_salt_handle)
+    }
+
+    pub fn verify_signature(
+        &mut self,
+        key: &Key,
+        data: &[u8],
+        signature: &Signature,
+    ) -> Result<()> {
+        let Some(_) = self.get_key_public_area(key)? else {
+            return Err(Error::invalid_key("invalid key for signing"));
+        };
+
+        let digest = hash(data, signature.hash_alg().into())?;
+        let loaded = self.load_key(key.id())?;
+
+        self.backend.verify_signature(loaded, digest, signature)
     }
 }
 
