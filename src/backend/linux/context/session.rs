@@ -163,10 +163,7 @@ impl Context {
                 HashingAlgorithm::Sha256,
             )
             .map_err(Error::from_tss_err)?
-            .ok_or_else(|| {
-                tracing::debug!("TPM returns no session");
-                Error::InvalidData
-            })?;
+            .ok_or_else(|| Error::invalid_response("TPM returns no session"))?;
 
         resources.add_session(session)?;
 

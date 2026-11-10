@@ -1,4 +1,5 @@
 mod capability;
+mod crypto;
 mod handle;
 mod key;
 mod provision;

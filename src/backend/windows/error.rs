@@ -389,7 +389,7 @@ impl Error {
             | TpmRc::POLICY
             | TpmRc::PCR
             | TpmRc::PCR_CHANGED => Self::authorization_failed(source),
-            TpmRc::SIGNATURE => Self::invalid_signature(source),
+            TpmRc::SIGNATURE => Self::VerificationFailed(source.into()),
             TpmRc::NV_SPACE
             | TpmRc::OBJECT_MEMORY
             | TpmRc::SESSION_MEMORY

@@ -1,5 +1,4 @@
 use sha2::{Digest as Sha2Digest, Sha256};
-use tracing::debug;
 use tss_esapi::{
     constants::SessionType,
     interface_types::{algorithm::HashingAlgorithm, session_handles::PolicySession},
@@ -171,8 +170,7 @@ impl Context {
                 .iter()
                 .find(|selection| selection.hashing_algorithm() == hash)
             else {
-                debug!("requested PCR hash bank is missing");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response("requested PCR hash bank is missing"));
             };
 
             if returned_select.is_empty() {

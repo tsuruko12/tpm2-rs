@@ -23,6 +23,15 @@ impl TpmiAlgHash {
     pub(crate) const SHAKE256_256: Self = Self(TpmAlgId::Shake256_256);
     pub(crate) const SHAKE256_512: Self = Self(TpmAlgId::Shake256_512);
     pub(crate) const NULL: Self = Self(TpmAlgId::Null);
+
+    pub(crate) fn digest_size(self) -> usize {
+        match self {
+            Self::NULL => 0,
+            _ => TpmAlgId::from(self)
+                    .digest_size()
+                    .expect("non-NULL TpmiAlgHash must have a digest size"),
+        }
+    }
 }
 
 impl TryFrom<u16> for TpmiAlgHash {
@@ -103,11 +112,23 @@ pub(crate) struct TpmtHa {
 }
 
 impl TpmtHa {
+    pub(crate) fn new(hash_alg: TpmiAlgHash, digest: TpmuHa) -> Result<Self> {
+        if hash_alg.digest_size() != digest.digest_size() {
+            return Err(Error::invalid_state(
+                "digest length does not match the hash algorithm",
+            ));
+        }
+
+        Ok(Self { hash_alg, digest })
+    }
+}
+
+impl TpmtHa {
     pub(crate) const MAX_BYTES: usize = size_of::<TpmAlgId>() + Tpm2bDigest::MAX_BYTES;
 }
 
 #[derive(Debug, Clone)]
-enum TpmuHa {
+pub(crate) enum TpmuHa {
     Sha1([u8; 20]),
     Sha256([u8; 32]),
     Sha384([u8; 48]),

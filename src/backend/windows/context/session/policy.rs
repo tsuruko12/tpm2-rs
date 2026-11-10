@@ -1,5 +1,4 @@
 use sha2::{Digest, Sha256};
-use tracing::debug;
 
 use super::super::{
     Command, CommandResources, Context, PcrReadResponse, PolicyGetDigestResponse,
@@ -223,8 +222,7 @@ impl Context {
             }
 
             let Some(returned_select) = response.pcr_selection_out.select_for_hash(hash) else {
-                debug!("requested PCR hash bank is missing");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response("requested PCR hash bank is missing"));
             };
             if returned_select.iter().all(|&byte| byte == 0) {
                 return Err(Error::unsupported("requested PCR selection is unavailable"));

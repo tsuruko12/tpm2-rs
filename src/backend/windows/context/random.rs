@@ -1,5 +1,3 @@
-use tracing::debug;
-
 use super::{Command, CommandResources, Context, GetRandomResponse, TpmsAuthCommand};
 use crate::{
     error::{Error, Result},
@@ -33,8 +31,7 @@ impl Context {
                 let chunk =
                     self.get_random_chunk(bytes_requested, authorization_area, &mut resources)?;
                 if chunk.is_empty() {
-                    debug!("TPM returned no random bytes");
-                    return Err(Error::InvalidData);
+                    return Err(Error::invalid_response("TPM returned no random bytes"));
                 }
 
                 bytes.try_reserve(chunk.len()).map_err(|_| {

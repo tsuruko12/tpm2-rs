@@ -302,12 +302,11 @@ fn ensure_matching_auth_count(
     auth_responses: &[TpmsAuthResponse],
 ) -> Result<()> {
     if auth_commands.len() != auth_responses.len() {
-        debug!(
-            expected_count = auth_commands.len(),
-            returned = auth_responses.len(),
-            "response authorization count mismatch"
-        );
-        return Err(Error::InvalidData);
+        return Err(Error::invalid_response(format!(
+            "response authorization count mismatch: expected_count={}, returned={}",
+            auth_commands.len(),
+            auth_responses.len()
+        )));
     }
 
     Ok(())
@@ -315,22 +314,20 @@ fn ensure_matching_auth_count(
 
 fn tpm2b_buffer_mut(input: &mut [u8]) -> Result<&mut [u8]> {
     if input.len() < TPM2B_SIZE_BYTES {
-        debug!(
-            bytes_len = input.len(),
-            "insufficient bytes for TPM2B size field"
-        );
-        return Err(Error::InvalidData);
+        return Err(Error::invalid_response(format!(
+            "insufficient bytes for TPM2B size field: bytes_len={}",
+            input.len()
+        )));
     }
 
     let size = u16::from_be_bytes([input[0], input[1]]) as usize;
     let end = TPM2B_SIZE_BYTES + size;
 
     if input.len() < end {
-        debug!(
-            bytes_len = input.len(),
-            "insufficient bytes for TPM2B buffer field"
-        );
-        return Err(Error::InvalidData);
+        return Err(Error::invalid_response(format!(
+            "insufficient bytes for TPM2B buffer field: bytes_len={}",
+            input.len()
+        )));
     }
 
     Ok(&mut input[TPM2B_SIZE_BYTES..end])

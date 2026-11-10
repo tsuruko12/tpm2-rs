@@ -265,12 +265,10 @@ impl TpmUnmarshal for TpmlDigest {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let count = u32::unmarshal(input)? as usize;
         if count > Self::MAX_COUNT {
-            debug!(
-                item_count = count,
-                max_count = TpmlDigest::MAX_COUNT,
-                "TPML_DIGEST item count exceeds maximum"
-            );
-            return Err(Error::InvalidData);
+            return Err(Error::invalid_response(format!(
+                "TPML_DIGEST item count exceeds maximum: item_count={count}, max_count={}",
+                TpmlDigest::MAX_COUNT
+            )));
         }
 
         let mut digests = Vec::with_capacity(count);
@@ -309,8 +307,7 @@ impl TpmUnmarshal for TpmtPublic {
         let name_alg = TpmiAlgHash::unmarshal(input)?;
         let attributes = u32::unmarshal(input)?;
         let object_attributes = TpmaObject::from_bits(attributes).ok_or_else(|| {
-            debug!(?attributes, "invalid object attributes");
-            Error::InvalidData
+            Error::invalid_response(format!("invalid object attributes: {attributes:?}"))
         })?;
         let auth_policy = Tpm2bDigest::unmarshal(input)?;
         let (parameters, unique) = match alg_type {
@@ -334,8 +331,9 @@ impl TpmUnmarshal for TpmtPublic {
                 TpmuPublicId::keyed_hash(Tpm2bDigest::unmarshal(input)?),
             ),
             _ => {
-                debug!(?alg_type, "unsupported TPM public algorithm");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "unsupported TPM public algorithm: {alg_type:?}"
+                )));
             }
         };
 
@@ -363,8 +361,9 @@ impl TpmUnmarshal for TpmtSymDefObject {
             TpmiAlgSymObject::SM4 => TpmuSymMode::Sm4(alg_sym_mode),
             TpmiAlgSymObject::CAMELLIA => TpmuSymMode::Camellia(alg_sym_mode),
             _ => {
-                debug!(?algorithm, "unsupported symmetric object algorithm");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "unsupported symmetric object algorithm: {algorithm:?}"
+                )));
             }
         };
 
@@ -384,8 +383,9 @@ impl TpmUnmarshal for TpmsRsaParms {
             TpmiAlgRsaScheme::RSA_ES => TpmtRsaScheme::rsa_es(),
             TpmiAlgRsaScheme::NULL => TpmtRsaScheme::null(),
             _ => {
-                debug!(?scheme, "unsupported TPM RSA scheme");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "unsupported TPM RSA scheme: {scheme:?}"
+                )));
             }
         };
 
@@ -415,8 +415,9 @@ impl TpmUnmarshal for TpmsEccParms {
             }),
             TpmiAlgEccScheme::NULL => TpmtEccScheme::null(),
             scheme => {
-                debug!(?scheme, "unsupported TPM ECC scheme");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "unsupported TPM ECC scheme: {scheme:?}"
+                )));
             }
         };
 
@@ -432,8 +433,9 @@ impl TpmUnmarshal for TpmsEccParms {
             TpmiAlgKdf::MGF1 => TpmtKdfScheme::mgf1(TpmsSchemeHash::unmarshal(input)?),
             TpmiAlgKdf::NULL => TpmtKdfScheme::null(),
             scheme => {
-                debug!(?scheme, "unsupported TPM KDF scheme");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "unsupported TPM KDF scheme: {scheme:?}"
+                )));
             }
         };
 
@@ -453,8 +455,9 @@ impl TpmUnmarshal for TpmsKeyedHashParms {
             }),
             TpmiAlgKeyedHashScheme::NULL => TpmtKeyedHashScheme::null(),
             scheme => {
-                debug!(?scheme, "unsupported TPM keyed-hash scheme");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "unsupported TPM keyed-hash scheme: {scheme:?}"
+                )));
             }
         };
 
@@ -500,8 +503,10 @@ pub(crate) fn read_vec(input: &mut &[u8], len: usize) -> Result<Vec<u8>> {
 
 pub(crate) fn ensure_consumed(input: &[u8]) -> Result<()> {
     if !input.is_empty() {
-        debug!(remaining_size = input.len(), "trailing bytes remain");
-        return Err(Error::InvalidData);
+        return Err(Error::invalid_response(format!(
+            "trailing bytes remain: remaining_size={}",
+            input.len()
+        )));
     }
 
     Ok(())
@@ -509,12 +514,10 @@ pub(crate) fn ensure_consumed(input: &[u8]) -> Result<()> {
 
 fn take<'a>(input: &mut &'a [u8], len: usize) -> Result<&'a [u8]> {
     let Some((value, remaining)) = input.split_at_checked(len) else {
-        debug!(
-            required_size = len,
-            actual_size = input.len(),
-            "parameter buffer too short"
-        );
-        return Err(Error::InvalidData);
+        return Err(Error::invalid_response(format!(
+            "parameter buffer too short: required_size={len}, actual_size={}",
+            input.len()
+        )));
     };
 
     *input = remaining;

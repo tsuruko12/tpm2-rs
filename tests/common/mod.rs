@@ -17,7 +17,7 @@ pub(crate) fn connect_tpm() -> TestContext {
 
     let guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
 
-    let ctx = Context::connect_from_env().expect("failed to connect to swtpm");
+    let ctx = Context::from_env().expect("failed to connect to swtpm");
 
     TestContext { _guard: guard, ctx }
 }
@@ -28,7 +28,7 @@ pub(crate) fn connect_tpm() -> TestContext {
 
     let guard = TPM_TEST_LOCK.lock().expect("TPM test lock is poisoned");
 
-    let ctx = Context::connect().expect("failed to connect to the TPM");
+    let ctx = Context::new().expect("failed to connect to the TPM");
 
     TestContext { _guard: guard, ctx }
 }

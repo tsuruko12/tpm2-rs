@@ -1,5 +1,3 @@
-use tracing::debug;
-
 use super::super::{TpmRc, types::Tpm2bNonce};
 use super::TpmiStCommandTag;
 use crate::{
@@ -21,11 +19,10 @@ impl Response {
         let response_size = input.len();
         let header = ResponseHeader::unmarshal(input)?;
         if header.response_size as usize != response_size {
-            debug!(
-                declared_size = header.response_size,
-                response_size, "response size mismatch"
-            );
-            return Err(Error::InvalidData);
+            return Err(Error::invalid_response(format!(
+                "response size mismatch: declared_size={}, response_size={response_size}",
+                header.response_size
+            )));
         }
 
         if header.response_code != TpmRc::SUCCESS {
@@ -39,7 +36,7 @@ impl Response {
 
         let (authorization_area, body) = if header.tag == TpmiStCommandTag::SESSIONS {
             let param_size =
-                usize::try_from(u32::unmarshal(input)?).map_err(|_| Error::InvalidData)?;
+                usize::try_from(u32::unmarshal(input)?).map_err(Error::invalid_response)?;
             let parameters = read_vec(input, param_size)?;
 
             let mut authorization_area = Vec::new();

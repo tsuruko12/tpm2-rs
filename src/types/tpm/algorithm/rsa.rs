@@ -186,9 +186,18 @@ impl From<RsaKeyBits> for TpmiRsaKeyBits {
         }
     }
 }
-
 #[derive(Clone)]
 pub(crate) struct TpmsSignatureRsa {
-    hash: TpmiAlgHash, // NULL is not allowed
+    hash: TpmiAlgHash,
     sig: Tpm2bPublicKeyRsa,
+}
+
+impl TpmsSignatureRsa {
+    pub(crate) fn new(hash: TpmiAlgHash, sig: Tpm2bPublicKeyRsa) -> Result<Self> {
+        if hash == TpmiAlgHash::NULL {
+            return Err(Error::invalid_state("NULL hash algorithm is not allowed"));
+        }
+
+        Ok(Self { hash, sig })
+    }
 }

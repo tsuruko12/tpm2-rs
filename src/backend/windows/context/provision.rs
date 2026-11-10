@@ -33,7 +33,7 @@ impl Context {
                 |ctx| {
                     ctx.create_primary(
                         TpmiRhHierarchy::OWNER,
-                        &Tpm2bPublic::storage_parent(),
+                        &Tpm2bPublic::storage_parent(TpmiRsaKeyBits::BITS2048),
                         empty_auth.clone(),
                         owner_authorization,
                         None,

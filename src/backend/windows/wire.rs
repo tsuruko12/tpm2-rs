@@ -1,5 +1,3 @@
-use tracing::debug;
-
 use super::{
     TpmRc,
     commands::{
@@ -194,7 +192,7 @@ impl TpmUnmarshal for TpmsAuthResponse {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let nonce = Tpm2bNonce::unmarshal(input)?;
         let session_attributes =
-            TpmaSession::from_bits(u8::unmarshal(input)?).ok_or(Error::InvalidData)?;
+            TpmaSession::from_bits(u8::unmarshal(input)?).ok_or(Error::InvalidResponse)?;
         let hmac = Tpm2bAuth::unmarshal(input)?;
 
         Ok(Self {
@@ -223,11 +221,7 @@ impl TpmUnmarshal for TpmsCreationData {
         let pcr_digest = Tpm2bDigest::unmarshal(input)?;
         let locality_value = u8::unmarshal(input)?;
         let locality = TpmaLocality::from_bits(locality_value).ok_or_else(|| {
-            debug!(
-                value = format_args!("{locality_value:#04x}"),
-                "invalid locality attributes"
-            );
-            Error::InvalidData
+            Error::invalid_response(format!("invalid locality attributes: {locality_value:#04x}"))
         })?;
         let parent_name_alg = TpmAlgId::unmarshal(input)?;
         let parent_name = Tpm2bName::unmarshal(input)?;
@@ -243,10 +237,7 @@ impl TpmUnmarshal for TpmsCreationData {
             parent_qualified_name,
             outside_info,
         )
-        .map_err(|e| {
-            debug!("{e:?}");
-            Error::InvalidData
-        })
+        .map_err(Error::invalid_response)
     }
 }
 
@@ -254,8 +245,9 @@ impl TpmUnmarshal for TpmtTkCreation {
     fn unmarshal(input: &mut &[u8]) -> Result<Self> {
         let tag = TpmSt::try_from(u16::unmarshal(input)?)?;
         if tag != TpmSt::CREATION {
-            debug!(?tag, "invalid TPMT_TK_CREATION tag");
-            return Err(Error::InvalidData);
+            return Err(Error::invalid_response(format!(
+                "invalid TPMT_TK_CREATION tag: {tag:?}"
+            )));
         }
 
         let hierarchy = TpmiRhHierarchy::unmarshal(input)?;

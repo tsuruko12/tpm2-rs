@@ -34,5 +34,3 @@ pub(crate) use self::ticket::TpmtTkHashCheck;
 pub(crate) use self::wire::{TpmMarshal, TpmUnmarshal, ensure_consumed, read_tpm2b};
 #[cfg(windows)]
 pub(crate) use self::wire::{marshal_list, marshal_tpm2b, read_vec, unmarshal_list};
-#[cfg(windows)]
-pub(crate) use self::wire::{marshal_list, unmarshal_list};

@@ -1,7 +1,6 @@
-use tracing::debug;
-
 use super::super::types::{Tpm2bCreationData, Tpm2bNonce, TpmiShAuthSession, TpmtTkCreation};
 use super::ResponseBody;
+use crate::types::tpm::TpmtSignature;
 use crate::{
     Error, Result,
     types::tpm::{
@@ -38,25 +37,23 @@ pub(super) struct GetCapabilityResponse {
 
 impl GetCapabilityResponse {
     pub(super) fn parse(response_body: ResponseBody, capability: TpmCap) -> Result<Self> {
-        ensure_response_handle_count(&response_body.handles, 0)?;
+        ensure_response_handle_count(&response_body.handles, NO_RESPONSE_HANDLES)?;
 
         let mut parameters = response_body.parameters.as_slice();
         let more_data = match u8::unmarshal(&mut parameters)? {
             0 => false,
             1 => true,
             value => {
-                debug!(value, "invalid TPMI_YES_NO value");
-                return Err(Error::InvalidData);
+                return Err(Error::invalid_response(format!(
+                    "invalid TPMI_YES_NO value: {value}"
+                )));
             }
         };
         let returned_capability = TpmCap::try_from(u32::unmarshal(&mut parameters)?)?;
         if capability != returned_capability {
-            debug!(
-                requested = ?capability,
-                returned = ?returned_capability,
-                "unexpected capability type"
-            );
-            return Err(Error::InvalidData);
+            return Err(Error::invalid_response(format!(
+                "unexpected capability type: requested={capability:?}, returned={returned_capability:?}"
+            )));
         }
         let capability_data = CapabilityData::parse(&mut parameters, returned_capability)?;
         ensure_consumed(parameters)?;
@@ -293,8 +290,7 @@ pub(super) fn ensure_no_response_body(response_body: &ResponseBody) -> Result<()
     if response_body.handles.is_empty() && response_body.parameters.is_empty() {
         Ok(())
     } else {
-        debug!("expected no response body");
-        Err(Error::InvalidData)
+        Err(Error::invalid_response("expected no response body"))
     }
 }
 
@@ -302,10 +298,9 @@ fn ensure_response_handle_count(handles: &[TpmHandle], expected_count: usize) ->
     if handles.len() == expected_count {
         Ok(())
     } else {
-        debug!(
-            handle_count = handles.len(),
-            expected_count, "unexpected response handle count"
-        );
-        Err(Error::InvalidData)
+        Err(Error::invalid_response(format!(
+            "unexpected response handle count: handle_count={}, expected_count={expected_count}",
+            handles.len()
+        )))
     }
 }

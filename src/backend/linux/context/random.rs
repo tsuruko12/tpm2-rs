@@ -57,8 +57,7 @@ impl Context {
             .map_err(Error::from_tss_err)?;
 
         if chunk.is_empty() {
-            debug!("TPM returned no random bytes");
-            return Err(Error::InvalidData);
+            return Err(Error::Invalid_data("TPM returned no random bytes"));
         }
 
         Ok(chunk)

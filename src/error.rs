@@ -1,65 +1,123 @@
 use std::any::type_name;
 
+/// A result returned by this library, with [`Error`] as the error type.
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+/// Errors returned by TPM operations, key management, and the local metadata store.
+///
+/// Match on the variants to handle specific failures, such as a missing key or an
+/// unprovisioned store. Variants with a source retain the underlying backend or
+/// storage error, accessible through [`std::error::Error::source`]. Their display
+/// messages describe the failure at the library level.
+///
+/// This enum is non-exhaustive: downstream matches must include a wildcard arm
+/// to accommodate additional error variants in future versions.
 #[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// A TPM or backend operation failed without a more specific classification.
     #[error("TPM operation failed")]
     Failure(#[source] BoxError),
+    /// A connection to the TPM could not be established.
     #[error("failed to connect to TPM")]
     Connect(#[source] BoxError),
+    /// The TPM is temporarily unable to complete the operation.
     #[error("TPM is temporarily busy")]
     Busy(#[source] BoxError),
+    /// The supplied authorization or policy did not satisfy the TPM's requirements.
     #[error("TPM authorization failed")]
     AuthorizationFailed(#[source] BoxError),
+    /// A policy is invalid or lacks a required branch selection.
+    ///
+    /// Contains a description of the policy error.
     #[error("{0}")]
     InvalidPolicy(&'static str),
+    /// An input exceeds its permitted length in bytes.
+    #[error("{name} exceeds the maximum size of {max} bytes")]
+    TooLong {
+        /// The name of the input that is too long.
+        name: &'static str,
+        /// The maximum permitted length in bytes.
+        max: usize,
+    },
+    /// A signature is malformed or incompatible with the selected key or algorithm.
     #[error("invalid signature")]
     InvalidSignature,
+    /// A signature could not be verified.
     #[error("signature verification failed")]
     VerificationFailed(#[source] BoxError),
+    /// The selected key is invalid or unsuitable for the requested operation.
     #[error("{context}")]
     InvalidKey {
+        /// A description of why the key cannot be used.
         context: &'static str,
+        /// The underlying error, when available.
         #[source]
         source: Option<BoxError>,
     },
+    /// An argument is invalid for the requested operation.
+    ///
+    /// Contains a description of the invalid argument.
     #[error("{0}")]
     InvalidParameter(String),
+    /// The requested persistent TPM handle is already occupied.
+    ///
+    /// Contains the conflicting handle value.
     #[error("selected persistent handle is already in use")]
     PersistentHandleInUse(u32),
-    #[error("invalid data returned by TPM")]
-    InvalidData,
+    /// The TPM returned a malformed or unexpected response.
+    #[error("invalid response returned by TPM")]
+    InvalidResponse,
+    /// Stored metadata is malformed or inconsistent.
+    ///
+    /// Contains the underlying error when available.
     #[error("key store data is corrupted")]
     CorruptedStore(#[source] Option<BoxError>),
+    /// No stored key exists with the requested name.
     #[error("key not found")]
     KeyNotFound,
+    /// A stored key already uses the requested name.
+    ///
+    /// Contains the duplicate key name.
     #[error("key already exists: {0}")]
     KeyAlreadyExists(String),
+    /// A path for the local metadata store could not be determined.
     #[error("storage path is unavailable")]
     StorePathUnavailable,
+    /// A resource required by the operation is exhausted.
     #[error("{context}")]
     ResourceExhausted {
+        /// A description of the exhausted resource.
         context: &'static str,
+        /// The underlying error, when available.
         #[source]
         source: Option<BoxError>,
     },
+    /// A filesystem operation for the local metadata store failed.
     #[error("store I/O operation failed")]
     StoreIo(#[from] std::io::Error),
+    /// A database operation for the local metadata store failed.
     #[error("store operation failed")]
     Store(#[from] rusqlite::Error),
+    /// Provisioning was requested for a store that is already initialized.
     #[error("store is already provisioned")]
     AlreadyProvisioned,
+    /// The operation requires internal keys from a provisioned store.
     #[error("store is not provisioned")]
     NotProvisioned,
+    /// The requested operation or configuration is unsupported.
     #[error("{context}")]
     Unsupported {
+        /// A description of the unsupported operation or configuration.
         context: String,
+        /// The underlying error, when available.
         #[source]
         source: Option<BoxError>,
     },
+    /// An internal operation failed or an unexpected state was encountered.
+    ///
+    /// Additional details are emitted through `tracing` at the debug level.
     #[error("internal error")]
     Internal,
 }
@@ -97,6 +155,11 @@ impl Error {
 
     pub(crate) fn invalid_param(context: impl Into<String>) -> Self {
         Self::InvalidParameter(context.into())
+    }
+
+    pub(crate) fn invalid_response(source: impl Into<BoxError>) -> Self {
+        tracing::debug!(source = ?source.into());
+        Self::InvalidResponse
     }
 
     pub(crate) fn corrupted_store() -> Self {
@@ -175,6 +238,10 @@ impl Error {
         Self::internal(InternalError::InvalidState(context.into()))
     }
 
+    pub(crate) fn invalid_value(context: impl Into<String>) -> Self {
+        Self::internal(InternalError::InvalidValue(context.into()))
+    }
+
     pub(crate) fn encryption(source: impl Into<BoxError>) -> Self {
         Self::internal(InternalError::Encryption(source.into()))
     }
@@ -210,6 +277,8 @@ pub(crate) enum InternalError {
     RandomGeneration(#[from] rand::Error),
     #[error("{0}")]
     InvalidState(String),
+    #[error("{0}")]
+    InvalidValue(String),
     #[error("TPM responce code: {0:#010x}")]
     InvalidTpmCommand(u32),
     #[cfg(windows)]

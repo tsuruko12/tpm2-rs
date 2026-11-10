@@ -1,11 +1,9 @@
 macro_rules! unknown_tpm_data {
     ($value:expr, $what:literal) => {{
-        tracing::debug!(
-            value = ?$value,
-            concat!("unknown TPM ", $what)
-        );
-
-        Err($crate::Error::InvalidData)
+        Err($crate::Error::invalid_response(format!(
+            concat!("unknown TPM ", $what, ": {:?}"),
+            $value
+        )))
     }};
 }
 

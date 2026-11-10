@@ -4,7 +4,6 @@ use aes::{
 };
 use hmac::{Hmac, Mac, digest::Output};
 use sha2::{Digest, Sha256};
-use tracing::debug;
 use zeroize::Zeroizing;
 
 use super::super::TpmsAuthResponse;
@@ -68,10 +67,7 @@ pub(super) fn verify_response_hmac(
     mac.update(&[auth_response.session_attributes.bits()]);
 
     mac.verify_slice(auth_response.hmac.as_bytes())
-        .map_err(|e| {
-            debug!(err = ?e, "response HMAC verification failed");
-            Error::InvalidData
-        })
+        .map_err(|e| Error::invalid_response(format!("response HMAC verification failed: {e:?}")))
 }
 
 pub(super) fn encrypt_parameter(

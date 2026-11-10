@@ -25,7 +25,7 @@ impl Context {
     /// On Linux, this method attempts to connect to `/dev/tpmrm0` first,
     /// then falls back to `/dev/tpm0`.
     /// On Windows, it connects through TPM Base Services (TBS).
-    pub fn connect() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
             backend: BackendContext::create_context()?,
             store: MetadataStore::new()?,
@@ -43,7 +43,7 @@ impl Context {
     /// - `TCTI`
     /// - `TEST_TCTI`
     #[cfg(target_os = "linux")]
-    pub fn connect_from_env() -> Result<Self> {
+    pub fn from_env() -> Result<Self> {
         Ok(Self {
             backend: BackendContext::create_context_from_tcti_env()?,
             store: MetadataStore::new()?,
